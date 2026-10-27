@@ -18,11 +18,28 @@ npx github:MrManny/neo2-flightpath "my-flight.mp4"
 # from npm
 npx neo2-flightpath "my-flight.mp4"
 
-# a whole folder, topographic map, altitude + speed HUD
-npx neo2-flightpath "./recordings" --style topo --hud heading,alt,speed
+# topographic map, altitude + speed HUD
+npx neo2-flightpath "my-flight.mp4" --style topo --hud heading,alt,speed
 ```
 
 Output lands beside the source video as `<basename>_map.mp4` (configurable).
+
+### Example output
+
+All frames below are at **1:20** of the same recording, `DJI_20261010105301_0001_D.MP4`
+(Hohenwurz, 2026-10-10):
+
+![Source footage at 1:20: autumn meadows and forest above the Gurktal](docs/images/example-source-frame.jpg)
+
+*Source footage at 1:20 — the flight recording the examples below are rendered from.*
+
+![Default output at 1:20: satellite map with growing trail and heading arrow](docs/images/example-map-satellite.jpg)
+
+*Default settings (first two commands): satellite map, growing trail and heading arrow.*
+
+![Topographic output at 1:20 with heading, altitude and speed chips](docs/images/example-map-topo-hud.jpg)
+
+*`--style topo --hud heading,alt,speed` (third command): topographic map with heading, altitude and speed chips.*
 
 ## Requirements
 
