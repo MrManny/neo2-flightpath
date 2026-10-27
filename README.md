@@ -179,6 +179,35 @@ CI (GitHub Actions) runs lint, tests, build and `npm pack --dry-run` on Node 24
 and 26. Dependabot checks npm packages and Actions monthly. Dependency
 versions are pinned with `~` (patch updates only).
 
+## Releasing
+
+Releases are published to npm by GitHub Actions — never by hand:
+
+1. Bump `version` in `package.json`, commit and push to `main`.
+2. On GitHub, create a **release** whose tag matches the version
+   (`v0.2.0`; the leading `v` is optional). Prerelease releases are skipped.
+3. The [release workflow](.github/workflows/release.yml) verifies the tag
+   against `package.json`, runs lint, tests and build, then publishes to npm
+   with provenance. Verify on <https://www.npmjs.com/package/neo2-flightpath>.
+
+Publishing authentication (one-time setup, in this order):
+
+1. **Bootstrap** — the package does not exist on npm yet, and npm only allows
+   configuring trusted publishing for existing packages. Create a *granular
+   access token* on <https://www.npmjs.com/settings/> (read/write, packages:
+   `neo2-flightpath` only) and add it as the `NPM_TOKEN` **repository secret**
+   on GitHub (Settings → Secrets and variables → Actions).
+2. **Trusted publishing** — after the first release, open the package settings
+   on npmjs.com → *Trusted publisher* → GitHub Actions:
+   owner `MrManny`, repository `neo2-flightpath`, workflow filename
+   `release.yml`, and tick **"Allow npm publish"** (new configurations default
+   to stage-publish only).
+3. **Switch over** — delete the `NPM_TOKEN` secret on GitHub *before* the next
+   release (the workflow only uses OIDC while the secret is absent), then cut
+   that release **within 2 days** — npm validates a new trusted publisher with
+   its first publish and expires unvalidated configurations. Once that release
+   is green, revoke the granular token on npmjs.com.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
