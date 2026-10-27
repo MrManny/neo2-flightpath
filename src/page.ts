@@ -13,23 +13,15 @@
 // vignette strength; optional HUD chips share a glass look with the accent.
 
 import { TILE_SOURCES } from './tiles.js';
-import type { StyleName } from './tiles.js';
+import type { TileSource } from './tiles.js';
+import type { HudSpec, Style, Trail, View } from './config.js';
 import type { LatLon } from './geo.js';
-
-export type ViewName = 'follow' | 'overview';
-export type TrailMode = 'full' | 'incr';
-
-export interface HudSpec {
-  heading: boolean;
-  alt: boolean;
-  speed: boolean;
-}
 
 export interface PageOpts {
   width: number;
   height: number;
-  style: StyleName;
-  view: ViewName;
+  style: Style;
+  view: View;
   center: LatLon;
   zoom: number;
   attribution: string;
@@ -41,7 +33,7 @@ export interface PageOpts {
   hud: HudSpec;
   introN?: number;
   outroN?: number;
-  trail?: TrailMode;
+  trail?: Trail;
 }
 
 interface Theme {
@@ -55,7 +47,7 @@ interface Theme {
   vignette: number;
 }
 
-const THEMES: Record<StyleName, Theme> = {
+const THEMES: Record<Style, Theme> = {
   satellite: {
     core: '#41f0ff',
     glow: 'rgba(65,240,255,0.32)',
@@ -78,42 +70,14 @@ const THEMES: Record<StyleName, Theme> = {
   },
 };
 
-export function buildPageHtml(opts: PageOpts): string {
-  const {
-    width, height, style, view, center, zoom, attribution,
-    lat, lon, alt, speed, headingDeg, hud,
-    introN = 0, outroN = 0, trail = 'full',
-  } = opts;
-
-  const src = TILE_SOURCES[style];
-  const theme = THEMES[style];
-  const scale = Math.max(0.7, Math.min(2.2, Math.min(width, height) / 1024));
-  const data = {
-    style,
-    view: view === 'follow' ? 'follow' : 'overview',
-    width,
-    height,
-    zoom,
-    maxZoom: src.maxZoom || 19,
-    maxNativeZoom: src.maxNativeZoom || 0,
-    center: { lat: center.lat, lon: center.lon },
-    attribution,
-    theme,
-    introN,
-    outroN,
-    trail,
-    lat, lon, alt, speed, headingDeg,
-    hud,
-  };
-  const json = JSON.stringify(data).replace(/</g, '\\u003c');
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>flight map</title>
-<link rel="stylesheet" href="/leaflet/leaflet.css">
-<style>
+function pageCss(
+  src: TileSource,
+  theme: Theme,
+  width: number,
+  height: number,
+  scale: number,
+): string {
+  return `
   html, body { margin: 0; padding: 0; overflow: hidden; background: ${src.bg}; }
   * { animation: none !important; transition: none !important; }
   #map { position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px; }
@@ -188,22 +152,27 @@ export function buildPageHtml(opts: PageOpts): string {
     height: ${Math.max(4, Math.round(5 * scale))}px;
     border: 1px solid rgba(255,255,255,0.85); border-top: none;
     box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  }`;
+}
+
+function hudMarkup(hud: HudSpec): string {
+  const chips: string[] = [];
+  if (hud.alt) {
+    chips.push(
+      '<div class="chip" id="chip-alt"><span class="label">ALT</span><span class="num">--</span><span class="unit">m</span></div>',
+    );
   }
-</style>
-</head>
-<body>
-<div id="map"></div>
-<div id="vignette"></div>
-<div id="hud">
-  ${hud.alt ? '<div class="chip" id="chip-alt"><span class="label">ALT</span><span class="num">--</span><span class="unit">m</span></div>' : ''}
-  ${hud.speed ? '<div class="chip" id="chip-speed"><span class="label">SPD</span><span class="num">--</span><span class="unit">m/s</span></div>' : ''}
-</div>
-<div id="attr">${attribution}</div>
-<div id="scalebar"><span id="scaletext"></span><div id="scaleline"></div></div>
-<script src="/leaflet/leaflet.js"></script>
-<script>
-(function () {
-  var D = window.__DATA = ${json};
+  if (hud.speed) {
+    chips.push(
+      '<div class="chip" id="chip-speed"><span class="label">SPD</span><span class="num">--</span><span class="unit">m/s</span></div>',
+    );
+  }
+  return chips.map((chip) => `  ${chip}`).join('\n');
+}
+
+function pageScript(dataJson: string, scale: number): string {
+  return `(function () {
+  var D = window.__DATA = ${dataJson};
   var T = D.theme;
   var S = ${Math.round(scale * 1000) / 1000};
   var mapEl = document.getElementById('map');
@@ -400,7 +369,59 @@ export function buildPageHtml(opts: PageOpts): string {
   tiles.on('load', ready);
   tiles.on('tileerror', function () { /* placeholder tiles are fine */ });
   setTimeout(ready, 12000);
-})();
+})();`;
+}
+
+export function buildPageHtml(opts: PageOpts): string {
+  const {
+    width, height, style, view, center, zoom, attribution,
+    lat, lon, alt, speed, headingDeg, hud,
+    introN = 0, outroN = 0, trail = 'full',
+  } = opts;
+
+  const src = TILE_SOURCES[style];
+  const theme = THEMES[style];
+  const scale = Math.max(0.7, Math.min(2.2, Math.min(width, height) / 1024));
+  const data = {
+    style,
+    view,
+    width,
+    height,
+    zoom,
+    maxZoom: src.maxZoom || 19,
+    maxNativeZoom: src.maxNativeZoom || 0,
+    center: { lat: center.lat, lon: center.lon },
+    attribution,
+    theme,
+    introN,
+    outroN,
+    trail,
+    lat, lon, alt, speed, headingDeg,
+    hud,
+  };
+  // "</" must not appear verbatim: the JSON is inlined into a <script> tag.
+  const json = JSON.stringify(data).replace(/</g, '\\u003c');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>flight map</title>
+<link rel="stylesheet" href="/leaflet/leaflet.css">
+<style>${pageCss(src, theme, width, height, scale)}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="vignette"></div>
+<div id="hud">
+${hudMarkup(hud)}
+</div>
+<div id="attr">${attribution}</div>
+<div id="scalebar"><span id="scaletext"></span><div id="scaleline"></div></div>
+<script src="/leaflet/leaflet.js"></script>
+<script>
+${pageScript(json, scale)}
 </script>
 </body>
 </html>`;

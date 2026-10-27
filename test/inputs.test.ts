@@ -5,20 +5,9 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { collectRecordings } from '../src/inputs.js';
+import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
-const tmpDirs: string[] = [];
-
-function tmpDir(): string {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'neo2in-'));
-  tmpDirs.push(d);
-  return d;
-}
-
-afterEach(() => {
-  for (const d of tmpDirs.splice(0)) {
-    fs.rmSync(d, { recursive: true, force: true });
-  }
-});
+afterEach(cleanupTmpDirs);
 
 describe('collectRecordings', () => {
   it('collects .mp4 case-insensitively, non-recursively by default', () => {

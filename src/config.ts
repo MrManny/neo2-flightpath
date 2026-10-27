@@ -1,11 +1,13 @@
 // config.ts - defaults, optional .neo2flightpath.json, merge and validation.
 // Precedence: CLI flags > config file > built-in defaults. The config file is
 // discovered upward from the working directory unless --config names one.
+//
+// This module is the vocabulary home for the option types (Style, View,
+// Capture, Preset, Trail, HudSpec); feature modules import them from here.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-
-import { defaultTileCache } from './tiles.js';
 
 export type Style = 'satellite' | 'topo';
 export type View = 'follow' | 'overview';
@@ -48,6 +50,15 @@ export interface RenderConfig {
 export type ConfigOverrides = Partial<RenderConfig>;
 
 export const CONFIG_FILE_NAME = '.neo2flightpath.json';
+
+// Default tile cache: per-user cache directory (NEO2_FLIGHTPATH_TILE_CACHE
+// overrides it).
+export function defaultTileCache(): string {
+  const override = process.env['NEO2_FLIGHTPATH_TILE_CACHE'];
+  if (override) return path.resolve(override);
+  const base = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), '.cache');
+  return path.join(base, 'neo2-flightpath', 'tiles');
+}
 
 export const DEFAULT_CONFIG: RenderConfig = {
   outDir: 'out',
@@ -136,68 +147,48 @@ function asNullableString(value: unknown, name: string): string | null {
   return asString(value, name);
 }
 
+// One normalizer per config key: validation, conversion and the "known keys"
+// whitelist all live in this single table (previously three parallel lists).
+type OverrideNormalizer = (value: unknown, name: string) => ConfigOverrides;
+
+const OVERRIDE_NORMALIZERS: Record<keyof RenderConfig, OverrideNormalizer> = {
+  outDir: (v, name) => ({ outDir: asNullableString(v, name) }),
+  outSuffix: (v, name) => ({ outSuffix: asString(v, name) }),
+  width: (v, name) => ({ width: asNumber(v, name) }),
+  height: (v, name) => ({ height: asNumber(v, name) }),
+  style: (v, name) => ({ style: asEnum(v, name, STYLE_VALUES) }),
+  view: (v, name) => ({ view: asEnum(v, name, VIEW_VALUES) }),
+  zoom: (v, name) => ({ zoom: asNumber(v, name) }),
+  zoomOut: (v, name) => ({ zoomOut: asNumber(v, name) }),
+  introSec: (v, name) => ({ introSec: asNumber(v, name) }),
+  outroSec: (v, name) => ({ outroSec: asNumber(v, name) }),
+  hud: (v, name) => ({ hud: parseHud(asString(v, name)) }),
+  workers: (v, name) => ({ workers: asNumber(v, name) }),
+  capture: (v, name) => ({ capture: asEnum(v, name, CAPTURE_VALUES) }),
+  preset: (v, name) => ({ preset: asEnum(v, name, PRESET_VALUES) }),
+  trail: (v, name) => ({ trail: asEnum(v, name, TRAIL_VALUES) }),
+  tileCache: (v, name) => ({ tileCache: asString(v, name) }),
+  browser: (v, name) => ({ browser: asNullableString(v, name) }),
+  skipExisting: (v, name) => ({ skipExisting: asBool(v, name) }),
+  recurse: (v, name) => ({ recurse: asBool(v, name) }),
+  json: (v, name) => ({ json: asBool(v, name) }),
+  quiet: (v, name) => ({ quiet: asBool(v, name) }),
+};
+
 // Normalize one raw config object (config file or CLI values) into overrides.
 export function normalizeOverrides(
   raw: Record<string, unknown>,
   origin: string,
 ): ConfigOverrides {
   const out: ConfigOverrides = {};
-  const known = new Set([
-    'outDir', 'outSuffix', 'width', 'height', 'style', 'view', 'zoom',
-    'zoomOut', 'introSec', 'outroSec', 'hud', 'workers', 'capture', 'preset',
-    'trail', 'tileCache', 'browser', 'skipExisting', 'recurse', 'json', 'quiet',
-  ]);
   for (const key of Object.keys(raw)) {
-    if (!known.has(key)) throw new Error(`unknown config key ${key} in ${origin}`);
+    const normalize = Object.hasOwn(OVERRIDE_NORMALIZERS, key)
+      ? OVERRIDE_NORMALIZERS[key as keyof RenderConfig]
+      : null;
+    if (!normalize) throw new Error(`unknown config key ${key} in ${origin}`);
     const value = raw[key];
     if (value === undefined || value === null) continue;
-    switch (key) {
-      case 'outDir':
-        out.outDir = asNullableString(value, `${origin}: outDir`);
-        break;
-      case 'outSuffix':
-        out.outSuffix = asString(value, `${origin}: outSuffix`);
-        break;
-      case 'width':
-      case 'height':
-      case 'zoom':
-      case 'zoomOut':
-      case 'introSec':
-      case 'outroSec':
-      case 'workers':
-        out[key] = asNumber(value, `${origin}: ${key}`);
-        break;
-      case 'style':
-        out.style = asEnum(value, `${origin}: style`, STYLE_VALUES);
-        break;
-      case 'view':
-        out.view = asEnum(value, `${origin}: view`, VIEW_VALUES);
-        break;
-      case 'capture':
-        out.capture = asEnum(value, `${origin}: capture`, CAPTURE_VALUES);
-        break;
-      case 'preset':
-        out.preset = asEnum(value, `${origin}: preset`, PRESET_VALUES);
-        break;
-      case 'trail':
-        out.trail = asEnum(value, `${origin}: trail`, TRAIL_VALUES);
-        break;
-      case 'hud':
-        out.hud = parseHud(asString(value, `${origin}: hud`));
-        break;
-      case 'tileCache':
-        out.tileCache = asString(value, `${origin}: tileCache`);
-        break;
-      case 'browser':
-        out.browser = asNullableString(value, `${origin}: browser`);
-        break;
-      case 'skipExisting':
-      case 'recurse':
-      case 'json':
-      case 'quiet':
-        out[key] = asBool(value, `${origin}: ${key}`);
-        break;
-    }
+    Object.assign(out, normalize(value, `${origin}: ${key}`));
   }
   return out;
 }
@@ -243,6 +234,42 @@ export interface ResolvedConfig {
   configPath: string | null;
 }
 
+// Merge CLI overrides over the config file over the defaults.
+function mergeConfigLayers(
+  fileCfg: ConfigOverrides,
+  cli: ConfigOverrides,
+): RenderConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...fileCfg,
+    ...cli,
+    // hud is an object; Partial spread replaces it wholesale, which is what we want.
+    hud: cli.hud ?? fileCfg.hud ?? DEFAULT_CONFIG.hud,
+  };
+}
+
+// Validate ranges; the NaN-safe comparisons also reject NaN sneak-ins.
+function validateRenderConfig(config: RenderConfig): void {
+  if (!(config.width >= 64) || !(config.height >= 64)) {
+    throw new Error('width and height must be at least 64');
+  }
+  if (!Number.isInteger(config.workers) || config.workers < 1) {
+    throw new Error('workers must be a positive integer');
+  }
+  if (!(config.zoom >= 0)) throw new Error('zoom must be >= 0 (0 = auto-fit)');
+  if (!(config.zoomOut >= 0)) throw new Error('zoom-out must be >= 0');
+  if (!(config.introSec >= 0) || !(config.outroSec >= 0)) {
+    throw new Error('intro-sec and outro-sec must be >= 0');
+  }
+  if (!config.outSuffix) throw new Error('out-suffix must not be empty');
+}
+
+// Resolve relative paths against the working directory.
+function resolveConfigPaths(config: RenderConfig, cwd: string): void {
+  config.tileCache = path.resolve(cwd, config.tileCache);
+  if (config.outDir) config.outDir = path.resolve(cwd, config.outDir);
+}
+
 // Merge CLI overrides over the config file over the defaults; validate ranges.
 export function resolveConfig(opts: {
   cli?: ConfigOverrides;
@@ -255,28 +282,10 @@ export function resolveConfig(opts: {
       ? path.resolve(cwd, opts.configPath)
       : discoverConfigFile(cwd);
   const fileCfg = configPath ? loadConfigFile(configPath) : {};
-  const merged: RenderConfig = {
-    ...DEFAULT_CONFIG,
-    ...fileCfg,
-    ...(opts.cli ?? {}),
-    // hud is an object; Partial spread replaces it wholesale, which is what we want.
-    hud: opts.cli?.hud ?? fileCfg.hud ?? DEFAULT_CONFIG.hud,
-  };
+  const merged = mergeConfigLayers(fileCfg, opts.cli ?? {});
 
-  if (!(merged.width >= 64) || !(merged.height >= 64)) {
-    throw new Error('width and height must be at least 64');
-  }
-  if (!Number.isInteger(merged.workers) || merged.workers < 1) {
-    throw new Error('workers must be a positive integer');
-  }
-  if (!(merged.zoom >= 0)) throw new Error('zoom must be >= 0 (0 = auto-fit)');
-  if (!(merged.zoomOut >= 0)) throw new Error('zoom-out must be >= 0');
-  if (!(merged.introSec >= 0) || !(merged.outroSec >= 0)) {
-    throw new Error('intro-sec and outro-sec must be >= 0');
-  }
-  if (!merged.outSuffix) throw new Error('out-suffix must not be empty');
-  merged.tileCache = path.resolve(cwd, merged.tileCache);
-  if (merged.outDir) merged.outDir = path.resolve(cwd, merged.outDir);
+  validateRenderConfig(merged);
+  resolveConfigPaths(merged, cwd);
 
   return { config: merged, configPath };
 }

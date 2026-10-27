@@ -34,6 +34,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { ffprobeJson } from './ff.js';
+import {
+  firstDouble,
+  firstFloat,
+  firstVarint,
+  parseProtoFields,
+  subMessage,
+} from './proto.js';
+import type { ProtoFieldMap } from './proto.js';
+
 const execFileAsync = promisify(execFile);
 
 export interface ProductMeta {
@@ -55,24 +65,38 @@ export interface CamMetaResult {
   method: 'dvtm-packets' | 'cammeta-scan';
 }
 
-interface FieldItem {
-  wire: number;
-  num: number;
-  big?: bigint;
-  dbl?: number;
-  flt?: number;
-  bytes?: [number, number];
-}
-type FieldMap = Map<number, FieldItem[]>;
+// DVTM field numbers (see the module comment for the message layout).
+const FRAME_META = 3;
+const CAMERA = 2;
+const ABSOLUTE_ALTITUDE = 11;
+const DRONE = 4;
+const GPS_BASIC = 4;
+const POSITION_COORD = 1;
+const GPS_ALTITUDE_MM = 2;
+const RELATIVE_ALTITUDE = 5;
+const EULER_ANGLE = 3;
+const VALUE = 1;
+const PITCH = 1;
+const ROLL = 2;
+const YAW = 3;
+const LAT = 2;
+const LON = 3;
 
-async function ffprobeJson(
-  videoPath: string,
-  args: string[],
-): Promise<Record<string, unknown>> {
-  const r = await execFileAsync('ffprobe', ['-v', 'error', ...args, videoPath], {
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  return JSON.parse(r.stdout || '{}') as Record<string, unknown>;
+// Size of the 0x11/0x19 fixed64 GPS double pair scanned by the fallback.
+const GPS_PAIR_SPAN = 18;
+
+const FFMPEG_MAX_BUFFER = 64 * 1024 * 1024;
+
+function emptyProductMeta(): ProductMeta {
+  return {
+    lat: null,
+    lon: null,
+    relAlt: null,
+    absAlt: null,
+    yawDeg: null,
+    pitchDeg: null,
+    rollDeg: null,
+  };
 }
 
 // Find the data-stream index whose handler_name is 'CAM meta'.
@@ -80,9 +104,9 @@ async function ffprobeJson(
 export async function findCamMetaIndex(
   videoPath: string,
 ): Promise<number | null> {
-  let j: Record<string, unknown>;
+  let probe: Record<string, unknown>;
   try {
-    j = await ffprobeJson(videoPath, [
+    probe = await ffprobeJson(videoPath, [
       '-select_streams',
       'd',
       '-show_entries',
@@ -93,114 +117,14 @@ export async function findCamMetaIndex(
   } catch {
     return null;
   }
-  const streams = (j['streams'] ?? []) as Array<{
+  const streams = (probe['streams'] ?? []) as Array<{
     index: number;
     tags?: { handler_name?: string };
   }>;
-  for (const s of streams) {
-    if (s.tags && s.tags.handler_name === 'CAM meta') return s.index;
+  for (const stream of streams) {
+    if (stream.tags && stream.tags.handler_name === 'CAM meta') return stream.index;
   }
   return null;
-}
-
-// --- minimal protobuf wire reader -------------------------------------------
-
-interface Varint {
-  value: bigint;
-  next: number;
-}
-
-function readVarint(buf: Buffer, p: number, end: number): Varint | null {
-  let value = 0n;
-  let shift = 0n;
-  let i = p;
-  while (i < end && i - p < 10) {
-    const b = buf[i++];
-    value |= BigInt(b & 0x7f) << shift;
-    if ((b & 0x80) === 0) return { value, next: i };
-    shift += 7n;
-  }
-  return null;
-}
-
-function toSigned(value: bigint): number {
-  return Number(BigInt.asIntN(64, value));
-}
-
-// Parse one protobuf message level into Map<fieldNum, [items]>.
-function parseFields(buf: Buffer, start: number, end: number): FieldMap {
-  const out: FieldMap = new Map();
-  let p = start;
-  while (p < end) {
-    const key = readVarint(buf, p, end);
-    if (!key) break;
-    const num = Number(key.value >> 3n);
-    const wire = Number(key.value & 7n);
-    p = key.next;
-    if (wire === 0) {
-      const v = readVarint(buf, p, end);
-      if (!v) break;
-      p = v.next;
-      push(out, num, { wire, num, big: v.value });
-    } else if (wire === 1) {
-      if (p + 8 > end) break;
-      push(out, num, { wire, num, dbl: buf.readDoubleLE(p) });
-      p += 8;
-    } else if (wire === 2) {
-      const len = readVarint(buf, p, end);
-      if (!len) break;
-      p = len.next;
-      const n = Number(len.value);
-      if (p + n > end) break;
-      push(out, num, { wire, num, bytes: [p, p + n] });
-      p += n;
-    } else if (wire === 5) {
-      if (p + 4 > end) break;
-      push(out, num, { wire, num, flt: buf.readFloatLE(p) });
-      p += 4;
-    } else {
-      break; // groups / unknown wire types: stop this level
-    }
-  }
-  return out;
-}
-
-function push(map: FieldMap, num: number, item: FieldItem): void {
-  const arr = map.get(num);
-  if (arr) arr.push(item);
-  else map.set(num, [item]);
-}
-
-function subFields(
-  buf: Buffer,
-  fields: FieldMap,
-  num: number,
-): FieldMap | null {
-  const items = fields.get(num);
-  if (!items || items.length === 0 || !items[0].bytes) return null;
-  const [a, b] = items[0].bytes;
-  return parseFields(buf, a, b);
-}
-
-function varintOf(fields: FieldMap, num: number): number | null {
-  const items = fields.get(num);
-  return items && items[0] && items[0].big !== undefined
-    ? toSigned(items[0].big)
-    : null;
-}
-
-function floatOf(fields: FieldMap, num: number): number | null {
-  const items = fields.get(num);
-  return items && items[0] && items[0].flt !== undefined
-    ? items[0].flt
-    : null;
-}
-
-function doubleOf(fields: FieldMap, num: number): number | null {
-  const items = fields.get(num);
-  return items && items[0] && items[0].dbl !== undefined
-    ? items[0].dbl
-    : null;
 }
 
 // Decode one ProductMeta message.
@@ -209,63 +133,83 @@ export function decodeProductMeta(
   start = 0,
   end = buf.length,
 ): ProductMeta {
-  const out: ProductMeta = {
-    lat: null,
-    lon: null,
-    relAlt: null,
-    absAlt: null,
-    yawDeg: null,
-    pitchDeg: null,
-    rollDeg: null,
-  };
-  const top = parseFields(buf, start, end);
-  const fm = subFields(buf, top, 3);
-  if (!fm) return out;
+  const out = emptyProductMeta();
+  const top = parseProtoFields(buf, start, end);
+  const frameMeta = subMessage(buf, top, FRAME_META);
+  if (!frameMeta) return out;
 
-  // camera.11 AbsoluteAltitude { 1 float32 meters }
-  const cam = subFields(buf, fm, 2);
-  if (cam) {
-    const abs = subFields(buf, cam, 11);
-    if (abs) out.absAlt = floatOf(abs, 1);
-  }
+  out.absAlt = decodeAbsoluteAltitude(buf, frameMeta) ?? out.absAlt;
 
-  // drone block
-  const drone = subFields(buf, fm, 4);
+  const drone = subMessage(buf, frameMeta, DRONE);
   if (!drone) return out;
 
-  const gps = subFields(buf, drone, 4);
-  if (gps) {
-    const coord = subFields(buf, gps, 1);
-    if (coord) {
-      const lat = doubleOf(coord, 2);
-      const lon = doubleOf(coord, 3);
-      if (lat !== null && lon !== null && isPlausibleFix(lat, lon)) {
-        out.lat = lat;
-        out.lon = lon;
-      }
-    }
-    if (out.absAlt === null) {
-      const mm = varintOf(gps, 2);
-      if (mm !== null) out.absAlt = mm / 1000;
-    }
-  }
-
-  const rel = subFields(buf, drone, 5);
-  if (rel) {
-    const mm = floatOf(rel, 1);
-    if (mm !== null && Number.isFinite(mm)) out.relAlt = mm / 1000;
-  }
-
-  const euler = subFields(buf, drone, 3);
-  if (euler) {
-    const p = varintOf(euler, 1);
-    const r = varintOf(euler, 2);
-    const y = varintOf(euler, 3);
-    if (p !== null) out.pitchDeg = p / 10;
-    if (r !== null) out.rollDeg = r / 10;
-    if (y !== null) out.yawDeg = y / 10;
-  }
+  decodeGps(buf, drone, out);
+  out.relAlt = decodeRelativeAltitude(buf, drone) ?? out.relAlt;
+  decodeEulerAngles(buf, drone, out);
   return out;
+}
+
+// camera.11 AbsoluteAltitude { 1 float32 meters MSL }.
+function decodeAbsoluteAltitude(
+  buf: Buffer,
+  frameMeta: ProtoFieldMap,
+): number | null {
+  const camera = subMessage(buf, frameMeta, CAMERA);
+  const absoluteAltitude = camera && subMessage(buf, camera, ABSOLUTE_ALTITUDE);
+  return absoluteAltitude ? firstFloat(absoluteAltitude, VALUE) : null;
+}
+
+// drone.4 GpsBasic: WGS84 lat/lon doubles plus gps_altitude_mm (used as the
+// absolute-altitude fallback when camera.11 is missing).
+function decodeGps(
+  buf: Buffer,
+  drone: ProtoFieldMap,
+  out: ProductMeta,
+): void {
+  const gps = subMessage(buf, drone, GPS_BASIC);
+  if (!gps) return;
+
+  const coord = subMessage(buf, gps, POSITION_COORD);
+  if (coord) {
+    const lat = firstDouble(coord, LAT);
+    const lon = firstDouble(coord, LON);
+    if (lat !== null && lon !== null && isPlausibleFix(lat, lon)) {
+      out.lat = lat;
+      out.lon = lon;
+    }
+  }
+  if (out.absAlt === null) {
+    const altitudeMm = firstVarint(gps, GPS_ALTITUDE_MM);
+    if (altitudeMm !== null) out.absAlt = altitudeMm / 1000;
+  }
+}
+
+// drone.5 RelativeAltitude { 1 float32 millimeters above takeoff }.
+function decodeRelativeAltitude(
+  buf: Buffer,
+  drone: ProtoFieldMap,
+): number | null {
+  const relative = subMessage(buf, drone, RELATIVE_ALTITUDE);
+  const millimeters = relative ? firstFloat(relative, VALUE) : null;
+  return millimeters !== null && Number.isFinite(millimeters)
+    ? millimeters / 1000
+    : null;
+}
+
+// drone.3 EulerAngle { 1 pitch, 2 roll, 3 yaw } varint deci-degrees.
+function decodeEulerAngles(
+  buf: Buffer,
+  drone: ProtoFieldMap,
+  out: ProductMeta,
+): void {
+  const euler = subMessage(buf, drone, EULER_ANGLE);
+  if (!euler) return;
+  const pitch = firstVarint(euler, PITCH);
+  const roll = firstVarint(euler, ROLL);
+  const yaw = firstVarint(euler, YAW);
+  if (pitch !== null) out.pitchDeg = pitch / 10;
+  if (roll !== null) out.rollDeg = roll / 10;
+  if (yaw !== null) out.yawDeg = yaw / 10;
 }
 
 // Shared "real GPS fix" plausibility rule for the protobuf path and the
@@ -291,7 +235,7 @@ export function scanGpsPair(
   offset = 0,
   end = buf.length,
 ): { lat: number; lon: number; at: number } | null {
-  for (let i = offset; i <= end - 18; i++) {
+  for (let i = offset; i <= end - GPS_PAIR_SPAN; i++) {
     if (buf[i] === 0x11 && buf[i + 9] === 0x19) {
       const lat = buf.readDoubleLE(i + 1);
       const lon = buf.readDoubleLE(i + 10);
@@ -301,6 +245,124 @@ export function scanGpsPair(
     }
   }
   return null;
+}
+
+interface PacketInfo {
+  tSec: number;
+  size: number;
+}
+
+// Packet sizes + PTS of the CAM meta stream; null when ffprobe cannot list
+// them (the caller must then give up rather than guess alignments).
+async function listCamMetaPackets(
+  videoPath: string,
+  streamIndex: number,
+): Promise<PacketInfo[] | null> {
+  let probe: Record<string, unknown>;
+  try {
+    probe = await ffprobeJson(videoPath, [
+      // NOTE: bare stream index - `d:N` would mean the N-th *data* stream.
+      '-select_streams',
+      String(streamIndex),
+      '-show_entries',
+      'packet=pts_time,size',
+      '-of',
+      'json',
+    ]);
+  } catch {
+    return null;
+  }
+  return ((probe['packets'] ?? []) as Array<{
+    pts_time: string;
+    size: string;
+  }>).map((packet) => ({
+    tSec: Number.parseFloat(packet.pts_time),
+    size: Number.parseInt(packet.size, 10),
+  }));
+}
+
+// Dump the raw CAM meta stream payload via ffmpeg; null when extraction fails.
+async function dumpCamMetaStream(
+  videoPath: string,
+  streamIndex: number,
+): Promise<Buffer | null> {
+  const tmp = path.join(
+    os.tmpdir(),
+    `cammeta_${process.pid}_${Date.now().toString(36)}.bin`,
+  );
+  try {
+    await execFileAsync(
+      'ffmpeg',
+      [
+        '-v', 'error', '-y', '-i', videoPath,
+        '-map', `0:${streamIndex}`, '-c', 'copy', '-f', 'rawvideo', tmp,
+      ],
+      { maxBuffer: FFMPEG_MAX_BUFFER },
+    );
+    return fs.readFileSync(tmp);
+  } catch {
+    return null; // extraction failed
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}
+
+function toCamSample(meta: ProductMeta, tSec: number): CamSample {
+  return { tSec, ...meta };
+}
+
+// Primary path: walk the dump packet by packet so each ProductMeta message
+// aligns to its packet PTS. keepAll keeps frames without a GPS fix too.
+function decodePacketSamples(
+  buf: Buffer,
+  packets: PacketInfo[],
+  keepAll: boolean,
+): CamSample[] {
+  const samples: CamSample[] = [];
+  let offset = 0;
+  for (const packet of packets) {
+    const end = offset + packet.size;
+    let meta = decodeProductMeta(buf, offset, end);
+    if (meta.lat === null) {
+      const hit = scanGpsPair(buf, offset, end);
+      if (hit) meta = { ...meta, lat: hit.lat, lon: hit.lon };
+    }
+    if (meta.lat !== null || keepAll) {
+      // No PTS: pretend "same time as the first sample" rather than
+      // fabricating a timeline out of a sample count (unit mismatch).
+      const tSec = Number.isFinite(packet.tSec) ? packet.tSec : 0;
+      samples.push(toCamSample(meta, tSec));
+    }
+    offset = end;
+  }
+  return samples;
+}
+
+// Fallback path: scan the whole dump for GPS pairs (no frame alignment).
+function scanBufferForGpsPairs(buf: Buffer): CamSample[] {
+  const samples: CamSample[] = [];
+  for (let i = 0; i <= buf.length - GPS_PAIR_SPAN; i++) {
+    const hit = scanGpsPair(buf, i, i + GPS_PAIR_SPAN);
+    if (hit) {
+      const meta = emptyProductMeta();
+      meta.lat = hit.lat;
+      meta.lon = hit.lon;
+      samples.push(toCamSample(meta, 0));
+      i += GPS_PAIR_SPAN - 1;
+    }
+  }
+  return samples;
+}
+
+// Spread scan-found samples uniformly over the clip duration (best effort).
+function spreadSampleTimes(samples: CamSample[], durationSec: number): void {
+  const span =
+    Number.isFinite(durationSec) && durationSec > 0
+      ? durationSec
+      : samples.length;
+  samples.forEach((sample, k) => {
+    sample.tSec = (k / Math.max(1, samples.length - 1)) * span;
+  });
 }
 
 // Parse the whole 'CAM meta' stream of a video.
@@ -313,110 +375,28 @@ export async function parseCamMeta(
   opts: { keepAll?: boolean } = {},
 ): Promise<CamMetaResult | null> {
   const keepAll = opts.keepAll === true;
-  const idx = await findCamMetaIndex(videoPath);
-  if (idx === null) return null;
+  const streamIndex = await findCamMetaIndex(videoPath);
+  if (streamIndex === null) return null;
 
-  let pk: Record<string, unknown>;
-  try {
-    pk = await ffprobeJson(videoPath, [
-      // NOTE: bare stream index - `d:N` would mean the N-th *data* stream.
-      '-select_streams',
-      String(idx),
-      '-show_entries',
-      'packet=pts_time,size',
-      '-of',
-      'json',
-    ]);
-  } catch {
-    return null;
-  }
-  const packets = ((pk['packets'] ?? []) as Array<{
-    pts_time: string;
-    size: string;
-  }>).map((p) => ({
-    t: Number.parseFloat(p.pts_time),
-    size: Number.parseInt(p.size, 10),
-  }));
+  const packets = await listCamMetaPackets(videoPath, streamIndex);
+  if (packets === null) return null;
 
-  const tmp = path.join(
-    os.tmpdir(),
-    `cammeta_${process.pid}_${Date.now().toString(36)}.bin`,
-  );
-  let buf: Buffer | null = null;
-  try {
-    await execFileAsync(
-      'ffmpeg',
-      [
-        '-v', 'error', '-y', '-i', videoPath,
-        '-map', `0:${idx}`, '-c', 'copy', '-f', 'rawvideo', tmp,
-      ],
-      { maxBuffer: 64 * 1024 * 1024 },
-    );
-    buf = fs.readFileSync(tmp);
-  } catch {
-    // keep buf null: extraction failed
-  } finally {
-    fs.rmSync(tmp, { force: true });
-  }
+  const buf = await dumpCamMetaStream(videoPath, streamIndex);
   if (!buf || buf.length === 0) return null;
 
-  const samples: CamSample[] = [];
   const sizeSum = packets.reduce(
-    (a, p) => a + (Number.isFinite(p.size) ? p.size : 0),
+    (sum, packet) => sum + (Number.isFinite(packet.size) ? packet.size : 0),
     0,
   );
-
   if (packets.length > 0 && sizeSum === buf.length) {
-    // Preferred: per-packet protobuf walk -> exact PTS alignment.
-    let off = 0;
-    for (const p of packets) {
-      const end = off + p.size;
-      let meta = decodeProductMeta(buf, off, end);
-      if (meta.lat === null) {
-        const hit = scanGpsPair(buf, off, end);
-        if (hit) meta = { ...meta, lat: hit.lat, lon: hit.lon };
-      }
-      if (meta.lat !== null || keepAll) {
-        samples.push({
-          // No PTS: pretend "same time as the first sample" rather than
-          // fabricating a timeline out of a sample count (unit mismatch).
-          tSec: Number.isFinite(p.t) ? p.t : 0,
-          lat: meta.lat,
-          lon: meta.lon,
-          relAlt: meta.relAlt,
-          absAlt: meta.absAlt,
-          yawDeg: meta.yawDeg,
-          pitchDeg: meta.pitchDeg,
-          rollDeg: meta.rollDeg,
-        });
-      }
-      off = end;
-    }
-    return { samples, method: 'dvtm-packets' };
+    return {
+      samples: decodePacketSamples(buf, packets, keepAll),
+      method: 'dvtm-packets',
+    };
   }
 
-  // Fallback: whole-buffer GPS scan, uniform time spread over the duration.
-  for (let i = 0; i <= buf.length - 18; i++) {
-    const hit = scanGpsPair(buf, i, i + 18);
-    if (hit) {
-      samples.push({
-        tSec: 0,
-        lat: hit.lat,
-        lon: hit.lon,
-        relAlt: null,
-        absAlt: null,
-        yawDeg: null,
-        pitchDeg: null,
-        rollDeg: null,
-      });
-      i += 17;
-    }
-  }
+  const samples = scanBufferForGpsPairs(buf);
   if (samples.length === 0) return null;
-  const span =
-    Number.isFinite(durationSec) && durationSec > 0 ? durationSec : samples.length;
-  samples.forEach((s, k) => {
-    s.tSec = (k / Math.max(1, samples.length - 1)) * span;
-  });
+  spreadSampleTimes(samples, durationSec);
   return { samples, method: 'cammeta-scan' };
 }

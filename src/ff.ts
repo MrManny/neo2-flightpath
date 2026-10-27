@@ -33,6 +33,8 @@ const INSTALL_HINT =
   '"winget install Gyan.FFmpeg" (Windows), "brew install ffmpeg" (macOS) or ' +
   '"apt install ffmpeg" (Linux)';
 
+const FFPROBE_MAX_BUFFER = 64 * 1024 * 1024;
+
 export async function requireTools(): Promise<void> {
   for (const tool of ['ffmpeg', 'ffprobe']) {
     try {
@@ -43,45 +45,75 @@ export async function requireTools(): Promise<void> {
   }
 }
 
+// Run ffprobe with caller-supplied arguments and parse its JSON output.
+export async function ffprobeJson(
+  videoPath: string,
+  args: string[],
+): Promise<Record<string, unknown>> {
+  const { stdout } = await execFileAsync(
+    'ffprobe',
+    ['-v', 'error', ...args, videoPath],
+    { maxBuffer: FFPROBE_MAX_BUFFER },
+  );
+  return JSON.parse(stdout || '{}') as Record<string, unknown>;
+}
+
+// Parse an ffprobe rate string ("30", "30000/1001"); null when unusable.
+function parseFpsRate(str?: string): Fps | null {
+  if (!str || str === '0/0') return null;
+  const [num, den] = str.split('/').map(Number);
+  if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0 || num === 0) {
+    return null;
+  }
+  return {
+    num,
+    den,
+    value: num / den,
+    str: den === 1 ? String(num) : `${num}/${den}`,
+  };
+}
+
+function parseCount(text: string | undefined): number {
+  return Number.parseInt(text ?? '', 10);
+}
+
+// ffprobe result shapes we rely on.
+interface ProbeStream {
+  r_frame_rate?: string;
+  avg_frame_rate?: string;
+  nb_frames?: string;
+  width?: number;
+  height?: number;
+}
+
+interface ProbeFormat {
+  duration?: string;
+}
+
+function firstStream(j: Record<string, unknown>): ProbeStream {
+  return ((j['streams'] as ProbeStream[] | undefined) ?? [])[0] ?? {};
+}
+
 export async function probeVideo(
   videoPath: string,
   log: (msg: string) => void = () => {},
 ): Promise<VideoProbe> {
-  const { stdout } = await execFileAsync(
-    'ffprobe',
-    [
-      '-v', 'error',
-      '-select_streams', 'v:0',
-      '-show_entries',
-      'stream=r_frame_rate,avg_frame_rate,nb_frames,width,height:format=duration',
-      '-of', 'json', videoPath,
-    ],
-    { maxBuffer: 16 * 1024 * 1024 },
-  );
-  const j = JSON.parse(stdout || '{}') as {
-    streams?: Array<{
-      r_frame_rate?: string;
-      avg_frame_rate?: string;
-      nb_frames?: string;
-      width?: number;
-      height?: number;
-    }>;
-    format?: { duration?: string };
-  };
-  const s = j.streams?.[0] ?? {};
-  const fmt = j.format ?? {};
+  const j = await ffprobeJson(videoPath, [
+    '-select_streams', 'v:0',
+    '-show_entries',
+    'stream=r_frame_rate,avg_frame_rate,nb_frames,width,height:format=duration',
+    '-of', 'json',
+  ]);
+  const stream = firstStream(j);
+  const format = (j['format'] as ProbeFormat | undefined) ?? {};
 
-  const parseRate = (str?: string): Fps | null => {
-    if (!str || str === '0/0') return null;
-    const [n, d] = str.split('/').map(Number);
-    if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0 || n === 0) return null;
-    return { num: n, den: d, value: n / d, str: d === 1 ? String(n) : `${n}/${d}` };
-  };
-  const fps = parseRate(s.r_frame_rate) ?? parseRate(s.avg_frame_rate);
+  const fps =
+    parseFpsRate(stream.r_frame_rate) ??
+    parseFpsRate(stream.avg_frame_rate);
   if (!fps) throw new Error('could not determine the frame rate of the video');
 
-  const durationSec = Number.parseFloat(fmt.duration ?? '');
-  let frames = Number.parseInt(s.nb_frames ?? '', 10);
+  const durationSec = Number.parseFloat(format.duration ?? '');
+  let frames = parseCount(stream.nb_frames);
   if (!Number.isFinite(frames) || frames <= 0) {
     frames = Math.round(durationSec * fps.value);
     log('warning: nb_frames missing, using duration x fps');
@@ -98,8 +130,8 @@ export async function probeVideo(
     fps,
     frames,
     durationSec,
-    width: s.width ?? 0,
-    height: s.height ?? 0,
+    width: stream.width ?? 0,
+    height: stream.height ?? 0,
   };
 }
 
@@ -109,25 +141,19 @@ export async function verifyOutput(
   frames: number,
   fpsValue: number,
 ): Promise<VerifyResult> {
-  const { stdout } = await execFileAsync(
-    'ffprobe',
-    [
-      '-v', 'error', '-select_streams', 'v:0',
-      '-show_entries', 'stream=nb_frames,r_frame_rate',
-      '-of', 'json', outPath,
-    ],
-    { maxBuffer: 16 * 1024 * 1024 },
-  );
-  const j = JSON.parse(stdout || '{}') as {
-    streams?: Array<{ nb_frames?: string; r_frame_rate?: string }>;
-  };
-  const s = j.streams?.[0] ?? {};
-  const gotFrames = Number.parseInt(s.nb_frames ?? '', 10);
-  const [n, d] = String(s.r_frame_rate ?? '0/0').split('/').map(Number);
-  const gotValue = d ? n / d : n;
+  const j = await ffprobeJson(outPath, [
+    '-select_streams', 'v:0',
+    '-show_entries', 'stream=nb_frames,r_frame_rate',
+    '-of', 'json',
+  ]);
+  const stream = firstStream(j);
+  const gotFrames = parseCount(stream.nb_frames);
+  const gotRate = stream.r_frame_rate ?? '0/0';
+  const [num, den] = gotRate.split('/').map(Number);
+  const gotValue = den ? num / den : num;
   return {
     frames: gotFrames,
-    fps: s.r_frame_rate ?? null,
+    fps: stream.r_frame_rate ?? null,
     ok:
       gotFrames === frames &&
       Number.isFinite(gotValue) &&
@@ -154,9 +180,9 @@ export async function outputMatchesSource(
   out: string,
 ): Promise<boolean> {
   try {
-    const [sRate, sFrames] = (await probeRateFrames(src)).split(',');
-    const [oRate, oFrames] = (await probeRateFrames(out)).split(',');
-    return Number(oFrames) > 0 && sRate === oRate && sFrames === oFrames;
+    const [srcRate, srcFrames] = (await probeRateFrames(src)).split(',');
+    const [outRate, outFrames] = (await probeRateFrames(out)).split(',');
+    return Number(outFrames) > 0 && srcRate === outRate && srcFrames === outFrames;
   } catch {
     return false;
   }

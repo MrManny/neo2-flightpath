@@ -5,15 +5,13 @@
 // get a placeholder sibling so they are retried on the next run.
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 
 import { project } from './geo.js';
 import type { Bbox, Pixel } from './geo.js';
+import type { Style } from './config.js';
 import { VERSION } from './version.js';
-
-export type StyleName = 'satellite' | 'topo';
 
 export interface TileSource {
   cacheKey: string;
@@ -33,7 +31,7 @@ export interface TileCoord {
   y: number;
 }
 
-export const TILE_SOURCES: Record<StyleName, TileSource> = {
+export const TILE_SOURCES: Record<Style, TileSource> = {
   // Esri World Imagery (free for non-commercial use, attribution required).
   // Tiles are JPEG; the cache filename stays .png and browsers decode by
   // content, which is fine for Leaflet <img> tiles.
@@ -65,19 +63,6 @@ export const TILE_SOURCES: Record<StyleName, TileSource> = {
   },
 };
 
-export function isStyleName(value: string): value is StyleName {
-  return value === 'satellite' || value === 'topo';
-}
-
-// Default tile cache: per-user cache directory (NEO2_FLIGHTPATH_TILE_CACHE
-// overrides it).
-export function defaultTileCache(): string {
-  const override = process.env['NEO2_FLIGHTPATH_TILE_CACHE'];
-  if (override) return path.resolve(override);
-  const base = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), '.cache');
-  return path.join(base, 'neo2-flightpath', 'tiles');
-}
-
 export interface OverviewOptions {
   bbox: Bbox;
   width: number;
@@ -93,6 +78,77 @@ export interface Overview {
   centerPx: Pixel;
   zoom: number;
   tiles: TileCoord[];
+}
+
+const MIN_ZOOM = 2;
+const HOVER_ZOOM_FLOOR = 16;
+const MIN_TRACK_SPAN_PX = 80; // tiny/hovering tracks stay a useful close-up
+const TILE_SIZE_PX = 256;
+
+// Largest zoom level at which the track bbox still fits the available canvas.
+function fitZoomToTrack(
+  bbox: Bbox,
+  availW: number,
+  availH: number,
+  maxZoom: number,
+): number {
+  for (let zoom = maxZoom; zoom >= MIN_ZOOM; zoom--) {
+    const northWest = project(bbox.minLon, bbox.maxLat, zoom);
+    const southEast = project(bbox.maxLon, bbox.minLat, zoom);
+    const fits =
+      southEast.x - northWest.x <= availW &&
+      southEast.y - northWest.y <= availH;
+    if (fits) return zoom;
+  }
+  return MIN_ZOOM;
+}
+
+// Never zoom a tiny (hovering) track past a useful overview: pull back until
+// the track spans at least MIN_TRACK_SPAN_PX, never below the zoom floor.
+function pullBackTinyTracks(zoom: number, bbox: Bbox): number {
+  while (zoom > HOVER_ZOOM_FLOOR) {
+    const northWest = project(bbox.minLon, bbox.maxLat, zoom);
+    const southEast = project(bbox.maxLon, bbox.minLat, zoom);
+    const spansEnough =
+      southEast.x - northWest.x >= MIN_TRACK_SPAN_PX ||
+      southEast.y - northWest.y >= MIN_TRACK_SPAN_PX;
+    if (spansEnough) break;
+    zoom--;
+  }
+  return zoom;
+}
+
+// Tile coverage of the whole map element plus a one-tile margin. The map
+// element is 2x the frame (intro/outro zoom-out shows up to 2x the area) and
+// in follow mode it also slides across the track extent. With a native-zoom
+// limit the tiles live one or more levels below the view zoom.
+function tilesCovering(
+  centerPx: Pixel,
+  trackSpanPx: Pixel,
+  zoom: number,
+  width: number,
+  height: number,
+  follow: boolean,
+  maxNativeZoom: number | null,
+): TileCoord[] {
+  const tileZoom = maxNativeZoom
+    ? Math.min(zoom, maxNativeZoom)
+    : zoom;
+  const scale = 2 ** (tileZoom - zoom);
+  const halfW = (width + TILE_SIZE_PX + (follow ? trackSpanPx.x / 2 : 0)) * scale;
+  const halfH = (height + TILE_SIZE_PX + (follow ? trackSpanPx.y / 2 : 0)) * scale;
+
+  const maxTileIndex = 2 ** tileZoom - 1;
+  const xMin = Math.max(0, Math.floor((centerPx.x * scale - halfW) / TILE_SIZE_PX));
+  const xMax = Math.min(maxTileIndex, Math.floor((centerPx.x * scale + halfW) / TILE_SIZE_PX));
+  const yMin = Math.max(0, Math.floor((centerPx.y * scale - halfH) / TILE_SIZE_PX));
+  const yMax = Math.min(maxTileIndex, Math.floor((centerPx.y * scale + halfH) / TILE_SIZE_PX));
+
+  const tiles: TileCoord[] = [];
+  for (let x = xMin; x <= xMax; x++) {
+    for (let y = yMin; y <= yMax; y++) tiles.push({ z: tileZoom, x, y });
+  }
+  return tiles;
 }
 
 // Compute the overview view (whole track in frame) for a canvas of width x
@@ -118,82 +174,58 @@ export function computeOverview({
   let zoom: number;
   if (zoomOverride > 0) {
     // Fixed view zoom (configurable zoom level), independent of track size.
-    zoom = Math.max(2, Math.min(maxZoom, Math.round(zoomOverride)));
+    zoom = Math.max(MIN_ZOOM, Math.min(maxZoom, Math.round(zoomOverride)));
   } else {
-    zoom = 2;
-    for (let z = maxZoom; z >= 2; z--) {
-      const a = project(bbox.minLon, bbox.maxLat, z);
-      const b = project(bbox.maxLon, bbox.minLat, z);
-      if (b.x - a.x <= availW && b.y - a.y <= availH) {
-        zoom = z;
-        break;
-      }
-      zoom = z - 1;
-    }
-    zoom = Math.max(2, zoom);
-
-    // Tiny / hovering track: never zoom past a useful overview (>= ~80 px span,
-    // never closer than zoom 16).
-    while (zoom > 16) {
-      const a = project(bbox.minLon, bbox.maxLat, zoom);
-      const b = project(bbox.maxLon, bbox.minLat, zoom);
-      if (b.x - a.x >= 80 || b.y - a.y >= 80) break;
-      zoom--;
-    }
-
+    zoom = pullBackTinyTracks(
+      fitZoomToTrack(bbox, availW, availH, maxZoom),
+      bbox,
+    );
     // Pull back for context ("zoom out a little").
-    const out = Math.max(0, Math.floor(zoomOut));
-    zoom = Math.max(2, zoom - out);
+    zoom = Math.max(MIN_ZOOM, zoom - Math.max(0, Math.floor(zoomOut)));
   }
 
   // Degenerate (hovering) track: show a close-up around the single point.
-  const a = project(bbox.minLon, bbox.maxLat, zoom);
-  const b = project(bbox.maxLon, bbox.minLat, zoom);
-  const cx = (a.x + b.x) / 2;
-  const cy = (a.y + b.y) / 2;
+  const northWest = project(bbox.minLon, bbox.maxLat, zoom);
+  const southEast = project(bbox.maxLon, bbox.minLat, zoom);
+  const centerPx: Pixel = {
+    x: (northWest.x + southEast.x) / 2,
+    y: (northWest.y + southEast.y) / 2,
+  };
+  const trackSpanPx: Pixel = {
+    x: southEast.x - northWest.x,
+    y: southEast.y - northWest.y,
+  };
 
-  // Tile coverage of the whole map element plus a one-tile margin. The map
-  // element is 2x the frame (intro/outro zoom-out shows up to 2x the area) and
-  // in follow mode it also slides across the track extent. With a native-zoom
-  // limit the tiles live one or more levels below the view zoom.
-  const zt = maxNativeZoom ? Math.min(zoom, maxNativeZoom) : zoom;
-  const f = Math.pow(2, zt - zoom);
-  const halfW = (width + 256 + (follow ? (b.x - a.x) / 2 : 0)) * f;
-  const halfH = (height + 256 + (follow ? (b.y - a.y) / 2 : 0)) * f;
-  const tiles: TileCoord[] = [];
-  const maxTile = 2 ** zt - 1;
-  const x0 = Math.max(0, Math.floor((cx * f - halfW) / 256));
-  const x1 = Math.min(maxTile, Math.floor((cx * f + halfW) / 256));
-  const y0 = Math.max(0, Math.floor((cy * f - halfH) / 256));
-  const y1 = Math.min(maxTile, Math.floor((cy * f + halfH) / 256));
-  for (let x = x0; x <= x1; x++) {
-    for (let y = y0; y <= y1; y++) tiles.push({ z: zt, x, y });
-  }
-
-  return { centerPx: { x: cx, y: cy }, zoom, tiles };
+  return {
+    centerPx,
+    zoom,
+    tiles: tilesCovering(
+      centerPx, trackSpanPx, zoom, width, height, follow, maxNativeZoom,
+    ),
+  };
 }
 
 // --- tiny solid-color PNG writer (placeholder tiles / failed downloads) ----
 
 const CRC_TABLE = (() => {
-  const t = new Int32Array(256);
+  const table = new Int32Array(256);
   for (let n = 0; n < 256; n++) {
     let c = n;
     for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c;
+    table[n] = c;
   }
-  return t;
+  return table;
 })();
 
 function crc32(buf: Buffer): number {
-  let c = 0xffffffff;
+  let crc = 0xffffffff;
   for (let i = 0; i < buf.length; i++) {
-    c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+    crc = CRC_TABLE[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
   }
-  return (c ^ 0xffffffff) >>> 0;
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
-function chunk(type: string, data: Buffer): Buffer {
+function pngChunk(type: string, data: Buffer): Buffer {
   const len = Buffer.alloc(4);
   len.writeUInt32BE(data.length);
   const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
@@ -220,41 +252,86 @@ export function solidPng(hexColor: string, size = 256): Buffer {
   ihdr[9] = 2; // color type RGB
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk('IHDR', ihdr),
-    chunk('IDAT', zlib.deflateSync(raw)),
-    chunk('IEND', Buffer.alloc(0)),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
   ]);
 }
 
 const sleep = (ms: number): Promise<void> =>
-  new Promise((r) => setTimeout(r, ms));
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 const USER_AGENT = `neo2-flightpath/${VERSION} (flight-path map renderer; https://github.com/MrManny/neo2-flightpath)`;
 
-function tileCachePath(cacheDir: string, style: StyleName, t: TileCoord): string {
-  const key = TILE_SOURCES[style].cacheKey || style;
-  return path.join(cacheDir, key, String(t.z), String(t.x), `${t.y}.png`);
+const DOWNLOAD_ATTEMPTS = 2;
+const REQUEST_INTERVAL_MS = 400; // <= ~2.5 requests/s across both workers
+const RETRY_DELAY_MS = 500;
+const FETCH_TIMEOUT_MS = 20000;
+
+function cacheKeyFor(style: Style): string {
+  return TILE_SOURCES[style].cacheKey || style;
+}
+
+function tileCachePath(cacheDir: string, style: Style, tile: TileCoord): string {
+  return path.join(
+    cacheDir,
+    cacheKeyFor(style),
+    String(tile.z),
+    String(tile.x),
+    `${tile.y}.png`,
+  );
 }
 
 function tilePlaceholderPath(
   cacheDir: string,
-  style: StyleName,
-  t: TileCoord,
+  style: Style,
+  tile: TileCoord,
 ): string {
-  const key = TILE_SOURCES[style].cacheKey || style;
-  return path.join(cacheDir, key, String(t.z), String(t.x), `${t.y}.placeholder.png`);
+  return path.join(
+    cacheDir,
+    cacheKeyFor(style),
+    String(tile.z),
+    String(tile.x),
+    `${tile.y}.placeholder.png`,
+  );
 }
 
-function tileUrl(style: StyleName, t: TileCoord): string {
-  const src = TILE_SOURCES[style];
-  const s = src.subdomains.length
-    ? src.subdomains[(t.x + t.y) % src.subdomains.length]
+function tileUrl(style: Style, tile: TileCoord): string {
+  const source = TILE_SOURCES[style];
+  const subdomain = source.subdomains.length
+    ? source.subdomains[(tile.x + tile.y) % source.subdomains.length]
     : '';
-  return src.url
-    .replace('{s}', s)
-    .replace('{z}', String(t.z))
-    .replace('{x}', String(t.x))
-    .replace('{y}', String(t.y));
+  return source.url
+    .replace('{s}', subdomain)
+    .replace('{z}', String(tile.z))
+    .replace('{x}', String(tile.x))
+    .replace('{y}', String(tile.y));
+}
+
+// Download one tile into the cache; false when every attempt failed.
+async function downloadTile(url: string, cachePath: string): Promise<boolean> {
+  for (let attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': USER_AGENT },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (res.ok) {
+        fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+        fs.writeFileSync(cachePath, Buffer.from(await res.arrayBuffer()));
+        return true;
+      }
+    } catch {
+      await sleep(RETRY_DELAY_MS);
+    }
+  }
+  return false;
+}
+
+export interface PrefetchStats {
+  downloaded: number;
+  failed: number;
+  total: number;
 }
 
 // Download missing tiles into the cache (polite: 2 concurrent, ~2.5 req/s).
@@ -266,52 +343,38 @@ export async function prefetchTiles({
   cacheDir,
   log = () => {},
 }: {
-  style: StyleName;
+  style: Style;
   tiles: TileCoord[];
   cacheDir: string;
   log?: (msg: string) => void;
-}): Promise<{ downloaded: number; failed: number; total: number }> {
-  const placeholder = solidPng(TILE_SOURCES[style].placeholderBg);
-  const missing: Array<{ t: TileCoord; p: string }> = [];
-  for (const t of tiles) {
-    const p = tileCachePath(cacheDir, style, t);
-    if (!fs.existsSync(p)) missing.push({ t, p });
+}): Promise<PrefetchStats> {
+  const missing = tiles
+    .map((tile) => ({ tile, cachePath: tileCachePath(cacheDir, style, tile) }))
+    .filter(({ cachePath }) => !fs.existsSync(cachePath));
+  if (missing.length === 0) {
+    return { downloaded: 0, failed: 0, total: tiles.length };
   }
-  if (missing.length === 0) return { downloaded: 0, failed: 0, total: tiles.length };
   log(`tiles: ${tiles.length} needed, ${missing.length} to download (${style})`);
 
+  const placeholder = solidPng(TILE_SOURCES[style].placeholderBg);
   let downloaded = 0;
   let failed = 0;
   let cursor = 0;
 
   async function worker(): Promise<void> {
     while (cursor < missing.length) {
-      const { t, p } = missing[cursor++];
-      const url = tileUrl(style, t);
-      let ok = false;
-      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
-        try {
-          const res = await fetch(url, {
-            headers: { 'User-Agent': USER_AGENT },
-            signal: AbortSignal.timeout(20000),
-          });
-          if (res.ok) {
-            const buf = Buffer.from(await res.arrayBuffer());
-            fs.mkdirSync(path.dirname(p), { recursive: true });
-            fs.writeFileSync(p, buf);
-            ok = true;
-          }
-        } catch {
-          await sleep(500);
-        }
-      }
-      if (ok) downloaded++;
-      else {
+      const { tile, cachePath } = missing[cursor++];
+      if (await downloadTile(tileUrl(style, tile), cachePath)) {
+        downloaded++;
+      } else {
         failed++;
-        fs.mkdirSync(path.dirname(p), { recursive: true });
-        fs.writeFileSync(tilePlaceholderPath(cacheDir, style, t), placeholder);
+        fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+        fs.writeFileSync(
+          tilePlaceholderPath(cacheDir, style, tile),
+          placeholder,
+        );
       }
-      await sleep(400); // <= ~2.5 requests/s across both workers
+      await sleep(REQUEST_INTERVAL_MS);
     }
   }
 

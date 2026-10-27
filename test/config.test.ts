@@ -10,20 +10,9 @@ import {
   parseHud,
   resolveConfig,
 } from '../src/config.js';
+import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
-const tmpDirs: string[] = [];
-
-function tmpDir(): string {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'neo2cfg-'));
-  tmpDirs.push(d);
-  return d;
-}
-
-afterEach(() => {
-  for (const d of tmpDirs.splice(0)) {
-    fs.rmSync(d, { recursive: true, force: true });
-  }
-});
+afterEach(cleanupTmpDirs);
 
 describe('parseHud', () => {
   it('parses comma lists', () => {

@@ -134,20 +134,20 @@ export function buildProgram(): Command {
   return program;
 }
 
-export function parseCliArgs(argv: string[]): ParsedCli {
-  const program = buildProgram();
-  program.exitOverride();
-  program.parse(argv, { from: 'user' });
-  const opts = program.opts<RawOpts>();
+// Forward only options the user actually passed on the command line.
+// Commander's built-in defaults must never leak into the override layer:
+// resolveConfig would then let "CLI" always win over the config file and
+// silently break the documented "CLI flags > config file > defaults"
+// precedence.
+function givenOnCommandLine(
+  program: Command,
+  name: string,
+): boolean {
+  return program.getOptionValueSource(name) === 'cli';
+}
 
-  // Forward only options the user actually passed on the command line.
-  // Commander's built-in defaults must never leak into the override layer:
-  // resolveConfig would then let "CLI" always win over the config file and
-  // silently break the documented "CLI flags > config file > defaults"
-  // precedence.
-  const given = (name: string): boolean =>
-    program.getOptionValueSource(name) === 'cli';
-
+function collectOverrides(program: Command, opts: RawOpts): ConfigOverrides {
+  const given = (name: string): boolean => givenOnCommandLine(program, name);
   const cli: ConfigOverrides = {};
   if (given('outDir') && opts.outDir !== undefined) cli.outDir = opts.outDir;
   if (given('outSuffix')) cli.outSuffix = opts.outSuffix;
@@ -170,9 +170,18 @@ export function parseCliArgs(argv: string[]): ParsedCli {
   if (given('recurse')) cli.recurse = opts.recurse ?? false;
   if (given('json')) cli.json = opts.json ?? false;
   if (given('quiet')) cli.quiet = opts.quiet ?? false;
+  return cli;
+}
+
+export function parseCliArgs(argv: string[]): ParsedCli {
+  const program = buildProgram();
+  program.exitOverride();
+  program.parse(argv, { from: 'user' });
+  const opts = program.opts<RawOpts>();
+
   return {
     inputs: [...program.args],
-    cli,
+    cli: collectOverrides(program, opts),
     configPath: opts.config ?? null,
   };
 }
@@ -185,6 +194,14 @@ function isCommanderExit(e: unknown): e is { code: string; exitCode: number } {
     typeof (e as { code: unknown }).code === 'string' &&
     (e as { code: string }).code.startsWith('commander.')
   );
+}
+
+// --help / --version already printed and count as success; other commander
+// errors keep commander's exit code.
+function commanderExitCode(e: { code: string; exitCode: number }): number {
+  return e.code === 'commander.helpDisplayed' || e.code === 'commander.version'
+    ? 0
+    : e.exitCode;
 }
 
 export async function main(argv: string[] = process.argv): Promise<void> {
@@ -219,10 +236,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (result.failed > 0) process.exitCode = 1;
   } catch (e) {
     if (isCommanderExit(e)) {
-      // --help / --version already printed; other commander errors too.
-      process.exitCode = e.code === 'commander.helpDisplayed' || e.code === 'commander.version'
-        ? 0
-        : e.exitCode;
+      process.exitCode = commanderExitCode(e);
       return;
     }
     process.stderr.write(
