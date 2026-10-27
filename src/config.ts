@@ -50,7 +50,7 @@ export type ConfigOverrides = Partial<RenderConfig>;
 export const CONFIG_FILE_NAME = '.neo2flightpath.json';
 
 export const DEFAULT_CONFIG: RenderConfig = {
-  outDir: null,
+  outDir: 'out',
   outSuffix: '_map',
   width: 768,
   height: 768,

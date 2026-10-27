@@ -69,7 +69,8 @@ describe('parseCliArgs', () => {
     const { cli } = parseCliArgs(['clip.mp4']);
     const { config } = resolveConfig({ cli, configPath: null, cwd: os.tmpdir() });
     expect(config.tileCache).toBe(DEFAULT_CONFIG.tileCache);
-    expect(config.outDir).toBeNull();
+    // default outDir is 'out', resolved against the working directory
+    expect(config.outDir).toBe(path.resolve(os.tmpdir(), 'out'));
     expect(config.browser).toBeNull();
   });
 

@@ -5,6 +5,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# configuration, caches and renderings
+.neo2flightpath.json
+out/
+
 # test coverage
 coverage/
 
