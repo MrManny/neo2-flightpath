@@ -194,9 +194,15 @@ Publishing authentication (one-time setup, in this order):
 
 1. **Bootstrap** — the package does not exist on npm yet, and npm only allows
    configuring trusted publishing for existing packages. Create a *granular
-   access token* on <https://www.npmjs.com/settings/> (read/write, packages:
-   `neo2-flightpath` only) and add it as the `NPM_TOKEN` **repository secret**
-   on GitHub (Settings → Secrets and variables → Actions).
+   access token* on <https://www.npmjs.com/settings/>: permission
+   **"Read and write (publish and stage)"**, packages: `neo2-flightpath` only,
+   a short expiry (7 days is plenty) and tick **"Bypass two-factor
+   authentication"** — a workflow cannot answer an OTP prompt. npm shows a
+   security warning there; it is aimed at long-lived tokens, and this one
+   lives only through the first release. Add it as the `NPM_TOKEN`
+   **repository secret** on GitHub (Settings → Secrets and variables →
+   Actions), then **revoke the token on npmjs.com right after the first
+   release is green**.
 2. **Trusted publishing** — after the first release, open the package settings
    on npmjs.com → *Trusted publisher* → GitHub Actions:
    owner `MrManny`, repository `neo2-flightpath`, workflow filename
@@ -206,7 +212,7 @@ Publishing authentication (one-time setup, in this order):
    release (the workflow only uses OIDC while the secret is absent), then cut
    that release **within 2 days** — npm validates a new trusted publisher with
    its first publish and expires unvalidated configurations. Once that release
-   is green, revoke the granular token on npmjs.com.
+   is green, publishing is token-free.
 
 ## License
 
