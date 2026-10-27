@@ -201,8 +201,8 @@ Publishing authentication (one-time setup, in this order):
    security warning there; it is aimed at long-lived tokens, and this one
    lives only through the first release. Add it as the `NPM_TOKEN`
    **repository secret** on GitHub (Settings → Secrets and variables →
-   Actions), then **revoke the token on npmjs.com right after the first
-   release is green**.
+   Actions). Keep this token as your fallback until the trusted-publishing
+   release below is green, then revoke it.
 2. **Trusted publishing** — after the first release, open the package settings
    on npmjs.com → *Trusted publisher* → GitHub Actions:
    owner `MrManny`, repository `neo2-flightpath`, workflow filename
