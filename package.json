@@ -1,0 +1,60 @@
+{
+  "name": "neo2-flightpath",
+  "version": "0.1.0",
+  "description": "Render flight-path map overlay videos (exactly the source frame rate and frame count) from DJI drone recordings - telemetry from the .SRT sidecar or the embedded CAM-meta (DVTM) stream.",
+  "type": "module",
+  "bin": {
+    "neo2-flightpath": "bin/neo2-flightpath.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "dji",
+    "drone",
+    "telemetry",
+    "srt",
+    "cam-meta",
+    "dvtm",
+    "flight-path",
+    "map",
+    "video",
+    "ffmpeg",
+    "leaflet"
+  ],
+  "author": "Manuel Warum",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MrManny/neo2-flightpath.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MrManny/neo2-flightpath/issues"
+  },
+  "homepage": "https://github.com/MrManny/neo2-flightpath#readme",
+  "dependencies": {
+    "commander": "~15.0.0",
+    "leaflet": "~1.9.4",
+    "playwright-core": "~1.64.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "~10.0.1",
+    "@types/node": "~24.19.2",
+    "eslint": "~10.13.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "~8.72.1",
+    "vitest": "~5.0.5"
+  }
+}

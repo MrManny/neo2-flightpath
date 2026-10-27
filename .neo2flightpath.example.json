@@ -1,0 +1,23 @@
+{
+  "outDir": "out/flightmaps",
+  "outSuffix": "_map",
+  "width": 768,
+  "height": 768,
+  "style": "satellite",
+  "view": "follow",
+  "zoom": 0,
+  "zoomOut": 1,
+  "introSec": 2,
+  "outroSec": 2,
+  "hud": "heading,alt,speed",
+  "workers": 4,
+  "capture": "jpeg",
+  "preset": "medium",
+  "trail": "full",
+  "tileCache": "out/tilecache",
+  "browser": null,
+  "skipExisting": false,
+  "recurse": false,
+  "json": false,
+  "quiet": false
+}
