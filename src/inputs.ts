@@ -7,15 +7,17 @@ function isMp4(name: string): boolean {
   return name.toLowerCase().endsWith('.mp4');
 }
 
-function listMp4(dir: string, recurse: boolean, out: string[]): void {
+function listMp4(dir: string, recurse: boolean): string[] {
+  const found: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (recurse) listMp4(full, recurse, out);
+      if (recurse) found.push(...listMp4(full, recurse));
     } else if (entry.isFile() && isMp4(entry.name)) {
-      out.push(full);
+      found.push(full);
     }
   }
+  return found;
 }
 
 // Collect recordings from the given inputs: .mp4 files are taken as-is,
@@ -31,7 +33,7 @@ export function collectRecordings(
     if (!fs.existsSync(full)) throw new Error(`input not found: ${item}`);
     const st = fs.statSync(full);
     if (st.isDirectory()) {
-      listMp4(full, opts.recurse, files);
+      files.push(...listMp4(full, opts.recurse));
     } else if (isMp4(full)) {
       files.push(full);
     } else {

@@ -1,5 +1,25 @@
 // Shared test fixtures.
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+// Temporary directories created via tmpDir(), removed by cleanupTmpDirs()
+// (call it from afterEach).
+const tmpDirs: string[] = [];
+
+export function tmpDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'neo2-test-'));
+  tmpDirs.push(dir);
+  return dir;
+}
+
+export function cleanupTmpDirs(): void {
+  for (const dir of tmpDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // Three cues: two with GPS fixes, one with no GPS lock (0/0) in between.
 // Cue 1 includes extra exposure fields like real Neo 2 sidecars.
 export const SRT_SAMPLE = `1

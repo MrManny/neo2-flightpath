@@ -6,20 +6,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { parseCliArgs } from '../src/cli.js';
 import { DEFAULT_CONFIG, resolveConfig } from '../src/config.js';
+import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
-const tmpDirs: string[] = [];
-
-function tmpDir(): string {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'neo2cli-'));
-  tmpDirs.push(d);
-  return d;
-}
-
-afterEach(() => {
-  for (const d of tmpDirs.splice(0)) {
-    fs.rmSync(d, { recursive: true, force: true });
-  }
-});
+afterEach(cleanupTmpDirs);
 
 describe('parseCliArgs', () => {
   it('forwards only the flags actually set (bare invocation adds nothing)', () => {

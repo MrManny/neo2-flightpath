@@ -29,65 +29,81 @@ const RX_LATLON =
   /\[latitude:\s*(-?\d+\.?\d*)\]\s*\[longitude:\s*(-?\d+\.?\d*)\]/;
 const RX_ALT = /\[rel_alt:\s*(-?\d+\.?\d*)\s+abs_alt:\s*(-?\d+\.?\d*)\]/;
 
-function num(s: string): number | null {
-  const v = Number.parseFloat(s);
-  return Number.isFinite(v) ? v : null;
+function parseNumber(text: string): number | null {
+  const value = Number.parseFloat(text);
+  return Number.isFinite(value) ? value : null;
+}
+
+function stripFontTags(line: string): string {
+  return line.replace(/<[^>]*>/g, '').trim();
+}
+
+// A timing-line match ("HH:MM:SS,mmm --> ...") -> milliseconds on its clock.
+function timingLineToMs(match: RegExpExecArray): number {
+  return (
+    Number(match[1]) * 3600000 +
+    Number(match[2]) * 60000 +
+    Number(match[3]) * 1000 +
+    Number(match[4])
+  );
+}
+
+function newCue(tSec: number): SrtCue {
+  return {
+    tSec,
+    wallMs: null,
+    lat: null,
+    lon: null,
+    relAlt: null,
+    absAlt: null,
+  };
 }
 
 export function parseSrtText(text: string): SrtParseResult {
   const cues: SrtCue[] = [];
   let noLock = 0;
   let baseMs: number | null = null;
-  // Cues that already saw a latitude/longitude line: a second (repeated) line
-  // in one cue must not count as another no-lock event.
-  const sawLatLon = new Set<SrtCue>();
+  // A second (repeated) lat/lon line in one cue must not count as another
+  // no-lock event - only the current cue can receive lines, so one flag is
+  // enough to remember whether it already saw one.
+  let cueSawLatLon = false;
 
   for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.replace(/<[^>]*>/g, '').trim();
+    const line = stripFontTags(rawLine);
     if (!line) continue;
 
-    const t = RX_TIMING.exec(line);
-    if (t) {
-      const ms =
-        Number(t[1]) * 3600000 +
-        Number(t[2]) * 60000 +
-        Number(t[3]) * 1000 +
-        Number(t[4]);
+    const timing = RX_TIMING.exec(line);
+    if (timing) {
+      const ms = timingLineToMs(timing);
       if (baseMs === null) baseMs = ms;
       // A timing line always starts a new cue.
-      cues.push({
-        tSec: (ms - baseMs) / 1000,
-        wallMs: null,
-        lat: null,
-        lon: null,
-        relAlt: null,
-        absAlt: null,
-      });
+      cues.push(newCue((ms - baseMs) / 1000));
+      cueSawLatLon = false;
       continue;
     }
 
     if (cues.length === 0) continue;
     const cue = cues[cues.length - 1];
 
-    const w = RX_WALL.exec(line);
-    if (w && cue.wallMs === null) {
+    const wall = RX_WALL.exec(line);
+    if (wall && cue.wallMs === null) {
       cue.wallMs = Date.UTC(
-        Number(w[1]),
-        Number(w[2]) - 1,
-        Number(w[3]),
-        Number(w[4]),
-        Number(w[5]),
-        Number(w[6]),
-        Number(w[7]),
+        Number(wall[1]),
+        Number(wall[2]) - 1,
+        Number(wall[3]),
+        Number(wall[4]),
+        Number(wall[5]),
+        Number(wall[6]),
+        Number(wall[7]),
       );
       continue;
     }
 
-    const g = RX_LATLON.exec(line);
-    if (g && cue.lat === null && !sawLatLon.has(cue)) {
-      sawLatLon.add(cue);
-      const lat = num(g[1]);
-      const lon = num(g[2]);
+    const latLon = RX_LATLON.exec(line);
+    if (latLon && cue.lat === null && !cueSawLatLon) {
+      cueSawLatLon = true;
+      const lat = parseNumber(latLon[1]);
+      const lon = parseNumber(latLon[2]);
       if (lat !== null && lon !== null && !(lat === 0 && lon === 0)) {
         cue.lat = lat;
         cue.lon = lon;
@@ -96,10 +112,10 @@ export function parseSrtText(text: string): SrtParseResult {
       }
     }
 
-    const a = RX_ALT.exec(line);
-    if (a && cue.relAlt === null) {
-      cue.relAlt = num(a[1]);
-      cue.absAlt = num(a[2]);
+    const alt = RX_ALT.exec(line);
+    if (alt && cue.relAlt === null) {
+      cue.relAlt = parseNumber(alt[1]);
+      cue.absAlt = parseNumber(alt[2]);
     }
   }
 

@@ -1,25 +1,12 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { loadTelemetry } from '../src/telemetry.js';
-import { SRT_SAMPLE } from './fixtures.js';
+import { SRT_SAMPLE, cleanupTmpDirs, tmpDir } from './fixtures.js';
 
-const tmpDirs: string[] = [];
-
-function tmpDir(): string {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'neo2tel-'));
-  tmpDirs.push(d);
-  return d;
-}
-
-afterEach(() => {
-  for (const d of tmpDirs.splice(0)) {
-    fs.rmSync(d, { recursive: true, force: true });
-  }
-});
+afterEach(cleanupTmpDirs);
 
 describe('loadTelemetry (SRT source)', () => {
   it('builds per-frame values from the sidecar', async () => {

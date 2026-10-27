@@ -9,12 +9,12 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import type { Writable } from 'node:stream';
 
 import type { Browser } from 'playwright-core';
 
 import { TILE_SOURCES } from './tiles.js';
-import type { StyleName } from './tiles.js';
-import type { Capture, Preset } from './config.js';
+import type { Capture, Preset, Style } from './config.js';
 
 const require_ = createRequire(import.meta.url);
 const LEAFLET_DIR = path.dirname(require_.resolve('leaflet/dist/leaflet.js'));
@@ -25,6 +25,9 @@ const MIME: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.png': 'image/png',
 };
+
+const PAGE_LOAD_TIMEOUT_MS = 60000;
+const SCREENSHOT_TIMEOUT_MS = 60000;
 
 export interface ServerHandle {
   server: http.Server;
@@ -38,7 +41,7 @@ export function startServer({
   tileCache,
 }: {
   html: string;
-  style: StyleName;
+  style: Style;
   tileCache: string;
 }): Promise<ServerHandle> {
   const server = http.createServer((req, res) => {
@@ -66,7 +69,7 @@ export function startServer({
       }
     } else if (url.startsWith('/tiles/')) {
       const m = /^\/tiles\/([a-z0-9_-]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(url);
-      const src = m ? TILE_SOURCES[m[1] as StyleName] : null;
+      const src = m ? TILE_SOURCES[m[1] as Style] : null;
       if (m && src && m[1] === style) {
         const key = src.cacheKey || m[1];
         file = path.join(tileCache, key, m[2], m[3], `${m[4]}.png`);
@@ -128,9 +131,110 @@ async function launchBrowser(
   );
 }
 
+// --- ffmpeg encoder ---------------------------------------------------------
+
+interface Encoder {
+  stdin: Writable;
+  /** Resolves once writes must stop: the encoder died or its stdin broke. */
+  stopped: Promise<string>;
+  /** Resolves with the exit code once the encoder process is gone. */
+  closed: Promise<number | null>;
+  stderrText(): string;
+  kill(): void;
+}
+
+function spawnEncoder(fpsStr: string, preset: Preset, outPath: string): Encoder {
+  const ffmpeg = spawn('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'image2pipe', '-framerate', fpsStr, '-i', '-',
+    '-c:v', 'libx264', '-preset', preset, '-crf', '18',
+    '-pix_fmt', 'yuv420p', '-r', fpsStr,
+    '-movflags', '+faststart', outPath,
+  ], { stdio: ['pipe', 'ignore', 'pipe'] });
+
+  let stderr = '';
+  ffmpeg.stderr?.on('data', (d: Buffer) => {
+    stderr += d.toString();
+  });
+
+  // ffmpeg's stdin must never surface an unhandled 'error' (EPIPE when the
+  // encoder exits early), and a worker parked on 'drain' must wake up when it
+  // dies instead of waiting forever. `closed` also resolves for late waits.
+  const closed = new Promise<number | null>((resolve) => {
+    ffmpeg.once('close', (code) => resolve(code));
+  });
+  const stopped = new Promise<string>((resolve) => {
+    ffmpeg.stdin.on('error', (e: Error) => resolve(`ffmpeg stdin error: ${e.message}`));
+    void closed.then((code) => resolve(`ffmpeg exited with code ${code}`));
+  });
+
+  return {
+    stdin: ffmpeg.stdin,
+    stopped,
+    closed,
+    stderrText: () => stderr,
+    kill: () => ffmpeg.kill(),
+  };
+}
+
+// --- in-order frame streaming ----------------------------------------------
+
+// Buffers out-of-order captures and writes them to the encoder strictly in
+// frame order, backpressure-aware.
+class OrderedFrameStream {
+  private readonly pending = new Map<number, Buffer>();
+  private nextIndex = 0;
+
+  constructor(private readonly encoder: Encoder) {}
+
+  async submit(index: number, frame: Buffer): Promise<void> {
+    this.pending.set(index, frame);
+    await this.flushReady();
+  }
+
+  async flushReady(): Promise<void> {
+    while (this.pending.has(this.nextIndex)) {
+      const frame = this.pending.get(this.nextIndex) as Buffer;
+      this.pending.delete(this.nextIndex);
+      if (!this.encoder.stdin.write(frame)) {
+        const woke = await Promise.race([
+          once(this.encoder.stdin, 'drain').then(() => 'drain' as const),
+          this.encoder.stopped,
+        ]);
+        if (woke !== 'drain') {
+          const stderr = this.encoder.stderrText().trim();
+          throw new Error(`${woke}${stderr ? `: ${stderr}` : ''}`);
+        }
+      }
+      this.nextIndex++;
+    }
+  }
+
+  end(): void {
+    this.encoder.stdin.end();
+  }
+}
+
+// --- frame capture ---------------------------------------------------------
+
+function screenshotOptions(capture: Capture) {
+  return capture === 'jpeg'
+    ? {
+        type: 'jpeg' as const,
+        quality: 95,
+        animations: 'disabled' as const,
+        timeout: SCREENSHOT_TIMEOUT_MS,
+      }
+    : {
+        type: 'png' as const,
+        animations: 'disabled' as const,
+        timeout: SCREENSHOT_TIMEOUT_MS,
+      };
+}
+
 export interface RenderOpts {
   html: string;
-  style: StyleName;
+  style: Style;
   tileCache: string;
   width: number;
   height: number;
@@ -150,6 +254,13 @@ export interface RenderProfile {
   emitMs: number;
 }
 
+// Coarse stage timing summed over all workers (time awaiting each stage).
+interface StageTiming {
+  evalMs: number;
+  captureMs: number;
+  emitMs: number;
+}
+
 // Render `frames` output frames at `fps` to outPath. Every output frame gets
 // its own capture (held frames judder whenever the map moves, so there is no
 // frame-step option), streamed to ffmpeg in exact frame order.
@@ -164,54 +275,12 @@ export async function renderVideo(
 
   const { server, url } = await startServer({ html, style, tileCache });
   const browser = await launchBrowser(log, browserPath);
+  const encoder = spawnEncoder(fpsStr, preset, outPath);
+  const stream = new OrderedFrameStream(encoder);
 
-  const ffmpeg = spawn('ffmpeg', [
-    '-hide_banner', '-loglevel', 'error', '-y',
-    '-f', 'image2pipe', '-framerate', fpsStr, '-i', '-',
-    '-c:v', 'libx264', '-preset', preset, '-crf', '18',
-    '-pix_fmt', 'yuv420p', '-r', fpsStr,
-    '-movflags', '+faststart', outPath,
-  ], { stdio: ['pipe', 'ignore', 'pipe'] });
-
-  let ffmpegErr = '';
-  ffmpeg.stderr?.on('data', (d: Buffer) => {
-    ffmpegErr += d.toString();
-  });
-
-  // ffmpeg's stdin must never surface an unhandled 'error' (EPIPE when the
-  // encoder exits early), and a worker parked on 'drain' must wake up when it
-  // dies instead of waiting forever. `closed` also resolves for late waits.
-  const closed = new Promise<number | null>((resolve) => {
-    ffmpeg.once('close', (code) => resolve(code));
-  });
-  const gone = new Promise<string>((resolve) => {
-    ffmpeg.stdin.on('error', (e: Error) => resolve(`ffmpeg stdin error: ${e.message}`));
-    void closed.then((code) => resolve(`ffmpeg exited with code ${code}`));
-  });
-
-  const results = new Map<number, Buffer>(); // captureIdx -> frame buffer
-  let nextEmit = 0;
   let captureCursor = 0;
   let capturesDone = 0;
-  // Coarse stage timing summed over all workers (time awaiting each stage).
-  const prof = { evalMs: 0, shotMs: 0, emitMs: 0 };
-
-  async function tryEmit(): Promise<void> {
-    while (results.has(nextEmit)) {
-      const buf = results.get(nextEmit) as Buffer;
-      results.delete(nextEmit);
-      if (!ffmpeg.stdin.write(buf)) {
-        const woke = await Promise.race([
-          once(ffmpeg.stdin, 'drain').then(() => 'drain' as const),
-          gone,
-        ]);
-        if (woke !== 'drain') {
-          throw new Error(`${woke}${ffmpegErr.trim() ? `: ${ffmpegErr.trim()}` : ''}`);
-        }
-      }
-      nextEmit++;
-    }
-  }
+  const timing: StageTiming = { evalMs: 0, captureMs: 0, emitMs: 0 };
 
   async function worker(workerId: number): Promise<void> {
     const page = await browser.newPage({
@@ -219,8 +288,8 @@ export async function renderVideo(
       deviceScaleFactor: 1,
     });
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      await page.waitForFunction('window.__READY === true', null, { timeout: 60000 });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
+      await page.waitForFunction('window.__READY === true', null, { timeout: PAGE_LOAD_TIMEOUT_MS });
       for (;;) {
         const idx = captureCursor++;
         if (idx >= frames) break;
@@ -228,27 +297,14 @@ export async function renderVideo(
         await page.evaluate((i: number) => {
           (globalThis as unknown as { __setFrame: (n: number) => void }).__setFrame(i);
         }, idx);
-        prof.evalMs += Date.now() - t0;
+        timing.evalMs += Date.now() - t0;
         t0 = Date.now();
-        const buf =
-          capture === 'jpeg'
-            ? await page.screenshot({
-                type: 'jpeg',
-                quality: 95,
-                animations: 'disabled',
-                timeout: 60000,
-              })
-            : await page.screenshot({
-                type: 'png',
-                animations: 'disabled',
-                timeout: 60000,
-              });
-        prof.shotMs += Date.now() - t0;
-        results.set(idx, buf);
+        const buf = await page.screenshot(screenshotOptions(capture));
+        timing.captureMs += Date.now() - t0;
         capturesDone++;
         t0 = Date.now();
-        await tryEmit();
-        prof.emitMs += Date.now() - t0;
+        await stream.submit(idx, buf);
+        timing.emitMs += Date.now() - t0;
         if (capturesDone % 100 === 0 || capturesDone === frames) {
           log(`frames: ${capturesDone}/${frames} captured`);
         }
@@ -260,22 +316,22 @@ export async function renderVideo(
   }
 
   try {
-    const n = Math.max(1, Math.min(workers, frames));
-    await Promise.all(Array.from({ length: n }, (_, i) => worker(i + 1)));
-    await tryEmit();
-    ffmpeg.stdin.end();
+    const workerCount = Math.max(1, Math.min(workers, frames));
+    await Promise.all(Array.from({ length: workerCount }, (_, i) => worker(i + 1)));
+    await stream.flushReady();
+    stream.end();
     // `closed` (not `once(ffmpeg, 'close')`): ffmpeg may already have exited.
-    const code = await closed;
+    const code = await encoder.closed;
     if (code !== 0) {
-      throw new Error(`ffmpeg exited with code ${code}: ${ffmpegErr.trim()}`);
+      throw new Error(`ffmpeg exited with code ${code}: ${encoder.stderrText().trim()}`);
     }
     log(`encoded: ${outPath}`);
     log(
-      `profile: eval=${(prof.evalMs / 1000).toFixed(1)}s capture=${(prof.shotMs / 1000).toFixed(1)}s ` +
-        `encode-backpressure=${(prof.emitMs / 1000).toFixed(1)}s (summed over ${n} workers)`,
+      `profile: eval=${(timing.evalMs / 1000).toFixed(1)}s capture=${(timing.captureMs / 1000).toFixed(1)}s ` +
+        `encode-backpressure=${(timing.emitMs / 1000).toFixed(1)}s (summed over ${workerCount} workers)`,
     );
   } catch (e) {
-    ffmpeg.kill();
+    encoder.kill();
     throw e;
   } finally {
     await browser.close().catch(() => {});
@@ -283,9 +339,9 @@ export async function renderVideo(
   }
   return {
     profile: {
-      evalMs: Math.round(prof.evalMs),
-      captureMs: Math.round(prof.shotMs),
-      emitMs: Math.round(prof.emitMs),
+      evalMs: Math.round(timing.evalMs),
+      captureMs: Math.round(timing.captureMs),
+      emitMs: Math.round(timing.emitMs),
     },
   };
 }

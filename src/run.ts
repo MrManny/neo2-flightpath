@@ -6,8 +6,11 @@ import path from 'node:path';
 import { unproject } from './geo.js';
 import type { Bbox } from './geo.js';
 import { outputMatchesSource, probeVideo, verifyOutput } from './ff.js';
+import type { VideoProbe } from './ff.js';
 import { loadTelemetry } from './telemetry.js';
+import type { Telemetry } from './telemetry.js';
 import { TILE_SOURCES, computeOverview, prefetchTiles } from './tiles.js';
+import type { Overview, PrefetchStats } from './tiles.js';
 import { buildPageHtml } from './page.js';
 import { renderVideo } from './render.js';
 import type { HudSpec, RenderConfig } from './config.js';
@@ -41,6 +44,12 @@ export interface RecordingSummary {
   verified?: boolean;
   elapsedSec: number;
   error?: string;
+}
+
+export interface BatchResult {
+  ok: number;
+  skipped: number;
+  failed: number;
 }
 
 // Output path for one video: <outDir>/<basename><suffix>.mp4, or beside the
@@ -78,6 +87,156 @@ export function planOutputs(videos: string[], config: RenderConfig): string[] {
   });
 }
 
+// --- pipeline stages --------------------------------------------------------
+
+interface IntroOutroFrames {
+  introN: number;
+  outroN: number;
+}
+
+// Intro/outro zoom timing (frames); clamp for very short clips.
+function planIntroOutroFrames(
+  config: RenderConfig,
+  probe: VideoProbe,
+  log: LogFn,
+): IntroOutroFrames {
+  let introN = Math.max(0, Math.round(config.introSec * probe.fps.value));
+  let outroN = Math.max(0, Math.round(config.outroSec * probe.fps.value));
+  const budget = Math.max(2, Math.floor(probe.frames / 2));
+  if (introN + outroN > budget) {
+    const scale = budget / (introN + outroN);
+    introN = Math.floor(introN * scale);
+    outroN = Math.floor(outroN * scale);
+    log(`intro/outro shortened to ${introN}/${outroN} frames for this clip`);
+  }
+  return { introN, outroN };
+}
+
+// HUD sanity: drop chips whose data does not exist for this source.
+function resolveHud(config: RenderConfig, tel: Telemetry, log: LogFn): HudSpec {
+  const hud: HudSpec = { ...config.hud };
+  const hasAltitude = tel.frames.some((f) => f.alt !== null);
+  if (hud.alt && !hasAltitude) {
+    hud.alt = false;
+    log('hud: altitude unavailable in this telemetry source (chip disabled)');
+  }
+  return hud;
+}
+
+// The per-frame telemetry as parallel arrays, as the page script expects them.
+function frameArrays(tel: Telemetry): {
+  lat: number[];
+  lon: number[];
+  alt: (number | null)[];
+  speed: (number | null)[];
+  headingDeg: number[];
+} {
+  return {
+    lat: tel.frames.map((f) => f.lat as number),
+    lon: tel.frames.map((f) => f.lon as number),
+    alt: tel.frames.map((f) => f.alt),
+    speed: tel.frames.map((f) => f.speed),
+    headingDeg: tel.frames.map((f) => f.headingDeg),
+  };
+}
+
+function describeView(
+  config: RenderConfig,
+  overview: Overview,
+  tilesLabel: string,
+): string {
+  const zoomNote = config.zoom
+    ? ' (fixed)'
+    : config.zoomOut
+      ? ` (-${config.zoomOut})`
+      : '';
+  return (
+    `view: ${config.view} at zoom ${overview.zoom}${zoomNote}, ` +
+    `${overview.tiles.length} tiles (${tilesLabel})`
+  );
+}
+
+// Never leave a broken or partial render behind: on any failure the output
+// this run wrote is deleted (a pre-existing file we did not touch stays).
+function removePartialOutput(
+  outPath: string,
+  mtimeBefore: number | null,
+  log: LogFn,
+): void {
+  const mtimeNow = fs.existsSync(outPath)
+    ? fs.statSync(outPath).mtimeMs
+    : null;
+  if (mtimeNow !== null && (mtimeBefore === null || mtimeNow !== mtimeBefore)) {
+    fs.rmSync(outPath, { force: true });
+    log(`removed partial output: ${outPath}`);
+  }
+}
+
+async function renderWithOutputCleanup(
+  outPath: string,
+  log: LogFn,
+  render: () => Promise<void>,
+): Promise<void> {
+  const mtimeBefore = fs.existsSync(outPath)
+    ? fs.statSync(outPath).mtimeMs
+    : null;
+  try {
+    await render();
+  } catch (e) {
+    removePartialOutput(outPath, mtimeBefore, log);
+    throw e;
+  }
+}
+
+// --- per-recording pipeline -------------------------------------------------
+
+interface RenderContext {
+  videoPath: string;
+  outPath: string;
+  config: RenderConfig;
+  log: LogFn;
+  probe: VideoProbe;
+  tel: Telemetry;
+  hud: HudSpec;
+  introOutro: IntroOutroFrames;
+  overview: Overview;
+  center: { lat: number; lon: number };
+  tileStats: PrefetchStats;
+  width: number;
+  height: number;
+}
+
+function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummary {
+  const { config, probe, tel, hud, introOutro, overview, tileStats } = ctx;
+  return {
+    video: ctx.videoPath,
+    out: ctx.outPath,
+    status: 'ok',
+    width: ctx.width,
+    height: ctx.height,
+    style: config.style,
+    view: config.view,
+    introFrames: introOutro.introN,
+    outroFrames: introOutro.outroN,
+    hud,
+    source: tel.source,
+    method: tel.method,
+    headingMode: tel.headingMode,
+    fixes: tel.sampleCount,
+    noLock: tel.noLock,
+    frames: probe.frames,
+    fps: probe.fps.str,
+    trackDistanceM: Math.round(tel.trackDistanceM),
+    bbox: tel.bbox,
+    zoom: overview.zoom,
+    zoomFixed: config.zoom > 0,
+    zoomOut: config.zoom > 0 ? 0 : config.zoomOut,
+    tilesDownloaded: tileStats.downloaded,
+    verified: true,
+    elapsedSec,
+  };
+}
+
 // Render one recording. Throws on failure (the caller decides policy).
 // outPath may be pre-planned by runBatch (collision-free); it defaults to the
 // plain output path for direct callers.
@@ -96,17 +255,7 @@ export async function processRecording(
   log(
     `source: ${path.basename(videoPath)}  ${probe.width}x${probe.height} @ ${probe.fps.str} fps, ${probe.frames} frames`,
   );
-
-  // Intro/outro zoom timing (frames); clamp for very short clips.
-  let introN = Math.max(0, Math.round(config.introSec * probe.fps.value));
-  let outroN = Math.max(0, Math.round(config.outroSec * probe.fps.value));
-  const budget = Math.max(2, Math.floor(probe.frames / 2));
-  if (introN + outroN > budget) {
-    const f = budget / (introN + outroN);
-    introN = Math.floor(introN * f);
-    outroN = Math.floor(outroN * f);
-    log(`intro/outro shortened to ${introN}/${outroN} frames for this clip`);
-  }
+  const introOutro = planIntroOutroFrames(config, probe, log);
 
   const tel = await loadTelemetry(videoPath, {
     frames: probe.frames,
@@ -117,34 +266,25 @@ export async function processRecording(
     `telemetry: ${tel.source} (${tel.method}), ${tel.sampleCount} fixes, heading=${tel.headingMode}, ` +
       `track ${Math.round(tel.trackDistanceM)} m${tel.noLock ? `, ${tel.noLock} no-lock cues` : ''}`,
   );
+  const hud = resolveHud(config, tel, log);
 
-  // HUD sanity: drop chips whose data does not exist for this source.
-  const hud: HudSpec = { ...config.hud };
-  const hasAlt = tel.frames.some((f) => f.alt !== null && f.alt !== undefined);
-  if (hud.alt && !hasAlt) {
-    hud.alt = false;
-    log('hud: altitude unavailable in this telemetry source (chip disabled)');
-  }
-
-  const { centerPx, zoom, tiles } = computeOverview({
+  const tileSource = TILE_SOURCES[config.style];
+  const overview = computeOverview({
     bbox: tel.bbox,
     width,
     height,
-    maxZoom: TILE_SOURCES[config.style].maxZoom || 19,
-    maxNativeZoom: TILE_SOURCES[config.style].maxNativeZoom || null,
+    maxZoom: tileSource.maxZoom || 19,
+    maxNativeZoom: tileSource.maxNativeZoom || null,
     zoomOut: config.zoomOut,
     zoomOverride: config.zoom,
     follow: config.view === 'follow',
   });
-  const center = unproject(centerPx.x, centerPx.y, zoom);
-  log(
-    `view: ${config.view} at zoom ${zoom}${config.zoom ? ' (fixed)' : config.zoomOut ? ` (-${config.zoomOut})` : ''}, ` +
-      `${tiles.length} tiles (${config.style})`,
-  );
+  const center = unproject(overview.centerPx.x, overview.centerPx.y, overview.zoom);
+  log(describeView(config, overview, config.style));
 
   const tileStats = await prefetchTiles({
     style: config.style,
-    tiles,
+    tiles: overview.tiles,
     cacheDir: config.tileCache,
     log,
   });
@@ -158,27 +298,17 @@ export async function processRecording(
     style: config.style,
     view: config.view,
     center,
-    zoom,
-    attribution: TILE_SOURCES[config.style].attribution,
-    introN,
-    outroN,
+    zoom: overview.zoom,
+    attribution: tileSource.attribution,
+    introN: introOutro.introN,
+    outroN: introOutro.outroN,
     trail: config.trail,
-    lat: tel.frames.map((f) => f.lat as number),
-    lon: tel.frames.map((f) => f.lon as number),
-    alt: tel.frames.map((f) => f.alt),
-    speed: tel.frames.map((f) => f.speed),
-    headingDeg: tel.frames.map((f) => f.headingDeg),
+    ...frameArrays(tel),
     hud,
   });
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
-
-  // Never leave a broken or partial render behind: on any failure the output
-  // this run wrote is deleted (a pre-existing file we did not touch stays).
-  const mtimeBefore = fs.existsSync(outPath)
-    ? fs.statSync(outPath).mtimeMs
-    : null;
-  try {
+  await renderWithOutputCleanup(outPath, log, async () => {
     await renderVideo({
       html,
       capture: config.capture,
@@ -203,44 +333,41 @@ export async function processRecording(
       );
     }
     log('verified: frame count and frame rate match the source');
-  } catch (e) {
-    const mtimeNow = fs.existsSync(outPath)
-      ? fs.statSync(outPath).mtimeMs
-      : null;
-    if (mtimeNow !== null && (mtimeBefore === null || mtimeNow !== mtimeBefore)) {
-      fs.rmSync(outPath, { force: true });
-      log(`removed partial output: ${outPath}`);
-    }
-    throw e;
-  }
+  });
 
-  return {
-    video: videoPath,
-    out: outPath,
-    status: 'ok',
-    width,
-    height,
-    style: config.style,
-    view: config.view,
-    introFrames: introN,
-    outroFrames: outroN,
-    hud,
-    source: tel.source,
-    method: tel.method,
-    headingMode: tel.headingMode,
-    fixes: tel.sampleCount,
-    noLock: tel.noLock,
-    frames: probe.frames,
-    fps: probe.fps.str,
-    trackDistanceM: Math.round(tel.trackDistanceM),
-    bbox: tel.bbox,
-    zoom,
-    zoomFixed: config.zoom > 0,
-    zoomOut: config.zoom > 0 ? 0 : config.zoomOut,
-    tilesDownloaded: tileStats.downloaded,
-    verified: true,
-    elapsedSec: Math.round((Date.now() - t0) / 1000),
-  };
+  return buildOkSummary(
+    {
+      videoPath,
+      outPath,
+      config,
+      log,
+      probe,
+      tel,
+      hud,
+      introOutro,
+      overview,
+      center,
+      tileStats,
+      width,
+      height,
+    },
+    Math.round((Date.now() - t0) / 1000),
+  );
+}
+
+// --- batch orchestration ----------------------------------------------------
+
+function logOutputCollision(
+  video: string,
+  out: string,
+  plain: string,
+  log: LogFn,
+): void {
+  if (out !== plain) {
+    log(
+      `warning: output name collision for ${path.basename(video)} - writing ${path.basename(out)} instead`,
+    );
+  }
 }
 
 // Run the pipeline for every recording; failures never abort the batch.
@@ -249,10 +376,8 @@ export async function runBatch(
   config: RenderConfig,
   log: LogFn,
   emit: (summary: RecordingSummary) => void,
-): Promise<{ ok: number; skipped: number; failed: number }> {
-  let ok = 0;
-  let skipped = 0;
-  let failed = 0;
+): Promise<BatchResult> {
+  const result: BatchResult = { ok: 0, skipped: 0, failed: 0 };
 
   // Collision-free outputs up front: two same-basename recordings must not
   // silently overwrite each other in a shared --out-dir.
@@ -263,16 +388,11 @@ export async function runBatch(
     log(`=== ${base} ===`);
 
     const out = outs[idx];
-    const plain = outputPathFor(video, config);
-    if (out !== plain) {
-      log(
-        `warning: output name collision for ${base} - writing ${path.basename(out)} instead`,
-      );
-    }
+    logOutputCollision(video, out, outputPathFor(video, config), log);
     if (config.skipExisting && (await outputMatchesSource(video, out))) {
       log(`SKIP  ${out}  (exists and matches the source)`);
       emit({ video, out, status: 'skipped', elapsedSec: 0 });
-      skipped++;
+      result.skipped++;
       continue;
     }
 
@@ -280,7 +400,7 @@ export async function runBatch(
       const summary = await processRecording(video, config, log, out);
       emit(summary);
       log(`OK  ${out}  (${summary.frames} frames @ ${summary.fps}, ${summary.elapsedSec} s)`);
-      ok++;
+      result.ok++;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       log(`ERROR  ${base}: ${message}`);
@@ -291,9 +411,9 @@ export async function runBatch(
         elapsedSec: 0,
         error: message,
       });
-      failed++;
+      result.failed++;
     }
   }
 
-  return { ok, skipped, failed };
+  return result;
 }

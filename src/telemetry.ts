@@ -38,6 +38,24 @@ interface TelSample {
   yawDeg: number | null;
 }
 
+interface Position {
+  lat: number | null;
+  lon: number | null;
+  alt: number | null;
+}
+
+// Derivation tuning.
+const MAX_INTERPOLATION_GAP_S = 3; // hold the earlier fix across longer gaps
+const SPEED_SMOOTHING_SPAN = 5; // +-N samples moving average for the HUD
+const HEADING_MIN_MOVE_M = 1.5; // ignore bearings from sub-meter displacement
+const HEADING_HALF_WINDOW_S = 0.35; // half-window around the sample
+const HEADING_MIN_SPEED_MPS = 0.5; // below this the course is meaningless
+const HEADING_SMOOTHING_SPAN = 4; // +-N samples circular mean
+
+function hasGpsFix(sample: TelSample): boolean {
+  return sample.lat !== null;
+}
+
 // Find the .SRT sidecar for a video (same basename, case-insensitive).
 export function findSrtSidecar(videoPath: string): string | null {
   const dir = path.dirname(videoPath);
@@ -50,121 +68,155 @@ export function findSrtSidecar(videoPath: string): string | null {
   return null;
 }
 
-interface Pos {
-  lat: number | null;
-  lon: number | null;
-  alt: number | null;
+function altitudeOf(sample: TelSample): number | null {
+  return sample.relAlt ?? sample.absAlt ?? null;
+}
+
+function positionOfSample(sample: TelSample): Position {
+  return { lat: sample.lat, lon: sample.lon, alt: altitudeOf(sample) };
+}
+
+function interpolateAltitude(
+  a: TelSample,
+  b: TelSample,
+  fraction: number,
+): number | null {
+  const altA = altitudeOf(a);
+  const altB = altitudeOf(b);
+  if (altA === null) return altB;
+  if (altB === null) return altA;
+  return altA + (altB - altA) * fraction;
+}
+
+// Nearest sample with a GPS fix at or beyond idx in the given direction.
+function nearestFix(
+  samples: TelSample[],
+  idx: number,
+  direction: number,
+): TelSample | null {
+  let i = idx;
+  while (i >= 0 && i < samples.length) {
+    if (hasGpsFix(samples[i])) return samples[i];
+    i += direction;
+  }
+  return null;
+}
+
+// Narrow a sample that is known to carry a GPS fix.
+function fixOf(sample: TelSample): LatLon {
+  if (sample.lat === null || sample.lon === null) {
+    throw new Error('internal: sample without GPS fix');
+  }
+  return { lat: sample.lat, lon: sample.lon };
 }
 
 // Position at time t (seconds), linear interpolation across the sample series.
 // Gaps of missing fixes longer than maxGapSec are bridged by holding the
 // earlier fix instead of interpolating across them.
-function positionAt(samples: TelSample[], t: number, maxGapSec = 3): Pos {
+function positionAt(
+  samples: TelSample[],
+  t: number,
+  maxGapSec = MAX_INTERPOLATION_GAP_S,
+): Position {
   const n = samples.length;
   if (n === 0) return { lat: null, lon: null, alt: null };
-  if (t <= samples[0].tSec) return pick(samples[0]);
-  if (t >= samples[n - 1].tSec) return pick(samples[n - 1]);
+  if (t <= samples[0].tSec) return positionOfSample(samples[0]);
+  if (t >= samples[n - 1].tSec) return positionOfSample(samples[n - 1]);
 
+  const lo = sampleIndexBefore(samples, t);
+  const hi = lo + 1;
+  const a = nearestFix(samples, lo, -1);
+  const b = nearestFix(samples, hi, 1);
+  if (a !== null && b === null) return positionOfSample(a);
+  if (a === null && b !== null) return positionOfSample(b);
+  if (a === null || b === null) return { lat: null, lon: null, alt: null };
+
+  const dt = b.tSec - a.tSec;
+  const gapOk = dt > 0 && dt <= maxGapSec;
+  const fraction = gapOk ? (t - a.tSec) / dt : 0;
+  return {
+    lat: a.lat !== null ? a.lat + ((b.lat ?? a.lat) - a.lat) * fraction : null,
+    lon: a.lon !== null ? a.lon + ((b.lon ?? a.lon) - a.lon) * fraction : null,
+    alt: interpolateAltitude(a, b, fraction),
+  };
+}
+
+// Index of the last sample at or before t (t before the first sample -> 0).
+function sampleIndexBefore(samples: TelSample[], t: number): number {
   let lo = 0;
-  let hi = n - 1;
+  let hi = samples.length - 1;
   while (hi - lo > 1) {
     const mid = (lo + hi) >> 1;
     if (samples[mid].tSec <= t) lo = mid;
     else hi = mid;
   }
-  const a = nearestFix(samples, lo, -1);
-  const b = nearestFix(samples, hi, 1);
-  if (a !== null && b === null) return pick(a);
-  if (a === null && b !== null) return pick(b);
-  if (a === null || b === null) return { lat: null, lon: null, alt: null };
-
-  const dt = b.tSec - a.tSec;
-  const gapOk = dt > 0 && dt <= maxGapSec;
-  const f = gapOk && dt > 0 ? (t - a.tSec) / dt : 0;
-  return {
-    lat: a.lat !== null ? a.lat + ((b.lat ?? a.lat) - a.lat) * (gapOk ? f : 0) : null,
-    lon: a.lon !== null ? a.lon + ((b.lon ?? a.lon) - a.lon) * (gapOk ? f : 0) : null,
-    alt: pickAlt(a, b, gapOk ? f : 0),
-  };
+  return lo;
 }
 
-function pick(s: TelSample): Pos {
-  return { lat: s.lat, lon: s.lon, alt: s.relAlt ?? s.absAlt ?? null };
+// Index of the sample whose time is closest to t.
+function nearestSampleIndex(samples: TelSample[], t: number): number {
+  const lo = sampleIndexBefore(samples, t);
+  const hi = Math.min(lo + 1, samples.length - 1);
+  return t - samples[lo].tSec <= samples[hi].tSec - t ? lo : hi;
 }
 
-function pickAlt(a: TelSample, b: TelSample, f: number): number | null {
-  const va = a.relAlt ?? a.absAlt ?? null;
-  const vb = b.relAlt ?? b.absAlt ?? null;
-  if (va === null) return vb;
-  if (vb === null) return va;
-  return va + (vb - va) * f;
+// --- telemetry loading ------------------------------------------------------
+
+interface LoadedSamples {
+  samples: TelSample[];
+  source: 'srt' | 'cammeta';
+  method: string;
+  noLock: number;
 }
 
-function nearestFix(
-  samples: TelSample[],
-  idx: number,
-  dir: number,
-): TelSample | null {
-  let i = idx;
-  while (i >= 0 && i < samples.length) {
-    if (samples[i].lat !== null && samples[i].lat !== undefined) return samples[i];
-    i += dir;
-  }
-  return null;
-}
-
-// Narrow a sample that is known (via validIdx) to carry a GPS fix.
-function fixOf(s: TelSample): LatLon {
-  if (s.lat === null || s.lon === null) {
-    throw new Error('internal: sample without GPS fix');
-  }
-  return { lat: s.lat, lon: s.lon };
-}
-
-// Load telemetry for one video and return per-frame derived values.
-export async function loadTelemetry(
+// Load raw samples from the .SRT sidecar if present, else from the embedded
+// CAM-meta stream.
+async function loadSamples(
   videoPath: string,
-  { frames, fpsValue, durationSec }: { frames: number; fpsValue: number; durationSec: number },
-): Promise<Telemetry> {
+  durationSec: number,
+): Promise<LoadedSamples> {
   const srtPath = findSrtSidecar(videoPath);
-  let samples: TelSample[];
-  let source: 'srt' | 'cammeta';
-  let method: string;
-  let noLock = 0;
-
   if (srtPath) {
     const parsed = await parseSrt(srtPath);
     if (parsed.count === 0) throw new Error(`SRT sidecar has no cues: ${srtPath}`);
-    samples = parsed.cues.map((c) => ({
-      tSec: c.tSec,
-      lat: c.lat,
-      lon: c.lon,
-      relAlt: c.relAlt,
-      absAlt: c.absAlt,
-      yawDeg: null,
-    }));
-    source = 'srt';
-    method = 'srt-cues';
-    noLock = parsed.noLock;
-  } else {
-    const cam = await parseCamMeta(videoPath, durationSec);
-    if (!cam || cam.samples.length === 0) {
-      throw new Error(
-        'no telemetry found: no .SRT sidecar and no GPS pairs in the CAM meta stream',
-      );
-    }
-    samples = cam.samples;
-    source = 'cammeta';
-    method = cam.method;
+    return {
+      samples: parsed.cues.map((cue) => ({
+        tSec: cue.tSec,
+        lat: cue.lat,
+        lon: cue.lon,
+        relAlt: cue.relAlt,
+        absAlt: cue.absAlt,
+        yawDeg: null,
+      })),
+      source: 'srt',
+      method: 'srt-cues',
+      noLock: parsed.noLock,
+    };
   }
 
-  // Sample-level derived values.
-  const validIdx: number[] = [];
-  samples.forEach((s, i) => {
-    if (s.lat !== null && s.lat !== undefined) validIdx.push(i);
-  });
-  if (validIdx.length < 2) throw new Error('telemetry has fewer than 2 GPS fixes');
+  const cam = await parseCamMeta(videoPath, durationSec);
+  if (!cam || cam.samples.length === 0) {
+    throw new Error(
+      'no telemetry found: no .SRT sidecar and no GPS pairs in the CAM meta stream',
+    );
+  }
+  return { samples: cam.samples, source: 'cammeta', method: cam.method, noLock: 0 };
+}
 
+// --- per-sample derivations -------------------------------------------------
+
+function indicesOfFixes(samples: TelSample[]): number[] {
+  const fixIndices: number[] = [];
+  samples.forEach((sample, i) => {
+    if (hasGpsFix(sample)) fixIndices.push(i);
+  });
+  return fixIndices;
+}
+
+function computeTrackStats(
+  samples: TelSample[],
+  fixIndices: number[],
+): { bbox: Bbox; trackDistanceM: number } {
   const bbox: Bbox = {
     minLat: Infinity,
     maxLat: -Infinity,
@@ -173,136 +225,199 @@ export async function loadTelemetry(
   };
   let trackDistanceM = 0;
   let prev: number | null = null;
-  for (const i of validIdx) {
-    const f = fixOf(samples[i]);
-    bbox.minLat = Math.min(bbox.minLat, f.lat);
-    bbox.maxLat = Math.max(bbox.maxLat, f.lat);
-    bbox.minLon = Math.min(bbox.minLon, f.lon);
-    bbox.maxLon = Math.max(bbox.maxLon, f.lon);
+  for (const i of fixIndices) {
+    const fix = fixOf(samples[i]);
+    bbox.minLat = Math.min(bbox.minLat, fix.lat);
+    bbox.maxLat = Math.max(bbox.maxLat, fix.lat);
+    bbox.minLon = Math.min(bbox.minLon, fix.lon);
+    bbox.maxLon = Math.max(bbox.maxLon, fix.lon);
     if (prev !== null) {
-      trackDistanceM += haversineM(fixOf(samples[prev]), f);
+      trackDistanceM += haversineM(fixOf(samples[prev]), fix);
     }
     prev = i;
   }
+  return { bbox, trackDistanceM };
+}
 
-  // Speed per sample: centered difference over neighboring fixes (m/s), then
-  // smoothed with a +-5 sample moving average to tame GPS jitter for the HUD.
+// Speed per sample: centered difference over neighboring fixes (m/s), then
+// smoothed with a moving average to tame GPS jitter for the HUD.
+function computeSpeedBySample(
+  samples: TelSample[],
+  fixIndices: number[],
+): number[] {
   const rawSpeed: (number | null)[] = new Array(samples.length).fill(null);
-  for (let k = 1; k < validIdx.length - 1; k++) {
-    const i0 = validIdx[k - 1];
-    const i1 = validIdx[k + 1];
-    const dt = samples[i1].tSec - samples[i0].tSec;
+  for (let k = 1; k < fixIndices.length - 1; k++) {
+    const before = fixIndices[k - 1];
+    const after = fixIndices[k + 1];
+    const dt = samples[after].tSec - samples[before].tSec;
     if (dt > 0.001) {
-      rawSpeed[validIdx[k]] = haversineM(fixOf(samples[i0]), fixOf(samples[i1])) / dt;
+      rawSpeed[fixIndices[k]] =
+        haversineM(fixOf(samples[before]), fixOf(samples[after])) / dt;
     }
   }
-  rawSpeed[validIdx[0]] = rawSpeed[validIdx[1]] ?? 0;
-  rawSpeed[validIdx[validIdx.length - 1]] =
-    rawSpeed[validIdx[validIdx.length - 2]] ?? 0;
+  // Endpoints reuse the adjacent centered value.
+  rawSpeed[fixIndices[0]] = rawSpeed[fixIndices[1]] ?? 0;
+  rawSpeed[fixIndices[fixIndices.length - 1]] =
+    rawSpeed[fixIndices[fixIndices.length - 2]] ?? 0;
+
   const speedBySample = new Array<number>(samples.length).fill(0);
-  const SPAN = 5;
-  for (let k = 0; k < validIdx.length; k++) {
-    const lo = Math.max(0, k - SPAN);
-    const hi = Math.min(validIdx.length - 1, k + SPAN);
+  for (let k = 0; k < fixIndices.length; k++) {
+    const lo = Math.max(0, k - SPEED_SMOOTHING_SPAN);
+    const hi = Math.min(fixIndices.length - 1, k + SPEED_SMOOTHING_SPAN);
     let sum = 0;
-    let n = 0;
+    let count = 0;
     for (let j = lo; j <= hi; j++) {
-      const v = rawSpeed[validIdx[j]];
+      const v = rawSpeed[fixIndices[j]];
       if (v !== null) {
         sum += v;
-        n++;
+        count++;
       }
     }
-    speedBySample[validIdx[k]] = n ? sum / n : 0;
+    speedBySample[fixIndices[k]] = count ? sum / count : 0;
   }
+  return speedBySample;
+}
 
-  // Heading per sample. Preferred source: drone body yaw (DVTM EulerAngle,
-  // deci-degrees) - valid even while hovering. Fallback: course over ground
-  // measured across a ~0.7 s baseline (consecutive fixes are only centimeters
-  // apart at 60 fps, so neighbor bearings are pure GPS jitter). Held while
-  // nearly stationary.
-  const hasYaw = samples.some((s) => s.yawDeg !== null && s.yawDeg !== undefined);
+interface HeadingResult {
+  headingBySample: number[];
+  headingMode: 'yaw' | 'cog';
+}
+
+// Heading per sample. Preferred source: drone body yaw (DVTM EulerAngle,
+// deci-degrees) - valid even while hovering. Fallback: course over ground
+// measured across a ~0.7 s baseline (consecutive fixes are only centimeters
+// apart at 60 fps, so neighbor bearings are pure GPS jitter). Held while
+// nearly stationary.
+function computeHeadingBySample(
+  samples: TelSample[],
+  fixIndices: number[],
+  speedBySample: number[],
+): HeadingResult {
+  const hasYaw = samples.some((sample) => sample.yawDeg !== null);
   const headingMode: 'yaw' | 'cog' = hasYaw ? 'yaw' : 'cog';
-  const MIN_MOVE_M = 1.5; // ignore bearings from sub-meter displacement
-  const WINDOW_S = 0.35; // half-window around the sample
-  const MIN_SPEED = 0.5; // m/s - below this the course is meaningless
+
   const rawHeading: (number | null)[] = new Array(samples.length).fill(null);
   if (hasYaw) {
-    for (const i of validIdx) {
-      const y = samples[i].yawDeg;
-      if (y !== null && Number.isFinite(y)) rawHeading[i] = ((y % 360) + 360) % 360;
-    }
+    fillYawHeadings(samples, fixIndices, rawHeading);
   } else {
-    for (let k = 0; k < validIdx.length; k++) {
-      const ik = validIdx[k];
-      const tk = samples[ik].tSec;
-      let ka = k;
-      let kb = k;
-      while (ka > 0 && samples[validIdx[ka]].tSec > tk - WINDOW_S) ka--;
-      while (kb < validIdx.length - 1 && samples[validIdx[kb]].tSec < tk + WINDOW_S) kb++;
-      const a = samples[validIdx[ka]];
-      const b = samples[validIdx[kb]];
-      const d = haversineM(fixOf(a), fixOf(b));
-      const v = speedBySample[ik] ?? 0;
-      if (d >= MIN_MOVE_M && v >= MIN_SPEED) {
-        rawHeading[ik] = bearingDeg(fixOf(a), fixOf(b));
-      }
+    fillCourseOverGroundHeadings(samples, fixIndices, speedBySample, rawHeading);
+  }
+  fillHeadingGaps(fixIndices, rawHeading);
+
+  // Circular smoothing of the heading over a small moving window. Samples
+  // without a fix carry the default so the array is fully populated.
+  const defaultHeading =
+    rawHeading[fixIndices[0]] ?? firstKnownHeading(fixIndices, rawHeading) ?? 0;
+  const headingBySample = new Array<number>(samples.length).fill(defaultHeading);
+  for (let k = 0; k < fixIndices.length; k++) {
+    const lo = Math.max(0, k - HEADING_SMOOTHING_SPAN);
+    const hi = Math.min(fixIndices.length - 1, k + HEADING_SMOOTHING_SPAN);
+    const window: number[] = [];
+    for (let j = lo; j <= hi; j++) {
+      window.push(rawHeading[fixIndices[j]] ?? defaultHeading);
+    }
+    headingBySample[fixIndices[k]] = circularMeanDeg(window);
+  }
+  return { headingBySample, headingMode };
+}
+
+function fillYawHeadings(
+  samples: TelSample[],
+  fixIndices: number[],
+  rawHeading: (number | null)[],
+): void {
+  for (const i of fixIndices) {
+    const yaw = samples[i].yawDeg;
+    if (yaw !== null && Number.isFinite(yaw)) rawHeading[i] = ((yaw % 360) + 360) % 360;
+  }
+}
+
+function fillCourseOverGroundHeadings(
+  samples: TelSample[],
+  fixIndices: number[],
+  speedBySample: number[],
+  rawHeading: (number | null)[],
+): void {
+  for (let k = 0; k < fixIndices.length; k++) {
+    const ik = fixIndices[k];
+    const tk = samples[ik].tSec;
+    let ka = k;
+    let kb = k;
+    while (ka > 0 && samples[fixIndices[ka]].tSec > tk - HEADING_HALF_WINDOW_S) ka--;
+    while (kb < fixIndices.length - 1 && samples[fixIndices[kb]].tSec < tk + HEADING_HALF_WINDOW_S) kb++;
+    const a = samples[fixIndices[ka]];
+    const b = samples[fixIndices[kb]];
+    const displacement = haversineM(fixOf(a), fixOf(b));
+    const speed = speedBySample[ik] ?? 0;
+    if (displacement >= HEADING_MIN_MOVE_M && speed >= HEADING_MIN_SPEED_MPS) {
+      rawHeading[ik] = bearingDeg(fixOf(a), fixOf(b));
     }
   }
-  // Forward-fill, then back-fill the leading unknowns from the FIRST known
-  // heading - never from the flight's final heading, which would point the
-  // arrow the wrong way on clips that start hovering and turn later.
+}
+
+// Forward-fill, then back-fill the leading unknowns from the FIRST known
+// heading - never from the flight's final heading, which would point the
+// arrow the wrong way on clips that start hovering and turn later.
+function fillHeadingGaps(
+  fixIndices: number[],
+  rawHeading: (number | null)[],
+): void {
   let last: number | null = null;
-  for (const i of validIdx) {
+  for (const i of fixIndices) {
     if (rawHeading[i] !== null) last = rawHeading[i];
     else rawHeading[i] = last;
   }
-  let firstKnown: number | null = null;
-  for (const i of validIdx) {
-    const h = rawHeading[i];
-    if (h !== null) {
-      firstKnown = h;
-      break;
-    }
-  }
+  const firstKnown = firstKnownHeading(fixIndices, rawHeading);
   if (firstKnown !== null) {
-    for (const i of validIdx) {
+    for (const i of fixIndices) {
       if (rawHeading[i] === null) rawHeading[i] = firstKnown;
       else break;
     }
   }
-  const defaultHeading = firstKnown ?? 0;
-  for (const i of validIdx) {
-    if (rawHeading[i] === null) rawHeading[i] = defaultHeading;
+  for (const i of fixIndices) {
+    if (rawHeading[i] === null) rawHeading[i] = firstKnown ?? 0;
   }
+}
 
-  // Circular smoothing of the heading over a +-4 sample window.
-  const headingBySample = new Array<number>(samples.length).fill(defaultHeading);
-  const WIN = 4;
-  for (let k = 0; k < validIdx.length; k++) {
-    const lo = Math.max(0, k - WIN);
-    const hi = Math.min(validIdx.length - 1, k + WIN);
-    const window: number[] = [];
-    for (let j = lo; j <= hi; j++) window.push(rawHeading[validIdx[j]] ?? defaultHeading);
-    headingBySample[validIdx[k]] = circularMeanDeg(window);
+function firstKnownHeading(
+  fixIndices: number[],
+  rawHeading: (number | null)[],
+): number | null {
+  for (const i of fixIndices) {
+    const heading = rawHeading[i];
+    if (heading !== null) return heading;
   }
+  return null;
+}
 
-  // Per-video-frame values at t = frame / fps.
+// --- per-video-frame values -------------------------------------------------
+
+// Values at t = frame / fps, index-aligned to the video frames.
+function buildFrameData(
+  samples: TelSample[],
+  frames: number,
+  fpsValue: number,
+  speedBySample: number[],
+  headingBySample: number[],
+): FrameData[] {
   const frameData: FrameData[] = [];
-  for (let f = 0; f < frames; f++) {
-    const t = f / fpsValue;
-    const p = positionAt(samples, t);
+  for (let frame = 0; frame < frames; frame++) {
+    const t = frame / fpsValue;
+    const pos = positionAt(samples, t);
     const si = nearestSampleIndex(samples, t);
-    const sp = speedBySample[si];
     frameData.push({
-      lat: p.lat,
-      lon: p.lon,
-      alt: p.alt,
-      speed: Math.round(sp * 10) / 10,
+      lat: pos.lat,
+      lon: pos.lon,
+      alt: pos.alt,
+      speed: Math.round(speedBySample[si] * 10) / 10,
       headingDeg: Math.round(headingBySample[si] * 10) / 10,
     });
   }
-  // Bridge any fully-missing frame positions at the very ends.
+  return frameData;
+}
+
+// Bridge any fully-missing frame positions at the very ends.
+function bridgeMissingFramePositions(frameData: FrameData[]): void {
   const firstFrame = frameData.find((d) => d.lat !== null);
   const lastFrame = [...frameData].reverse().find((d) => d.lat !== null);
   for (const d of frameData) {
@@ -311,6 +426,37 @@ export async function loadTelemetry(
       d.lon = firstFrame.lon;
     }
   }
+}
+
+// Load telemetry for one video and return per-frame derived values.
+export async function loadTelemetry(
+  videoPath: string,
+  { frames, fpsValue, durationSec }: { frames: number; fpsValue: number; durationSec: number },
+): Promise<Telemetry> {
+  const { samples, source, method, noLock } = await loadSamples(
+    videoPath,
+    durationSec,
+  );
+
+  const fixIndices = indicesOfFixes(samples);
+  if (fixIndices.length < 2) throw new Error('telemetry has fewer than 2 GPS fixes');
+
+  const { bbox, trackDistanceM } = computeTrackStats(samples, fixIndices);
+  const speedBySample = computeSpeedBySample(samples, fixIndices);
+  const { headingBySample, headingMode } = computeHeadingBySample(
+    samples,
+    fixIndices,
+    speedBySample,
+  );
+
+  const frameData = buildFrameData(
+    samples,
+    frames,
+    fpsValue,
+    speedBySample,
+    headingBySample,
+  );
+  bridgeMissingFramePositions(frameData);
 
   return {
     source,
@@ -322,15 +468,4 @@ export async function loadTelemetry(
     bbox,
     trackDistanceM,
   };
-}
-
-function nearestSampleIndex(samples: TelSample[], t: number): number {
-  let lo = 0;
-  let hi = samples.length - 1;
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (samples[mid].tSec <= t) lo = mid;
-    else hi = mid;
-  }
-  return t - samples[lo].tSec <= samples[hi].tSec - t ? lo : hi;
 }
