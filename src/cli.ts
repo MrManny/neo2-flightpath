@@ -140,33 +140,36 @@ export function parseCliArgs(argv: string[]): ParsedCli {
   program.parse(argv, { from: 'user' });
   const opts = program.opts<RawOpts>();
 
-  const cli: ConfigOverrides = {
-    outDir: opts.outDir ?? undefined,
-    outSuffix: opts.outSuffix,
-    width: numOpt(opts.width, '--width'),
-    height: numOpt(opts.height, '--height'),
-    style: opts.style,
-    view: opts.view,
-    zoom: numOpt(opts.zoom, '--zoom'),
-    zoomOut: numOpt(opts.zoomOut, '--zoom-out'),
-    introSec: numOpt(opts.introSec, '--intro-sec'),
-    outroSec: numOpt(opts.outroSec, '--outro-sec'),
-    hud: parseHud(opts.hud),
-    workers: numOpt(opts.workers, '--workers'),
-    capture: opts.capture,
-    preset: opts.preset,
-    trail: opts.trail,
-    tileCache: opts.tileCache,
-    browser: opts.browser ?? undefined,
-    skipExisting: opts.skipExisting ?? false,
-    recurse: opts.recurse ?? false,
-    json: opts.json ?? false,
-    quiet: opts.quiet ?? false,
-  };
-  // Absent optional flags must not clobber defaults with explicit undefined.
-  for (const key of Object.keys(cli) as Array<keyof ConfigOverrides>) {
-    if (cli[key] === undefined) delete cli[key];
-  }
+  // Forward only options the user actually passed on the command line.
+  // Commander's built-in defaults must never leak into the override layer:
+  // resolveConfig would then let "CLI" always win over the config file and
+  // silently break the documented "CLI flags > config file > defaults"
+  // precedence.
+  const given = (name: string): boolean =>
+    program.getOptionValueSource(name) === 'cli';
+
+  const cli: ConfigOverrides = {};
+  if (given('outDir') && opts.outDir !== undefined) cli.outDir = opts.outDir;
+  if (given('outSuffix')) cli.outSuffix = opts.outSuffix;
+  if (given('width')) cli.width = numOpt(opts.width, '--width');
+  if (given('height')) cli.height = numOpt(opts.height, '--height');
+  if (given('style')) cli.style = opts.style;
+  if (given('view')) cli.view = opts.view;
+  if (given('zoom')) cli.zoom = numOpt(opts.zoom, '--zoom');
+  if (given('zoomOut')) cli.zoomOut = numOpt(opts.zoomOut, '--zoom-out');
+  if (given('introSec')) cli.introSec = numOpt(opts.introSec, '--intro-sec');
+  if (given('outroSec')) cli.outroSec = numOpt(opts.outroSec, '--outro-sec');
+  if (given('hud')) cli.hud = parseHud(opts.hud);
+  if (given('workers')) cli.workers = numOpt(opts.workers, '--workers');
+  if (given('capture')) cli.capture = opts.capture;
+  if (given('preset')) cli.preset = opts.preset;
+  if (given('trail')) cli.trail = opts.trail;
+  if (given('tileCache')) cli.tileCache = opts.tileCache;
+  if (given('browser')) cli.browser = opts.browser ?? null;
+  if (given('skipExisting')) cli.skipExisting = opts.skipExisting ?? false;
+  if (given('recurse')) cli.recurse = opts.recurse ?? false;
+  if (given('json')) cli.json = opts.json ?? false;
+  if (given('quiet')) cli.quiet = opts.quiet ?? false;
   return {
     inputs: [...program.args],
     cli,

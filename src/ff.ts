@@ -86,6 +86,14 @@ export async function probeVideo(
     frames = Math.round(durationSec * fps.value);
     log('warning: nb_frames missing, using duration x fps');
   }
+  // A NaN frame count would flow into renderVideo (zero workers, empty
+  // ffmpeg input) and fail much later with a confusing message.
+  if (!Number.isFinite(frames) || frames <= 0) {
+    throw new Error(
+      `could not determine the frame count of ${videoPath} ` +
+        '(nb_frames missing and duration unusable)',
+    );
+  }
   return {
     fps,
     frames,

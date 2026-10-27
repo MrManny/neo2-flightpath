@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeProductMeta, scanGpsPair } from '../src/cammeta.js';
+import { decodeProductMeta, isPlausibleFix, scanGpsPair } from '../src/cammeta.js';
 
 // --- minimal protobuf builders for synthetic DVTM messages -------------------
+
+function dbl(value: number): Buffer {
+  const b = Buffer.alloc(8);
+  b.writeDoubleLE(value);
+  return b;
+}
 
 function varint(value: number | bigint): Buffer {
   let v = BigInt.asUintN(64, BigInt(value));
@@ -120,6 +126,13 @@ describe('decodeProductMeta', () => {
     expect(m.lat).toBeNull();
     expect(m.lon).toBeNull();
   });
+
+  it('accepts genuine fixes near the equator / prime meridian', () => {
+    const buf = buildProductMeta({ lat: 10.2, lon: 0.2, relAltMm: 1000 });
+    const m = decodeProductMeta(buf);
+    expect(m.lat).toBeCloseTo(10.2, 9);
+    expect(m.lon).toBeCloseTo(0.2, 9);
+  });
 });
 
 describe('scanGpsPair', () => {
@@ -162,5 +175,24 @@ describe('scanGpsPair', () => {
       })(),
     ]);
     expect(scanGpsPair(pair)).toBeNull();
+  });
+
+  it('applies the same fix plausibility rule as the protobuf path', () => {
+    // Within 0.5 degrees of the prime meridian (or the equator): a genuine
+    // fix the byte-scan must not drop while the protobuf path accepts it.
+    const pair = Buffer.concat([
+      Buffer.from([0x11]),
+      dbl(10.2),
+      Buffer.from([0x19]),
+      dbl(0.2),
+    ]);
+    const hit = scanGpsPair(pair);
+    expect(hit?.lat).toBeCloseTo(10.2, 9);
+    expect(hit?.lon).toBeCloseTo(0.2, 9);
+
+    expect(isPlausibleFix(10.2, 0.2)).toBe(true); // prime meridian
+    expect(isPlausibleFix(0.2, 10.2)).toBe(true); // equator
+    expect(isPlausibleFix(0.1, 0.1)).toBe(false); // 0/0 no-lock placeholder
+    expect(isPlausibleFix(91, 0)).toBe(false); // out of range
   });
 });

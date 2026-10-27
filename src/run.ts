@@ -53,11 +53,39 @@ export function outputPathFor(videoPath: string, config: RenderConfig): string {
     : path.join(path.dirname(videoPath), name);
 }
 
+// Assign every video a unique output path. Recordings with the same basename
+// from different folders would otherwise overwrite each other in a shared
+// --out-dir; colliding names get a deterministic -2, -3, ... suffix.
+export function planOutputs(videos: string[], config: RenderConfig): string[] {
+  const used = new Set<string>();
+  return videos.map((video) => {
+    const primary = outputPathFor(video, config);
+    const key = primary.toLowerCase();
+    if (!used.has(key)) {
+      used.add(key);
+      return primary;
+    }
+    const ext = path.extname(primary);
+    const stem = path.basename(primary, ext);
+    for (let n = 2; ; n++) {
+      const cand = path.join(path.dirname(primary), `${stem}-${n}${ext}`);
+      const candKey = cand.toLowerCase();
+      if (!used.has(candKey)) {
+        used.add(candKey);
+        return cand;
+      }
+    }
+  });
+}
+
 // Render one recording. Throws on failure (the caller decides policy).
+// outPath may be pre-planned by runBatch (collision-free); it defaults to the
+// plain output path for direct callers.
 export async function processRecording(
   videoPath: string,
   config: RenderConfig,
   log: LogFn,
+  outPath: string = outputPathFor(videoPath, config),
 ): Promise<RecordingSummary> {
   const t0 = Date.now();
 
@@ -143,33 +171,48 @@ export async function processRecording(
     hud,
   });
 
-  const outPath = outputPathFor(videoPath, config);
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  await renderVideo({
-    html,
-    capture: config.capture,
-    preset: config.preset,
-    style: config.style,
-    tileCache: config.tileCache,
-    width,
-    height,
-    frames: probe.frames,
-    fpsStr: probe.fps.str,
-    workers: config.workers,
-    outPath,
-    browserPath: config.browser,
-    log,
-  });
+  // Never leave a broken or partial render behind: on any failure the output
+  // this run wrote is deleted (a pre-existing file we did not touch stays).
+  const mtimeBefore = fs.existsSync(outPath)
+    ? fs.statSync(outPath).mtimeMs
+    : null;
+  try {
+    await renderVideo({
+      html,
+      capture: config.capture,
+      preset: config.preset,
+      style: config.style,
+      tileCache: config.tileCache,
+      width,
+      height,
+      frames: probe.frames,
+      fpsStr: probe.fps.str,
+      workers: config.workers,
+      outPath,
+      browserPath: config.browser,
+      log,
+    });
 
-  const verify = await verifyOutput(outPath, probe.frames, probe.fps.value);
-  if (!verify.ok) {
-    throw new Error(
-      `output verification failed: got ${verify.frames} frames @ ${verify.fps}, ` +
-        `expected ${probe.frames} @ ${probe.fps.str}`,
-    );
+    const verify = await verifyOutput(outPath, probe.frames, probe.fps.value);
+    if (!verify.ok) {
+      throw new Error(
+        `output verification failed: got ${verify.frames} frames @ ${verify.fps}, ` +
+          `expected ${probe.frames} @ ${probe.fps.str}`,
+      );
+    }
+    log('verified: frame count and frame rate match the source');
+  } catch (e) {
+    const mtimeNow = fs.existsSync(outPath)
+      ? fs.statSync(outPath).mtimeMs
+      : null;
+    if (mtimeNow !== null && (mtimeBefore === null || mtimeNow !== mtimeBefore)) {
+      fs.rmSync(outPath, { force: true });
+      log(`removed partial output: ${outPath}`);
+    }
+    throw e;
   }
-  log('verified: frame count and frame rate match the source');
 
   return {
     video: videoPath,
@@ -211,11 +254,21 @@ export async function runBatch(
   let skipped = 0;
   let failed = 0;
 
-  for (const video of videos) {
+  // Collision-free outputs up front: two same-basename recordings must not
+  // silently overwrite each other in a shared --out-dir.
+  const outs = planOutputs(videos, config);
+
+  for (const [idx, video] of videos.entries()) {
     const base = path.basename(video);
     log(`=== ${base} ===`);
 
-    const out = outputPathFor(video, config);
+    const out = outs[idx];
+    const plain = outputPathFor(video, config);
+    if (out !== plain) {
+      log(
+        `warning: output name collision for ${base} - writing ${path.basename(out)} instead`,
+      );
+    }
     if (config.skipExisting && (await outputMatchesSource(video, out))) {
       log(`SKIP  ${out}  (exists and matches the source)`);
       emit({ video, out, status: 'skipped', elapsedSec: 0 });
@@ -224,7 +277,7 @@ export async function runBatch(
     }
 
     try {
-      const summary = await processRecording(video, config, log);
+      const summary = await processRecording(video, config, log, out);
       emit(summary);
       log(`OK  ${out}  (${summary.frames} frames @ ${summary.fps}, ${summary.elapsedSec} s)`);
       ok++;

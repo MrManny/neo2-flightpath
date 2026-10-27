@@ -39,4 +39,18 @@ describe('parseSrtText', () => {
     // fail on them - already proven by the fixture, asserted explicitly here.
     expect(parseSrtText('<font size="28">[latitude: 1.0] [longitude: 2.0]</font>').count).toBe(0);
   });
+
+  it('counts a repeated lat/lon line in one cue as a single no-lock event', () => {
+    const text = [
+      '1',
+      '00:00:00,000 --> 00:00:00,033',
+      '2026-05-25 09:18:11.708',
+      '[latitude: 0] [longitude: 0]',
+      '[latitude: 0] [longitude: 0]',
+      '[rel_alt: 1.000 abs_alt: 300.000]',
+    ].join('\n');
+    const r = parseSrtText(text);
+    expect(r.count).toBe(1);
+    expect(r.noLock).toBe(1);
+  });
 });

@@ -239,17 +239,7 @@ export function decodeProductMeta(
     if (coord) {
       const lat = doubleOf(coord, 2);
       const lon = doubleOf(coord, 3);
-      if (
-        lat !== null &&
-        lon !== null &&
-        Number.isFinite(lat) &&
-        Number.isFinite(lon) &&
-        lat > -90 &&
-        lat < 90 &&
-        lon > -180 &&
-        lon < 180 &&
-        !(Math.abs(lat) < 0.5 && Math.abs(lon) < 0.5)
-      ) {
+      if (lat !== null && lon !== null && isPlausibleFix(lat, lon)) {
         out.lat = lat;
         out.lon = lon;
       }
@@ -278,6 +268,23 @@ export function decodeProductMeta(
   return out;
 }
 
+// Shared "real GPS fix" plausibility rule for the protobuf path and the
+// byte-scan fallback - both must agree, otherwise a genuine fix within 0.5
+// degrees of the equator or the prime meridian is accepted by one path and
+// silently dropped by the other. The 0/0 "no GPS lock" placeholder is the
+// only thing rejected by the threshold.
+export function isPlausibleFix(lat: number, lon: number): boolean {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat > -90 &&
+    lat < 90 &&
+    lon > -180 &&
+    lon < 180 &&
+    !(Math.abs(lat) < 0.5 && Math.abs(lon) < 0.5)
+  );
+}
+
 // Byte-scan fallback: the 0x11/0x19 fixed64 GPS double pair.
 export function scanGpsPair(
   buf: Buffer,
@@ -288,16 +295,7 @@ export function scanGpsPair(
     if (buf[i] === 0x11 && buf[i + 9] === 0x19) {
       const lat = buf.readDoubleLE(i + 1);
       const lon = buf.readDoubleLE(i + 10);
-      if (
-        Number.isFinite(lat) &&
-        Number.isFinite(lon) &&
-        lat > -90 &&
-        lat < 90 &&
-        lon > -180 &&
-        lon < 180 &&
-        Math.abs(lat) > 0.5 &&
-        Math.abs(lon) > 0.5
-      ) {
+      if (isPlausibleFix(lat, lon)) {
         return { lat, lon, at: i };
       }
     }
@@ -380,7 +378,9 @@ export async function parseCamMeta(
       }
       if (meta.lat !== null || keepAll) {
         samples.push({
-          tSec: Number.isFinite(p.t) ? p.t : samples.length,
+          // No PTS: pretend "same time as the first sample" rather than
+          // fabricating a timeline out of a sample count (unit mismatch).
+          tSec: Number.isFinite(p.t) ? p.t : 0,
           lat: meta.lat,
           lon: meta.lon,
           relAlt: meta.relAlt,

@@ -12,10 +12,10 @@ internal DVTM protobuf telemetry inside the MP4).
 ## Quick start
 
 ```sh
-# from GitHub (this repo must be public, or you need GitHub access to it)
+# from GitHub
 npx github:MrManny/neo2-flightpath "my-flight.mp4"
 
-# once published to npm
+# from npm
 npx neo2-flightpath "my-flight.mp4"
 
 # a whole folder, topographic map, altitude + speed HUD
@@ -31,7 +31,9 @@ Output lands beside the source video as `<basename>_map.mp4` (configurable).
   Windows: `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`;
   Linux: `apt install ffmpeg`.
 - **Google Chrome or Microsoft Edge** installed — rendering uses the system
-  browser via `playwright-core`; nothing extra is downloaded. A custom
+  browser via `playwright-core`, which itself never downloads a browser. No
+  system browser either? `npx playwright install chromium` works too (the
+  Playwright browser registry is tried automatically), and any Chromium
   executable can be forced with `--browser <path>`.
 - Internet on the first run: map tiles are fetched politely and cached
   permanently afterwards (see *Tiles & attribution*).
@@ -73,22 +75,53 @@ The heading arrow shows **drone yaw** when the `CAM meta` stream provides it
 (valid even while hovering), otherwise **course over ground** computed from the
 track.
 
+## Examples
+
+```sh
+# quick conversion: one video, all default settings
+neo2-flightpath "flight.mp4"
+
+# full flight-path video: topographic map and the complete HUD
+# (heading arrow + altitude + speed chips)
+neo2-flightpath "flight.mp4" --style topo --hud heading,alt,speed
+```
+
 ## Config file
 
 Options can live in a `.neo2flightpath.json` discovered upward from the working
 directory (or named explicitly with `--config`). Precedence: **CLI flags >
-config file > defaults**. Keys are camelCase versions of the flags:
+config file > defaults**. Keys are camelCase versions of the flags; a complete
+example lives in [.neo2flightpath.example.json](.neo2flightpath.example.json):
 
 ```json
 {
-  "outDir": "_derived/flightmaps",
-  "tileCache": "_derived/tilecache",
+  "outDir": "out/flightmaps",
+  "outSuffix": "_map",
   "width": 768,
   "height": 768,
   "style": "satellite",
-  "hud": "heading"
+  "view": "follow",
+  "zoom": 0,
+  "zoomOut": 1,
+  "introSec": 2,
+  "outroSec": 2,
+  "hud": "heading,alt,speed",
+  "workers": 4,
+  "capture": "jpeg",
+  "preset": "medium",
+  "trail": "full",
+  "tileCache": "out/tilecache",
+  "browser": null,
+  "skipExisting": false,
+  "recurse": false,
+  "json": false,
+  "quiet": false
 }
 ```
+
+All keys are optional; anything omitted falls back to the default in the
+option table above. `hud` uses the same comma syntax as `--hud`, `browser`
+and an empty `outDir` (`null`) mean "system default" and "beside the source".
 
 ## Output & verification
 
@@ -145,16 +178,6 @@ decoder.
 CI (GitHub Actions) runs lint, tests, build and `npm pack --dry-run` on Node 24
 and 26. Dependabot checks npm packages and Actions monthly. Dependency
 versions are pinned with `~` (patch updates only).
-
-## Publishing (checklist for the release session)
-
-- [ ] npm name `neo2-flightpath` was free as of 2026-10-27 (names are only
-      reserved at first publish)
-- [ ] `npm login`, then `npm publish` (the `prepare` script builds `dist/`;
-      `files` ships only `bin/`, `dist/`, README, LICENSE)
-- [ ] verify: `npx neo2-flightpath --version`
-- [ ] optional: make the GitHub repo public so `npx github:MrManny/neo2-flightpath`
-      works without GitHub credentials
 
 ## License
 

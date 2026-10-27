@@ -58,7 +58,7 @@ interface Pos {
 
 // Position at time t (seconds), linear interpolation across the sample series.
 // Gaps of missing fixes longer than maxGapSec are bridged by holding the
-// nearest fix instead of interpolating across them.
+// earlier fix instead of interpolating across them.
 function positionAt(samples: TelSample[], t: number, maxGapSec = 3): Pos {
   const n = samples.length;
   if (n === 0) return { lat: null, lon: null, alt: null };
@@ -135,8 +135,8 @@ export async function loadTelemetry(
   if (srtPath) {
     const parsed = await parseSrt(srtPath);
     if (parsed.count === 0) throw new Error(`SRT sidecar has no cues: ${srtPath}`);
-    samples = parsed.cues.map((c, i) => ({
-      tSec: c.tSec !== null ? c.tSec : i / fpsValue,
+    samples = parsed.cues.map((c) => ({
+      tSec: c.tSec,
       lat: c.lat,
       lon: c.lon,
       relAlt: c.relAlt,
@@ -249,20 +249,29 @@ export async function loadTelemetry(
       }
     }
   }
-  // Forward-fill, then back-fill.
+  // Forward-fill, then back-fill the leading unknowns from the FIRST known
+  // heading - never from the flight's final heading, which would point the
+  // arrow the wrong way on clips that start hovering and turn later.
   let last: number | null = null;
   for (const i of validIdx) {
     if (rawHeading[i] !== null) last = rawHeading[i];
     else rawHeading[i] = last;
   }
-  if (last !== null) {
+  let firstKnown: number | null = null;
+  for (const i of validIdx) {
+    const h = rawHeading[i];
+    if (h !== null) {
+      firstKnown = h;
+      break;
+    }
+  }
+  if (firstKnown !== null) {
     for (const i of validIdx) {
-      if (rawHeading[i] === null) rawHeading[i] = last;
+      if (rawHeading[i] === null) rawHeading[i] = firstKnown;
       else break;
     }
   }
-  const firstWithHeading = validIdx.find((i) => rawHeading[i] !== null);
-  const defaultHeading = firstWithHeading !== undefined ? rawHeading[firstWithHeading] ?? 0 : 0;
+  const defaultHeading = firstKnown ?? 0;
   for (const i of validIdx) {
     if (rawHeading[i] === null) rawHeading[i] = defaultHeading;
   }
@@ -289,7 +298,7 @@ export async function loadTelemetry(
       lat: p.lat,
       lon: p.lon,
       alt: p.alt,
-      speed: sp === null ? null : Math.round(sp * 10) / 10,
+      speed: Math.round(sp * 10) / 10,
       headingDeg: Math.round(headingBySample[si] * 10) / 10,
     });
   }

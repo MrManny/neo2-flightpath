@@ -38,6 +38,9 @@ export function parseSrtText(text: string): SrtParseResult {
   const cues: SrtCue[] = [];
   let noLock = 0;
   let baseMs: number | null = null;
+  // Cues that already saw a latitude/longitude line: a second (repeated) line
+  // in one cue must not count as another no-lock event.
+  const sawLatLon = new Set<SrtCue>();
 
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.replace(/<[^>]*>/g, '').trim();
@@ -81,7 +84,8 @@ export function parseSrtText(text: string): SrtParseResult {
     }
 
     const g = RX_LATLON.exec(line);
-    if (g && cue.lat === null) {
+    if (g && cue.lat === null && !sawLatLon.has(cue)) {
+      sawLatLon.add(cue);
       const lat = num(g[1]);
       const lon = num(g[2]);
       if (lat !== null && lon !== null && !(lat === 0 && lon === 0)) {

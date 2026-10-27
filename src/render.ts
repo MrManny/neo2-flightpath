@@ -42,7 +42,17 @@ export function startServer({
   tileCache: string;
 }): Promise<ServerHandle> {
   const server = http.createServer((req, res) => {
-    const url = decodeURIComponent((req.url || '/').split('?')[0]);
+    // A malformed request URL (e.g. "GET /%") must not crash the render:
+    // decodeURIComponent throws URIError, which would surface as an
+    // uncaughtException inside this handler.
+    let url: string;
+    try {
+      url = decodeURIComponent((req.url || '/').split('?')[0]);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('bad request');
+      return;
+    }
     let file: string | null = null;
     if (url === '/' || url === '/index.html') {
       res.writeHead(200, { 'Content-Type': MIME['.html'] });
@@ -97,12 +107,14 @@ async function launchBrowser(
   const { chromium } = await import('playwright-core');
   const attempts: LaunchAttempt[] = [];
   if (browserPath) attempts.push({ executablePath: browserPath });
-  attempts.push({ channel: 'chrome' }, { channel: 'msedge' });
+  // System Chrome/Edge first (nothing to download), then the Playwright
+  // browser registry (usable after `npx playwright install chromium`).
+  attempts.push({ channel: 'chrome' }, { channel: 'msedge' }, {});
   let lastErr: unknown = null;
   for (const opt of attempts) {
     try {
       const browser = await chromium.launch({ headless: true, ...opt });
-      log(`browser: ${opt.executablePath || opt.channel}`);
+      log(`browser: ${opt.executablePath || opt.channel || 'playwright-registry'}`);
       return browser;
     } catch (e) {
       lastErr = e;
@@ -110,8 +122,9 @@ async function launchBrowser(
   }
   const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
   throw new Error(
-    `could not launch a Chromium browser (tried explicit path, channel=chrome, channel=msedge): ${msg}. ` +
-      'Install Google Chrome or Microsoft Edge, or pass --browser <path>.',
+    `could not launch a Chromium browser (tried explicit path, channel=chrome, channel=msedge, playwright registry): ${msg}. ` +
+      'Install Google Chrome or Microsoft Edge, run "npx playwright install chromium", ' +
+      'or pass --browser <path>.',
   );
 }
 
@@ -165,6 +178,17 @@ export async function renderVideo(
     ffmpegErr += d.toString();
   });
 
+  // ffmpeg's stdin must never surface an unhandled 'error' (EPIPE when the
+  // encoder exits early), and a worker parked on 'drain' must wake up when it
+  // dies instead of waiting forever. `closed` also resolves for late waits.
+  const closed = new Promise<number | null>((resolve) => {
+    ffmpeg.once('close', (code) => resolve(code));
+  });
+  const gone = new Promise<string>((resolve) => {
+    ffmpeg.stdin.on('error', (e: Error) => resolve(`ffmpeg stdin error: ${e.message}`));
+    void closed.then((code) => resolve(`ffmpeg exited with code ${code}`));
+  });
+
   const results = new Map<number, Buffer>(); // captureIdx -> frame buffer
   let nextEmit = 0;
   let captureCursor = 0;
@@ -176,7 +200,15 @@ export async function renderVideo(
     while (results.has(nextEmit)) {
       const buf = results.get(nextEmit) as Buffer;
       results.delete(nextEmit);
-      if (!ffmpeg.stdin.write(buf)) await once(ffmpeg.stdin, 'drain');
+      if (!ffmpeg.stdin.write(buf)) {
+        const woke = await Promise.race([
+          once(ffmpeg.stdin, 'drain').then(() => 'drain' as const),
+          gone,
+        ]);
+        if (woke !== 'drain') {
+          throw new Error(`${woke}${ffmpegErr.trim() ? `: ${ffmpegErr.trim()}` : ''}`);
+        }
+      }
       nextEmit++;
     }
   }
@@ -232,7 +264,8 @@ export async function renderVideo(
     await Promise.all(Array.from({ length: n }, (_, i) => worker(i + 1)));
     await tryEmit();
     ffmpeg.stdin.end();
-    const [code] = await once(ffmpeg, 'close');
+    // `closed` (not `once(ffmpeg, 'close')`): ffmpeg may already have exited.
+    const code = await closed;
     if (code !== 0) {
       throw new Error(`ffmpeg exited with code ${code}: ${ffmpegErr.trim()}`);
     }

@@ -64,3 +64,53 @@ describe('loadTelemetry (SRT source)', () => {
     ).rejects.toThrow(/no telemetry found/);
   });
 });
+
+describe('loadTelemetry (heading)', () => {
+  // 25 fps cues (40 ms): hover, then fly north, then turn east. The leading
+  // hover has no course over ground, so its heading must be back-filled from
+  // the FIRST known heading (north) - not the flight's final one (east).
+  function turnSrt(): string {
+    const cues: string[] = [];
+    for (let i = 0; i <= 70; i++) {
+      const ms = i * 40;
+      let lat = 46.613;
+      let lon = 14.262;
+      if (i >= 21 && i <= 40) lat += (i - 20) * 0.00001; // north
+      if (i >= 41) {
+        lat += 20 * 0.00001;
+        lon += (i - 40) * 0.00001; // east
+      }
+      cues.push(
+        `${i + 1}`,
+        `00:00:${String(Math.floor(ms / 1000)).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')} --> ` +
+          `00:00:${String(Math.floor((ms + 40) / 1000)).padStart(2, '0')},${String((ms + 40) % 1000).padStart(3, '0')}`,
+        '2026-05-25 09:18:11.708',
+        `[latitude: ${lat.toFixed(6)}] [longitude: ${lon.toFixed(6)}]`,
+        '[rel_alt: 3.300 abs_alt: 313.227]',
+        '',
+      );
+    }
+    return cues.join('\n');
+  }
+
+  it('back-fills leading headings from the first known heading', async () => {
+    const dir = tmpDir();
+    const video = path.join(dir, 'turn.mp4');
+    fs.writeFileSync(video, '');
+    fs.writeFileSync(path.join(dir, 'turn.srt'), turnSrt());
+
+    const tel = await loadTelemetry(video, {
+      frames: 71,
+      fpsValue: 25,
+      durationSec: 2.84,
+    });
+
+    expect(tel.headingMode).toBe('cog');
+    // Frame 0 is still hovering: its heading must match the northbound leg.
+    const first = tel.frames[0].headingDeg;
+    expect(Math.min(first, 360 - first)).toBeLessThan(30);
+    // The final frames face east - the turn is real and was detected.
+    const last = tel.frames[70].headingDeg;
+    expect(Math.abs(last - 90)).toBeLessThan(30);
+  });
+});
