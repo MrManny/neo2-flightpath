@@ -26,10 +26,9 @@ Output lands beside the source video as `<basename>_map.mp4` (configurable).
 
 ### Example output
 
-All frames below are at **1:20** of the same recording, `DJI_20261010105301_0001_D.MP4`
-(Hohenwurz, 2026-10-10):
+All frames below are at **1:20** of the same recording:
 
-![Source footage at 1:20: autumn meadows and forest above the Gurktal](docs/images/example-source-frame.jpg)
+![Source footage at 1:20: autumn meadows and forest](docs/images/example-source-frame.jpg)
 
 *Source footage at 1:20 — the flight recording the examples below are rendered from.*
 
