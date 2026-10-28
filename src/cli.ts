@@ -14,6 +14,7 @@ import { collectRecordings } from './inputs.js';
 import { requireTools } from './ff.js';
 import { runBatch } from './run.js';
 import type { RecordingSummary } from './run.js';
+import { createTracing } from './tracing.js';
 
 export interface ParsedCli {
   inputs: string[];
@@ -216,24 +217,32 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       if (!config.quiet) process.stderr.write(`[neo2-flightpath] ${msg}\n`);
     };
 
-    await requireTools();
-    const videos = collectRecordings(parsed.inputs, { recurse: config.recurse });
-    if (config.outDir) fs.mkdirSync(config.outDir, { recursive: true });
-    log(
-      `${videos.length} recording(s) -> ${config.outDir ?? 'beside the sources'}` +
-        (configPath ? ` (config: ${configPath})` : ''),
-    );
+    const tracing = await createTracing();
+    if (tracing.enabled) log(`tracing: enabled (OTLP/HTTP protobuf)`);
+    try {
+      await requireTools();
+      const videos = collectRecordings(parsed.inputs, { recurse: config.recurse });
+      if (config.outDir) fs.mkdirSync(config.outDir, { recursive: true });
+      log(
+        `${videos.length} recording(s) -> ${config.outDir ?? 'beside the sources'}` +
+          (configPath ? ` (config: ${configPath})` : ''),
+      );
 
-    const emit = (summary: RecordingSummary): void => {
-      if (config.json) {
-        // Flush synchronously: the summary must survive any later I/O hiccups.
-        fs.writeSync(1, `${JSON.stringify(summary)}\n`);
-      }
-    };
+      const emit = (summary: RecordingSummary): void => {
+        if (config.json) {
+          // Flush synchronously: the summary must survive any later I/O hiccups.
+          fs.writeSync(1, `${JSON.stringify(summary)}\n`);
+        }
+      };
 
-    const result = await runBatch(videos, config, log, emit);
-    log(`done: ${result.ok} ok, ${result.skipped} skipped, ${result.failed} failed`);
-    if (result.failed > 0) process.exitCode = 1;
+      const result = await runBatch(videos, config, log, emit, {
+        tracer: tracing.tracer,
+      });
+      log(`done: ${result.ok} ok, ${result.skipped} skipped, ${result.failed} failed`);
+      if (result.failed > 0) process.exitCode = 1;
+    } finally {
+      await tracing.shutdown();
+    }
   } catch (e) {
     if (isCommanderExit(e)) {
       process.exitCode = commanderExitCode(e);
