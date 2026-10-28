@@ -7,6 +7,9 @@ import {
   NOOP_TRACER,
   createTracing,
   isTracingEnabled,
+  otlpHeaders,
+  otlpTracesUrl,
+  resourceAttributesFromEnv,
   withSpan,
 } from '../src/tracing.js';
 import { OTLP_ENDPOINT as ENDPOINT, tracingHarness } from './fixtures.js';
@@ -165,6 +168,19 @@ describe('createTracing (enabled)', () => {
     ).toThrow(/no OpenTelemetry handle/);
   });
 
+  it('takes the resource identity from the env seam', async () => {
+    const h = await tracingHarness({
+      OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT,
+      OTEL_SERVICE_NAME: 'seam-service',
+      OTEL_RESOURCE_ATTRIBUTES: 'team=flight,service.version=9.9.9',
+    });
+    h.tracer.startSpan('recording.process').end();
+    const [span] = await h.finish();
+    expect(span.resource.attributes['service.name']).toBe('seam-service');
+    expect(span.resource.attributes['service.version']).toBe('9.9.9');
+    expect(span.resource.attributes['team']).toBe('flight');
+  });
+
   it('carries service.name and service.version on every span resource', async () => {
     vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', ENDPOINT);
     const exporter = new InMemorySpanExporter();
@@ -247,4 +263,85 @@ it.for([
   });
   expect(tracing.enabled).toBe(true);
   await tracing.shutdown();
+});
+
+describe('OTLP env plumbing', () => {
+  it.for([
+    {
+      name: 'traces endpoint used as-is',
+      env: {
+        OTEL_EXPORTER_OTLP_ENDPOINT: 'http://generic:4318',
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'http://traces:4318/v1/traces',
+      },
+      want: 'http://traces:4318/v1/traces',
+    },
+    {
+      name: 'generic endpoint gaining the signal path',
+      env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://generic:4318' },
+      want: 'http://generic:4318/v1/traces',
+    },
+    {
+      name: 'trailing slashes stripped before the signal path',
+      env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://generic:4318//' },
+      want: 'http://generic:4318/v1/traces',
+    },
+    {
+      name: 'no endpoint at all',
+      env: {},
+      want: undefined,
+    },
+  ])('otlpTracesUrl: $name', ({ env, want }) => {
+    expect(otlpTracesUrl(env)).toBe(want);
+  });
+
+  it.for([
+    {
+      name: 'traces headers winning per key over generic ones',
+      env: {
+        OTEL_EXPORTER_OTLP_HEADERS: 'x-api-key=abc,x-team=core',
+        OTEL_EXPORTER_OTLP_TRACES_HEADERS: 'x-team=traces',
+      },
+      want: { 'x-api-key': 'abc', 'x-team': 'traces' },
+    },
+    {
+      name: 'URL-encoded values decoded',
+      env: { OTEL_EXPORTER_OTLP_HEADERS: 'x-note=hello%20world' },
+      want: { 'x-note': 'hello world' },
+    },
+    {
+      name: 'malformed pairs skipped',
+      env: { OTEL_EXPORTER_OTLP_HEADERS: 'broken,=nope,k=v' },
+      want: { k: 'v' },
+    },
+    {
+      name: 'no headers at all',
+      env: {},
+      want: {},
+    },
+  ])('otlpHeaders: $name', ({ env, want }) => {
+    expect(otlpHeaders(env)).toEqual(want);
+  });
+
+  it.for([
+    {
+      name: 'OTEL_SERVICE_NAME winning over the attributes',
+      env: {
+        OTEL_SERVICE_NAME: 'from-service-name',
+        OTEL_RESOURCE_ATTRIBUTES: 'team=flight,service.name=from-attrs',
+      },
+      want: { 'service.name': 'from-service-name', team: 'flight' },
+    },
+    {
+      name: 'URL-encoded values decoded',
+      env: { OTEL_RESOURCE_ATTRIBUTES: 'build=v%2F1' },
+      want: { build: 'v/1' },
+    },
+    {
+      name: 'nothing set',
+      env: {},
+      want: {},
+    },
+  ])('resourceAttributesFromEnv: $name', ({ env, want }) => {
+    expect(resourceAttributesFromEnv(env)).toEqual(want);
+  });
 });

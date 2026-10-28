@@ -85,6 +85,52 @@ export function isTracingEnabled(env: Env = process.env): boolean {
   return endpoint !== undefined && !envFlag(env['OTEL_SDK_DISABLED']);
 }
 
+// The signal-specific endpoint is used as-is; the generic one is a base URL
+// the signal path is appended to (OTLP spec).
+export function otlpTracesUrl(env: Env): string | undefined {
+  const specific = envText(env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT']);
+  if (specific) return specific;
+  const base = envText(env['OTEL_EXPORTER_OTLP_ENDPOINT']);
+  return base ? `${base.replace(/\/+$/, '')}/v1/traces` : undefined;
+}
+
+// `k1=v1,k2=v2` lists with URL-encoded values, as the OTEL header and
+// resource-attribute variables use.
+function parseKeyValueList(value: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pair of (value ?? '').split(',')) {
+    const eq = pair.indexOf('=');
+    if (eq <= 0) continue;
+    const key = pair.slice(0, eq).trim();
+    const rawValue = pair.slice(eq + 1).trim();
+    if (!key) continue;
+    try {
+      out[key] = decodeURIComponent(rawValue);
+    } catch {
+      out[key] = rawValue;
+    }
+  }
+  return out;
+}
+
+// Signal-specific headers win per key over the generic ones (OTLP spec).
+export function otlpHeaders(env: Env): Record<string, string> {
+  return {
+    ...parseKeyValueList(envText(env['OTEL_EXPORTER_OTLP_HEADERS'])),
+    ...parseKeyValueList(envText(env['OTEL_EXPORTER_OTLP_TRACES_HEADERS'])),
+  };
+}
+
+// The resource identity from the standard variables. Parsed here instead of
+// via envDetector because that reads process.env directly, which would leave
+// the env seam half-applied.
+export function resourceAttributesFromEnv(env: Env): Record<string, string> {
+  const attrs = parseKeyValueList(envText(env['OTEL_RESOURCE_ATTRIBUTES']));
+  const serviceName = envText(env['OTEL_SERVICE_NAME']);
+  if (serviceName !== undefined) attrs['service.name'] = serviceName;
+  return attrs;
+}
+
 // Exporting is fixed to OTLP/HTTP protobuf; a protocol variable promising
 // anything else would silently push into the wrong port of the collector.
 // Per the OTel spec the signal-specific variable wins over the generic one,
@@ -195,9 +241,10 @@ class OtelTracer implements Tracer {
 }
 
 export interface CreateTracingOptions {
-  /** Enablement and protocol guard read these; defaults to process.env. */
+  /** Every OTEL_* setting is read from here, endpoint and resource included;
+   * defaults to process.env. */
   env?: Env;
-  /** Test seam: replaces the OTLP exporter (which otherwise reads process.env). */
+  /** Test seam: replaces the OTLP exporter. */
   spanExporter?: SpanExporter;
 }
 
@@ -221,18 +268,21 @@ export async function createTracing(
   const { TracerProvider, BatchSpanProcessor } = await import(
     '@opentelemetry/sdk-trace'
   );
-  const { envDetector, resourceFromAttributes } = await import(
-    '@opentelemetry/resources'
+  const { resourceFromAttributes } = await import('@opentelemetry/resources');
+  const { OTLPTraceExporter } = await import(
+    '@opentelemetry/exporter-trace-otlp-proto'
   );
   const exporter =
     options.spanExporter ??
-    new (await import('@opentelemetry/exporter-trace-otlp-proto'))
-      .OTLPTraceExporter();
+    new OTLPTraceExporter({
+      url: otlpTracesUrl(env),
+      headers: otlpHeaders(env),
+    });
 
   const resource = resourceFromAttributes({
     'service.name': SERVICE_NAME,
     'service.version': VERSION,
-  }).merge(resourceFromAttributes(envDetector.detect().attributes ?? {}));
+  }).merge(resourceFromAttributes(resourceAttributesFromEnv(env)));
 
   const provider = new TracerProvider({
     resource,
