@@ -2,15 +2,17 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SpanStatusCode } from '@opentelemetry/api';
-import type { ReadableSpan } from '@opentelemetry/sdk-trace';
-import { InMemorySpanExporter } from '@opentelemetry/sdk-trace';
 
 import { FrameBatchRecorder, renderVideo } from '../src/render.js';
 import type { RenderOpts } from '../src/render.js';
-import { createTracing } from '../src/tracing.js';
-import { cleanupTmpDirs, tmpDir } from './fixtures.js';
-
-const ENDPOINT = 'http://127.0.0.1:4318';
+import {
+  byName,
+  cleanupTmpDirs,
+  endMs,
+  startMs,
+  tmpDir,
+  tracingHarness,
+} from './fixtures.js';
 
 const mocks = vi.hoisted(() => ({
   exitCode: 0,
@@ -86,40 +88,20 @@ function renderOpts(overrides: Partial<RenderOpts> = {}): RenderOpts {
   };
 }
 
-function byName(spans: ReadableSpan[], name: string): ReadableSpan | undefined {
-  return spans.find((s) => s.name === name);
-}
-
-function startMs(span: ReadableSpan | undefined): number {
-  if (!span) throw new Error('span not found');
-  return span.startTime[0] * 1000 + span.startTime[1] / 1e6;
-}
-
-function endMs(span: ReadableSpan | undefined): number {
-  if (!span) throw new Error('span not found');
-  return span.endTime[0] * 1000 + span.endTime[1] / 1e6;
-}
-
 async function tracedRender(opts: RenderOpts) {
-  const exporter = new InMemorySpanExporter();
-  const tracing = await createTracing({
-    env: { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT },
-    spanExporter: exporter,
-  });
-  const root = tracing.tracer.startSpan('recording.process');
+  const harness = await tracingHarness();
+  const root = harness.tracer.startSpan('recording.process');
   try {
     const result = await renderVideo({
       ...opts,
-      trace: { tracer: tracing.tracer, parent: root },
+      trace: { tracer: harness.tracer, parent: root },
     });
     root.end();
-    await tracing.flush();
-    const spans = exporter.getFinishedSpans();
-    await tracing.shutdown();
+    const spans = await harness.finish();
     return { spans, result };
   } catch (e) {
     root.end();
-    await tracing.shutdown();
+    await harness.finish();
     throw e;
   }
 }
@@ -190,17 +172,11 @@ describe('renderVideo span tree', () => {
 
   it('marks encode ERROR when ffmpeg exits non-zero', async () => {
     mocks.exitCode = 3;
-    const exporter = new InMemorySpanExporter();
-    const tracing = await createTracing({
-      env: { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT },
-      spanExporter: exporter,
-    });
+    const harness = await tracingHarness();
     await expect(
-      renderVideo(renderOpts({ trace: { tracer: tracing.tracer } })),
+      renderVideo(renderOpts({ trace: { tracer: harness.tracer } })),
     ).rejects.toThrow('ffmpeg exited with code 3');
-    await tracing.flush();
-    const spans = exporter.getFinishedSpans();
-    await tracing.shutdown();
+    const spans = await harness.finish();
 
     const encode = byName(spans, 'render.encode');
     expect(encode?.attributes['render.ffmpeg.exitCode']).toBe(3);
@@ -214,17 +190,11 @@ describe('renderVideo span tree', () => {
 
   it('marks capture ERROR when a screenshot fails', async () => {
     mocks.screenshotFailAt = 2;
-    const exporter = new InMemorySpanExporter();
-    const tracing = await createTracing({
-      env: { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT },
-      spanExporter: exporter,
-    });
+    const harness = await tracingHarness();
     await expect(
-      renderVideo(renderOpts({ trace: { tracer: tracing.tracer } })),
+      renderVideo(renderOpts({ trace: { tracer: harness.tracer } })),
     ).rejects.toThrow('screenshot failed');
-    await tracing.flush();
-    const spans = exporter.getFinishedSpans();
-    await tracing.shutdown();
+    const spans = await harness.finish();
 
     const capture = byName(spans, 'render.capture');
     const encode = byName(spans, 'render.encode');
@@ -242,19 +212,12 @@ describe('FrameBatchRecorder', () => {
     cadence: number,
     record: (recorder: FrameBatchRecorder) => void,
   ) {
-    const exporter = new InMemorySpanExporter();
-    const tracing = await createTracing({
-      env: { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT },
-      spanExporter: exporter,
-    });
-    const parent = tracing.tracer.startSpan('render.capture');
-    const recorder = new FrameBatchRecorder(tracing.tracer, parent, frames, cadence);
+    const harness = await tracingHarness();
+    const parent = harness.tracer.startSpan('render.capture');
+    const recorder = new FrameBatchRecorder(harness.tracer, parent, frames, cadence);
     record(recorder);
     parent.end();
-    await tracing.flush();
-    const spans = exporter.getFinishedSpans();
-    await tracing.shutdown();
-    return spans;
+    return harness.finish();
   }
 
   it('closes batches at the cadence boundary and at the last frame', async () => {

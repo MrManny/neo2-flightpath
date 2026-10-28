@@ -9,8 +9,7 @@ import {
   isTracingEnabled,
   withSpan,
 } from '../src/tracing.js';
-
-const ENDPOINT = 'http://127.0.0.1:4318';
+import { OTLP_ENDPOINT as ENDPOINT, tracingHarness } from './fixtures.js';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -109,26 +108,18 @@ describe('createTracing (disabled)', () => {
 });
 
 describe('createTracing (enabled)', () => {
-  async function enabledTracing(exporter: InMemorySpanExporter) {
-    return createTracing({
-      env: { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT },
-      spanExporter: exporter,
-    });
-  }
-
   it('exports spans with parenting, attributes and failures', async () => {
-    const exporter = new InMemorySpanExporter();
-    const tracing = await enabledTracing(exporter);
-    expect(tracing.enabled).toBe(true);
+    const h = await tracingHarness();
+    expect(h.tracing.enabled).toBe(true);
 
-    const root = tracing.tracer.startSpan('recording.process', {
+    const root = h.tracer.startSpan('recording.process', {
       attributes: { 'source.file.name': 'clip.mp4' },
     });
-    await withSpan(tracing.tracer, 'probe', { parent: root }, async (span) => {
+    await withSpan(h.tracer, 'probe', { parent: root }, async (span) => {
       span.setAttribute('source.frames', 3);
     });
     await withSpan(
-      tracing.tracer,
+      h.tracer,
       'telemetry.load',
       { parent: root },
       async () => {
@@ -136,9 +127,7 @@ describe('createTracing (enabled)', () => {
       },
     ).catch(() => {});
     root.end();
-    await tracing.flush();
-    const spans = exporter.getFinishedSpans();
-    await tracing.shutdown();
+    const spans = await h.finish();
     const rootSpan = spans.find((s) => s.name === 'recording.process');
     const probe = spans.find((s) => s.name === 'probe');
     const tel = spans.find((s) => s.name === 'telemetry.load');
@@ -158,14 +147,11 @@ describe('createTracing (enabled)', () => {
   });
 
   it('records non-Error failures as exceptions too', async () => {
-    const exporter = new InMemorySpanExporter();
-    const tracing = await enabledTracing(exporter);
-    await withSpan(tracing.tracer, 'probe', {}, async () => {
+    const h = await tracingHarness();
+    await withSpan(h.tracer, 'probe', {}, async () => {
       throw 'string failure';
     }).catch(() => {});
-    await tracing.flush();
-    const [span] = exporter.getFinishedSpans();
-    await tracing.shutdown();
+    const [span] = await h.finish();
     expect(span.status.code).toBe(SpanStatusCode.ERROR);
     expect(span.events.some((e) => e.name === 'exception')).toBe(true);
   });

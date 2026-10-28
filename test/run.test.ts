@@ -2,8 +2,6 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { SpanStatusCode } from '@opentelemetry/api';
-import type { ReadableSpan } from '@opentelemetry/sdk-trace';
-import { InMemorySpanExporter } from '@opentelemetry/sdk-trace';
 
 import { DEFAULT_CONFIG } from '../src/config.js';
 import type { RenderConfig } from '../src/config.js';
@@ -16,8 +14,13 @@ import {
 } from '../src/run.js';
 import type { PipelineDeps, RecordingSummary } from '../src/run.js';
 import type { Telemetry } from '../src/telemetry.js';
-import { createTracing } from '../src/tracing.js';
-import { cleanupTmpDirs, tmpDir } from './fixtures.js';
+import {
+  byName,
+  cleanupTmpDirs,
+  durationMs,
+  tmpDir,
+  tracingHarness,
+} from './fixtures.js';
 
 describe('planOutputs', () => {
   const config = { ...DEFAULT_CONFIG, outDir: path.join('out', 'maps') };
@@ -68,7 +71,6 @@ describe('planOutputs', () => {
 // --- span tree over the pipeline --------------------------------------------
 
 const VIDEO = path.join('clips', 'flight.mp4');
-const ENDPOINT = 'http://127.0.0.1:4318';
 
 const PROBE: VideoProbe = {
   fps: { num: 30, den: 1, value: 30, str: '30' },
@@ -119,11 +121,6 @@ function testConfig(overrides: Partial<RenderConfig> = {}): RenderConfig {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-function durationMs(span: ReadableSpan | undefined): number {
-  if (!span) throw new Error('span not found');
-  return span.duration[0] * 1000 + span.duration[1] / 1e6;
-}
-
 afterEach(cleanupTmpDirs);
 
 describe('processRecording span tree', () => {
@@ -132,18 +129,12 @@ describe('processRecording span tree', () => {
     config: RenderConfig = testConfig(),
     video: string = VIDEO,
   ) {
-    const exporter = new InMemorySpanExporter();
-    const tracing = await createTracing({
-      env: { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT },
-      spanExporter: exporter,
-    });
+    const harness = await tracingHarness();
     const summary = await processRecording(video, config, () => {}, undefined, {
       deps,
-      trace: { tracer: tracing.tracer },
+      trace: { tracer: harness.tracer },
     });
-    await tracing.flush();
-    const spans = exporter.getFinishedSpans();
-    await tracing.shutdown();
+    const spans = await harness.finish();
     return { spans, summary };
   }
 
@@ -186,27 +177,26 @@ describe('processRecording span tree', () => {
 
   it('carries the stage attributes on each stage span', async () => {
     const { spans } = await tracedRun(stubDeps());
-    const byName = (name: string) => spans.find((s) => s.name === name);
 
-    expect(byName('telemetry.load')?.attributes).toMatchObject({
+    expect(byName(spans, 'telemetry.load')?.attributes).toMatchObject({
       'telemetry.source': 'srt',
       'telemetry.method': 'srt-cues',
       'telemetry.fix.count': 3,
       'telemetry.noLock.count': 2,
     });
-    expect(byName('plan')?.attributes).toMatchObject({
+    expect(byName(spans, 'plan')?.attributes).toMatchObject({
       'plan.view': 'follow',
       'plan.zoomOut': 1,
       'plan.tile.count': expect.any(Number),
       'plan.zoom': expect.any(Number),
     });
-    expect(byName('tiles.prefetch')?.attributes).toMatchObject({
+    expect(byName(spans, 'tiles.prefetch')?.attributes).toMatchObject({
       'tiles.total': 5,
       'tiles.downloaded': 2,
       'tiles.cached': 2,
       'tiles.failed': 1,
     });
-    expect(byName('output.verify')?.attributes).toMatchObject({
+    expect(byName(spans, 'output.verify')?.attributes).toMatchObject({
       'verify.frames.expected': 3,
       'verify.frames.actual': 3,
       'verify.fps.expected': '30',
@@ -227,8 +217,8 @@ describe('processRecording span tree', () => {
       },
     });
     const { spans, summary } = await tracedRun(deps);
-    const probe = spans.find((s) => s.name === 'probe');
-    const root = spans.find((s) => s.name === 'recording.process');
+    const probe = byName(spans, 'probe');
+    const root = byName(spans, 'recording.process');
 
     expect(durationMs(probe)).toBeGreaterThanOrEqual(110);
     expect(durationMs(root)).toBeGreaterThanOrEqual(700);
@@ -236,11 +226,7 @@ describe('processRecording span tree', () => {
   });
 
   it('marks the failing span and the root ERROR and records the exception', async () => {
-    const exporter = new InMemorySpanExporter();
-    const tracing = await createTracing({
-      env: { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT },
-      spanExporter: exporter,
-    });
+    const harness = await tracingHarness();
     const deps = stubDeps({
       probeVideo: async () => {
         throw new Error('ffprobe exploded');
@@ -249,12 +235,10 @@ describe('processRecording span tree', () => {
     await expect(
       processRecording(VIDEO, testConfig(), () => {}, undefined, {
         deps,
-        trace: { tracer: tracing.tracer },
+        trace: { tracer: harness.tracer },
       }),
     ).rejects.toThrow('ffprobe exploded');
-    await tracing.flush();
-    const spans = exporter.getFinishedSpans();
-    await tracing.shutdown();
+    const spans = await harness.finish();
     expect(spans.map((s) => s.name).sort()).toEqual([
       'probe',
       'recording.process',
@@ -280,11 +264,7 @@ describe('processRecording span tree', () => {
 
 describe('runBatch tracing', () => {
   it('continues after a failure and still exports the remaining recordings', async () => {
-    const exporter = new InMemorySpanExporter();
-    const tracing = await createTracing({
-      env: { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT },
-      spanExporter: exporter,
-    });
+    const harness = await tracingHarness();
     const deps = stubDeps({
       probeVideo: async (videoPath: string) => {
         if (videoPath.endsWith('broken.mp4')) throw new Error('no telemetry in file');
@@ -297,11 +277,9 @@ describe('runBatch tracing', () => {
       testConfig(),
       () => {},
       (summary) => emitted.push(summary),
-      { deps, trace: { tracer: tracing.tracer } },
+      { deps, trace: { tracer: harness.tracer } },
     );
-    await tracing.flush();
-    const spans = exporter.getFinishedSpans();
-    await tracing.shutdown();
+    const spans = await harness.finish();
 
     expect(result).toEqual({ ok: 1, skipped: 0, failed: 1 });
     expect(emitted.map((s) => s.status)).toEqual(['error', 'ok']);
@@ -328,22 +306,16 @@ describe('runBatch tracing', () => {
   });
 
   it('emits no trace for skipped recordings', async () => {
-    const exporter = new InMemorySpanExporter();
-    const tracing = await createTracing({
-      env: { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT },
-      spanExporter: exporter,
-    });
+    const harness = await tracingHarness();
     const deps = stubDeps({ outputMatchesSource: async () => true });
     const result = await runBatch(
       [VIDEO],
       testConfig({ skipExisting: true }),
       () => {},
       () => {},
-      { deps, trace: { tracer: tracing.tracer } },
+      { deps, trace: { tracer: harness.tracer } },
     );
-    await tracing.flush();
-    const spans = exporter.getFinishedSpans();
-    await tracing.shutdown();
+    const spans = await harness.finish();
 
     expect(result).toEqual({ ok: 0, skipped: 1, failed: 0 });
     expect(spans).toHaveLength(0);
