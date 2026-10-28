@@ -5,7 +5,7 @@ directory; the fragments are folded into `CHANGELOG.md` when a release is cut.
 
 ## Adding a changeset
 
-Run `npx changeset`, or hand-write a `<name>.md` file:
+Run `npm run changeset`, or hand-write a `<name>.md` file:
 
 ```md
 ---

@@ -18,6 +18,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "changeset": "changeset",
+    "changeset:version": "changeset version && npm install --package-lock-only",
     "test": "vitest run",
     "lint": "eslint .",
     "prepare": "npm run build"

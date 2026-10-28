@@ -16,16 +16,14 @@ description: Release workflow. Use when preparing a release.
 
 3. switch to a dedicated release branch named `release/vX.Y.Z`
 
-4. Fold the changesets: run `npx changeset version` — this bumps the version in `package.json`, folds the fragments into `CHANGELOG.md` and removes the consumed fragment files; verify the resulting version matches step 2
+4. Fold the changesets: run `npm run changeset:version` — this bumps the version in `package.json`, folds the fragments into `CHANGELOG.md`, removes the consumed fragment files and synchronizes the version in `package-lock.json`; verify the resulting version matches step 2
 
-5. Synchronize the lock file (`npm install --package-lock-only`)
+5. Commit and push
 
-6. Commit and push
+6. Open a PR with the title `release: vX.Y.Z`
 
-7. Open a PR with the title `release: vX.Y.Z`
+7. Wait for GitHub CI to finish for the PR; the pipeline **must** be green to continue, otherwise halt and ask the user for direction
 
-8. Wait for GitHub CI to finish for the PR; the pipeline **must** be green to continue, otherwise halt and ask the user for direction
+8. When CI finished, let the user do a final inspection of the PR and merge it
 
-9. When CI finished, let the user do a final inspection of the PR and merge it
-
-10. When the user has merged the PR, use the `gh` CLI tool to draft a new release (using the tag `vX.Y.Z`)
+9. When the user has merged the PR, use the `gh` CLI tool to draft a new release (using the tag `vX.Y.Z`)
