@@ -69,23 +69,29 @@ export function outputPathFor(videoPath: string, config: RenderConfig): string {
 // Assign every video a unique output path. Recordings with the same basename
 // from different folders would otherwise overwrite each other in a shared
 // --out-dir; colliding names get a deterministic -2, -3, ... suffix.
-export function planOutputs(videos: string[], config: RenderConfig): string[] {
+export interface PlannedOutput {
+  out: string;
+  /** The plain path this run deviates from when a collision forced a suffix. */
+  plain: string;
+}
+
+export function planOutputs(videos: string[], config: RenderConfig): PlannedOutput[] {
   const used = new Set<string>();
   return videos.map((video) => {
-    const primary = outputPathFor(video, config);
-    const key = primary.toLowerCase();
+    const plain = outputPathFor(video, config);
+    const key = plain.toLowerCase();
     if (!used.has(key)) {
       used.add(key);
-      return primary;
+      return { out: plain, plain };
     }
-    const ext = path.extname(primary);
-    const stem = path.basename(primary, ext);
+    const ext = path.extname(plain);
+    const stem = path.basename(plain, ext);
     for (let n = 2; ; n++) {
-      const cand = path.join(path.dirname(primary), `${stem}-${n}${ext}`);
+      const cand = path.join(path.dirname(plain), `${stem}-${n}${ext}`);
       const candKey = cand.toLowerCase();
       if (!used.has(candKey)) {
         used.add(candKey);
-        return cand;
+        return { out: cand, plain };
       }
     }
   });
@@ -215,7 +221,8 @@ const realDeps: PipelineDeps = {
 };
 
 export interface PipelineOptions {
-  deps?: Partial<PipelineDeps>;
+  /** The pipeline's I/O shell; defaults to the real one. */
+  deps?: PipelineDeps;
   trace?: TraceContext;
 }
 
@@ -279,7 +286,7 @@ export async function processRecording(
 ): Promise<RecordingSummary> {
   const t0 = Date.now();
   const tracer = options.trace?.tracer ?? NOOP_TRACER;
-  const deps = { ...realDeps, ...options.deps };
+  const deps = options.deps ?? realDeps;
 
   const width = Math.max(64, 2 * Math.floor(config.width / 2));
   const height = Math.max(64, 2 * Math.floor(config.height / 2));
@@ -445,19 +452,6 @@ export async function processRecording(
 
 // --- batch orchestration ----------------------------------------------------
 
-function logOutputCollision(
-  video: string,
-  out: string,
-  plain: string,
-  log: LogFn,
-): void {
-  if (out !== plain) {
-    log(
-      `warning: output name collision for ${path.basename(video)} - writing ${path.basename(out)} instead`,
-    );
-  }
-}
-
 // Run the pipeline for every recording; failures never abort the batch.
 export async function runBatch(
   videos: string[],
@@ -467,36 +461,43 @@ export async function runBatch(
   options: PipelineOptions = {},
 ): Promise<BatchResult> {
   const result: BatchResult = { ok: 0, skipped: 0, failed: 0 };
-  const deps = { ...realDeps, ...options.deps };
+  const deps = options.deps ?? realDeps;
 
   // Collision-free outputs up front: two same-basename recordings must not
   // silently overwrite each other in a shared --out-dir.
-  const outs = planOutputs(videos, config);
+  const plans = planOutputs(videos, config);
 
   for (const [idx, video] of videos.entries()) {
     const base = path.basename(video);
     log(`=== ${base} ===`);
 
-    const out = outs[idx];
-    logOutputCollision(video, out, outputPathFor(video, config), log);
-    if (config.skipExisting && (await deps.outputMatchesSource(video, out))) {
-      log(`SKIP  ${out}  (exists and matches the source)`);
-      emit({ video, out, status: 'skipped', elapsedSec: 0 });
+    const plan = plans[idx];
+    if (plan.out !== plan.plain) {
+      log(
+        `warning: output name collision for ${base} - writing ${path.basename(plan.out)} instead`,
+      );
+    }
+    if (config.skipExisting && (await deps.outputMatchesSource(video, plan.out))) {
+      log(`SKIP  ${plan.out}  (exists and matches the source)`);
+      emit({ video, out: plan.out, status: 'skipped', elapsedSec: 0 });
       result.skipped++;
       continue;
     }
 
     try {
-      const summary = await processRecording(video, config, log, out, options);
+      const summary = await processRecording(video, config, log, plan.out, {
+        ...options,
+        deps,
+      });
       emit(summary);
-      log(`OK  ${out}  (${summary.frames} frames @ ${summary.fps}, ${summary.elapsedSec} s)`);
+      log(`OK  ${plan.out}  (${summary.frames} frames @ ${summary.fps}, ${summary.elapsedSec} s)`);
       result.ok++;
     } catch (e) {
       const message = errorMessage(e);
       log(`ERROR  ${base}: ${message}`);
       emit({
         video,
-        out,
+        out: plan.out,
         status: 'error',
         elapsedSec: 0,
         error: message,

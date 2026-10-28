@@ -24,12 +24,15 @@ describe('planOutputs', () => {
 
   it('keeps unique output names untouched', () => {
     const videos = [path.join('a', 'clip1.mp4'), path.join('b', 'clip2.mp4')];
-    const outs = planOutputs(videos, config);
-    expect(outs).toEqual([
+    const plans = planOutputs(videos, config);
+    expect(plans.map((p) => p.out)).toEqual([
       path.join('out', 'maps', 'clip1_map.mp4'),
       path.join('out', 'maps', 'clip2_map.mp4'),
     ]);
-    expect(outs[0]).toBe(outputPathFor(videos[0], config));
+    expect(plans[0]).toEqual({
+      out: outputPathFor(videos[0], config),
+      plain: outputPathFor(videos[0], config),
+    });
   });
 
   it('disambiguates same-basename recordings in a shared out dir', () => {
@@ -38,19 +41,22 @@ describe('planOutputs', () => {
       path.join('b', 'clip.mp4'),
       path.join('c', 'clip.mp4'),
     ];
-    const outs = planOutputs(videos, config);
-    expect(outs).toEqual([
+    const plans = planOutputs(videos, config);
+    expect(plans.map((p) => p.out)).toEqual([
       path.join('out', 'maps', 'clip_map.mp4'),
       path.join('out', 'maps', 'clip_map-2.mp4'),
       path.join('out', 'maps', 'clip_map-3.mp4'),
     ]);
-    expect(new Set(outs).size).toBe(3);
+    expect(new Set(plans.map((p) => p.out)).size).toBe(3);
+    // renamed plans remember the plain path they deviate from
+    expect(plans.map((p) => p.plain)).toEqual(videos.map((v) => outputPathFor(v, config)));
   });
 
   it('treats names differing only in case as a collision', () => {
     const videos = [path.join('a', 'CLIP.mp4'), path.join('b', 'clip.mp4')];
-    const outs = planOutputs(videos, config);
-    expect(outs[0].toLowerCase()).not.toBe(outs[1].toLowerCase());
+    const plans = planOutputs(videos, config);
+    expect(plans[0].out.toLowerCase()).not.toBe(plans[1].out.toLowerCase());
+    expect(plans[1].out).not.toBe(plans[1].plain);
   });
 
   it('is deterministic across runs with the same input list', () => {
