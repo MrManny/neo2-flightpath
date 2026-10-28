@@ -348,7 +348,6 @@ export async function renderVideo(
       const presetAttributes = { 'render.preset': preset };
       const timing: StageTiming = { evalMs: 0, captureMs: 0, emitMs: 0 };
       const { server, url } = await startServer({ html, style, tileCache });
-      const browser = await launchBrowser(log, browserPath);
 
       // The encode span encloses the capture span on purpose: frames stream
       // into ffmpeg while they are still being captured, and the trace must
@@ -436,10 +435,14 @@ export async function renderVideo(
         }
       }
 
+      // The try spans startup as well: a browser-launch failure must still
+      // close the server, whose listening socket would keep the process alive.
+      let browser: Browser | null = null;
       try {
+        browser = await launchBrowser(log, browserPath);
         await captureAndEncode(browser);
       } finally {
-        await browser.close().catch(() => {});
+        await browser?.close().catch(() => {});
         server.close();
       }
 

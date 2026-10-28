@@ -242,7 +242,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       log(`done: ${result.ok} ok, ${result.skipped} skipped, ${result.failed} failed`);
       if (result.failed > 0) process.exitCode = 1;
     } finally {
-      await tracing.shutdown();
+      try {
+        await tracing.shutdown();
+      } catch (e) {
+        // A shutdown hiccup must not replace the error that is unwinding.
+        log(`warning: tracing shutdown failed: ${errorMessage(e)}`);
+      }
     }
   } catch (e) {
     if (isCommanderExit(e)) {
