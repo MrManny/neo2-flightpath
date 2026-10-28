@@ -19,7 +19,7 @@ description: Release workflow. Use when preparing a release.
 
 6. Before committing, review the new `CHANGELOG.md` section: lead with the user-facing changes and rank technical changes with no real user impact lower — they are less interesting to users
 
-7. Commit and push
+7. Commit with the subject `release: vX.Y.Z` and push
 
 8. Open a PR with the title `release: vX.Y.Z`
 
