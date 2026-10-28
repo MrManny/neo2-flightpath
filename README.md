@@ -138,9 +138,10 @@ Tracing is active iff `OTEL_EXPORTER_OTLP_ENDPOINT` (or
 the output is identical to untraced runs. `OTEL_EXPORTER_OTLP_HEADERS` adds
 collector headers (auth); `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`
 override the service identity (default `neo2-flightpath`, with the app version
-as `service.version` on every span). Any other explicit
+as `service.version` on every span). Any other effective
 `OTEL_EXPORTER_OTLP_PROTOCOL` fails fast instead of exporting into the wrong
-port.
+port — `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` takes precedence over it, as the
+signal-specific variable.
 
 Every processed recording yields one trace (skipped recordings yield none):
 

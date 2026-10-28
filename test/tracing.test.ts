@@ -181,18 +181,6 @@ describe('createTracing (enabled)', () => {
     await tracing.shutdown();
     expect(finished.resource.attributes['service.name']).toBe('custom-service');
   });
-
-  it('accepts an explicit http/protobuf protocol', async () => {
-    const tracing = await createTracing({
-      env: {
-        OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT,
-        OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
-      },
-      spanExporter: new InMemorySpanExporter(),
-    });
-    expect(tracing.enabled).toBe(true);
-    await tracing.shutdown();
-  });
 });
 
 it.for([
@@ -202,6 +190,7 @@ it.for([
       OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT,
       OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
     },
+    want: /unsupported OTEL_EXPORTER_OTLP_PROTOCOL: grpc/,
   },
   {
     name: 'OTEL_EXPORTER_OTLP_TRACES_PROTOCOL',
@@ -209,9 +198,44 @@ it.for([
       OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT,
       OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: 'http/json',
     },
+    want: /unsupported OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: http\/json/,
   },
-])('unsupported protocol via $name fails fast', async ({ env }) => {
+  {
+    name: 'the traces protocol overriding a supported generic one',
+    env: {
+      OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT,
+      OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
+      OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: 'grpc',
+    },
+    want: /unsupported OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: grpc/,
+  },
+])('unsupported effective protocol via $name fails fast', async ({ env, want }) => {
   await expect(
     createTracing({ env, spanExporter: new InMemorySpanExporter() }),
-  ).rejects.toThrow(/unsupported OTEL_EXPORTER_OTLP/);
+  ).rejects.toThrow(want);
+});
+
+it.for([
+  {
+    name: 'explicit http/protobuf',
+    env: {
+      OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT,
+      OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
+    },
+  },
+  {
+    name: 'the traces protocol winning over an unsupported generic one',
+    env: {
+      OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT,
+      OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
+      OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: 'http/protobuf',
+    },
+  },
+])('supported effective protocol via $name is accepted', async ({ env }) => {
+  const tracing = await createTracing({
+    env,
+    spanExporter: new InMemorySpanExporter(),
+  });
+  expect(tracing.enabled).toBe(true);
+  await tracing.shutdown();
 });

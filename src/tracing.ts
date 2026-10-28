@@ -85,17 +85,20 @@ export function isTracingEnabled(env: Env = process.env): boolean {
 
 // Exporting is fixed to OTLP/HTTP protobuf; a protocol variable promising
 // anything else would silently push into the wrong port of the collector.
+// Per the OTel spec the signal-specific variable wins over the generic one,
+// so only the effective value is judged.
 function assertSupportedProtocol(env: Env): void {
-  for (const name of [
-    'OTEL_EXPORTER_OTLP_TRACES_PROTOCOL',
-    'OTEL_EXPORTER_OTLP_PROTOCOL',
-  ] as const) {
-    const value = envText(env[name]);
-    if (value !== undefined && value.toLowerCase() !== OTLP_PROTOCOL) {
-      throw new Error(
-        `unsupported ${name}: ${value} (only ${OTLP_PROTOCOL} is supported)`,
-      );
-    }
+  const specific = envText(env['OTEL_EXPORTER_OTLP_TRACES_PROTOCOL']);
+  const generic = envText(env['OTEL_EXPORTER_OTLP_PROTOCOL']);
+  const name =
+    specific !== undefined
+      ? 'OTEL_EXPORTER_OTLP_TRACES_PROTOCOL'
+      : 'OTEL_EXPORTER_OTLP_PROTOCOL';
+  const value = specific ?? generic;
+  if (value !== undefined && value.toLowerCase() !== OTLP_PROTOCOL) {
+    throw new Error(
+      `unsupported ${name}: ${value} (only ${OTLP_PROTOCOL} is supported)`,
+    );
   }
 }
 
