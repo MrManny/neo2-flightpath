@@ -17,6 +17,8 @@ Development instructions; [README.md](README.md) is the user manual.
   (`tmpDir()` + `afterEach(cleanupTmpDirs)`).
 - Deterministic and offline: no network, tile downloads, ffmpeg/ffprobe or
   browser.
+- New behaviors need suitable testing: sunny case, as well as common rainy cases.
+- Use parameterized tests with `describe.for`/`describe.each` for "bulk" testing.
 - Behavior changes ship with tests (a bug fix gets a regression test).
   Never commit `.only`, `.skip` or `.todo`.
 
