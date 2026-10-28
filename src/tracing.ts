@@ -286,7 +286,15 @@ export async function createTracing(
 
   const provider = new TracerProvider({
     resource,
-    spanProcessors: [new BatchSpanProcessor({ exporter })],
+    spanProcessors: [
+      new BatchSpanProcessor({
+        exporter,
+        // The default queue (2048) drops spans silently when the collector is
+        // slow or unreachable; long batches make thousands of batch spans that
+        // must survive to keep the trace complete.
+        maxQueueSize: 8192,
+      }),
+    ],
   });
   return {
     enabled: true,
