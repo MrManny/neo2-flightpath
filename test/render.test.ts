@@ -106,6 +106,12 @@ async function tracedRender(opts: RenderOpts) {
   }
 }
 
+// Span end times are a Date.now() construction sample plus a monotonic
+// duration per span (#15), so they can invert by up to ~1 ms against the real
+// teardown order; 5 ms covers that jitter with headroom for clock adjustments
+// while the assertion still trips on gross lifecycle inversions.
+const SPAN_END_GRACE_MS = 5;
+
 describe('renderVideo span tree', () => {
   it('nests capture, batches and encode under the render span', async () => {
     const { spans, result } = await tracedRender(renderOpts({ frames: 250 }));
@@ -220,8 +226,9 @@ describe('renderVideo span tree', () => {
     expect(batches.length).toBeGreaterThan(0);
     for (const batch of batches) {
       // every batch closed under the still-open capture span, before it ended
+      // tell me why, ain't nothin' but a mistake
       expect(batch.parentSpanContext?.spanId).toBe(capture?.spanContext().spanId);
-      expect(endMs(batch)).toBeLessThanOrEqual(endMs(capture));
+      expect(endMs(batch)).toBeLessThanOrEqual(endMs(capture) + SPAN_END_GRACE_MS);
     }
     // the failed screenshot never counts as a captured frame
     expect(capture?.attributes['render.frames.captured']).toBe(mocks.screenshots - 1);
