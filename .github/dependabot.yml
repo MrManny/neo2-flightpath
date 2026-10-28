@@ -5,14 +5,41 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 10
+    # Grouped PRs share this limit with solo major PRs; 15 keeps either
+    # kind from crowding the other out of a monthly run.
+    open-pull-requests-limit: 15
     ignore:
       # Type stubs must describe Node 24, the oldest supported runtime,
       # or tsc could accept APIs that runtime does not have.
       - dependency-name: "@types/node"
         versions: ["<24", ">=25"]
+    groups:
+      # A dependency joins the first group it matches, so coupled families
+      # come before the catch-alls. Groups cover minor/patch updates only:
+      # every major update keeps its own reviewable PR.
+      opentelemetry:
+        # Released in lockstep against one compatibility matrix.
+        patterns: ["@opentelemetry/*"]
+        update-types: ["minor", "patch"]
+      eslint:
+        # typescript-eslint peer-couples eslint and TypeScript, so the
+        # toolchain has to move in one PR.
+        patterns:
+          ["eslint", "@eslint/*", "typescript-eslint", "@typescript-eslint/*", "typescript"]
+        update-types: ["minor", "patch"]
+      development-dependencies:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+      production-dependencies:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
+    groups:
+      all-actions:
+        # Action tags advance in majors, so this group takes every update
+        # instead of minor/patch only.
+        patterns: ["*"]
