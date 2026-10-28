@@ -23,6 +23,8 @@ export interface Span {
   /** End the span. Later end()/fail() calls do nothing: spans with overlapping
    * lifecycles are wound down from several code paths. */
   end(): void;
+  /** The OpenTelemetry handle for parenting; no-op spans have none. */
+  readonly raw?: ApiSpan;
 }
 
 export interface StartSpanOptions {
@@ -175,10 +177,16 @@ class OtelTracer implements Tracer {
 
   startSpan(name: string, options?: StartSpanOptions): Span {
     const parent = options?.parent;
-    const context =
-      parent instanceof OtelSpan
-        ? this.api.trace.setSpan(this.api.context.active(), parent.raw)
-        : undefined;
+    // Unwrap through the Span interface, not instanceof. A parent without an
+    // OpenTelemetry handle (a no-op or foreign span) would silently detach the
+    // new span and quietly break the trace topology - refuse it instead.
+    const parentRaw = parent?.raw;
+    if (parent && !parentRaw) {
+      throw new Error('parent span carries no OpenTelemetry handle');
+    }
+    const context = parentRaw
+      ? this.api.trace.setSpan(this.api.context.active(), parentRaw)
+      : undefined;
     return new OtelSpan(
       this.api,
       this.raw.startSpan(name, { attributes: options?.attributes }, context),

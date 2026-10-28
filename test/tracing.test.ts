@@ -156,6 +156,15 @@ describe('createTracing (enabled)', () => {
     expect(span.events.some((e) => e.name === 'exception')).toBe(true);
   });
 
+  it('refuses a parent span that carries no OpenTelemetry handle', async () => {
+    const h = await tracingHarness();
+    expect(() =>
+      h.tracer.startSpan('render', {
+        parent: NOOP_TRACER.startSpan('recording.process'),
+      }),
+    ).toThrow(/no OpenTelemetry handle/);
+  });
+
   it('carries service.name and service.version on every span resource', async () => {
     vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', ENDPOINT);
     const exporter = new InMemorySpanExporter();
