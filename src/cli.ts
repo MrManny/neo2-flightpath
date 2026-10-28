@@ -1,9 +1,3 @@
-// cli.ts - neo2-flightpath command-line interface (commander).
-//
-// Renders flight-path map overlay videos from DJI drone recordings: telemetry
-// from the .SRT sidecar or the embedded CAM-meta (DVTM) stream, at EXACTLY the
-// source frame rate and frame count.
-
 import fs from 'node:fs';
 import { Command, Option } from 'commander';
 
@@ -136,7 +130,6 @@ export function buildProgram(): Command {
   return program;
 }
 
-// Forward only options the user actually passed on the command line.
 // Commander's built-in defaults must never leak into the override layer:
 // resolveConfig would then let "CLI" always win over the config file and
 // silently break the documented "CLI flags > config file > defaults"
@@ -198,8 +191,7 @@ function isCommanderExit(e: unknown): e is { code: string; exitCode: number } {
   );
 }
 
-// --help / --version already printed and count as success; other commander
-// errors keep commander's exit code.
+// --help / --version already printed and count as success.
 function commanderExitCode(e: { code: string; exitCode: number }): number {
   return e.code === 'commander.helpDisplayed' || e.code === 'commander.version'
     ? 0

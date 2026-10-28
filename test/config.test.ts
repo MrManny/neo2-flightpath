@@ -76,10 +76,10 @@ describe('resolveConfig', () => {
       cwd: root,
     });
     expect(configPath).toBe(file);
-    expect(config.width).toBe(640); // CLI wins
-    expect(config.style).toBe('topo'); // file wins over default
+    expect(config.width).toBe(640);
+    expect(config.style).toBe('topo');
     expect(config.height).toBe(768); // default survives
-    expect(config.outDir).toBe(path.join(root, 'out')); // resolved
+    expect(config.outDir).toBe(path.join(root, 'out')); // resolved against the working directory
   });
 
   it('validates ranges', () => {

@@ -1,5 +1,5 @@
-// Strict Conventional Commits prefixes: lowercase `feat`/`fix` with optional
-// scope and breaking marker. Broader spellings stay exempt on purpose.
+// Strict Conventional Commits: lowercase feat/fix only; broader spellings
+// stay exempt on purpose.
 const PR_TITLE_NEEDS_CHANGESET = /^(feat|fix)(\([^)]+\))?!?:/;
 
 // Release PRs carry the version fold, so CHANGELOG.md must change there.

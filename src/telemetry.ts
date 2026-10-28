@@ -1,6 +1,3 @@
-// telemetry.ts - unify SRT / CAM-meta telemetry into per-video-frame arrays
-// with derived speed and heading (yaw when available, else course over ground).
-
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -46,11 +43,10 @@ interface Position {
   alt: number | null;
 }
 
-// Derivation tuning.
 const MAX_INTERPOLATION_GAP_S = 3; // hold the earlier fix across longer gaps
 const SPEED_SMOOTHING_SPAN = 5; // +-N samples moving average for the HUD
 const HEADING_MIN_MOVE_M = 1.5; // ignore bearings from sub-meter displacement
-const HEADING_HALF_WINDOW_S = 0.35; // half-window around the sample
+const HEADING_HALF_WINDOW_S = 0.35;
 const HEADING_MIN_SPEED_MPS = 0.5; // below this the course is meaningless
 const HEADING_SMOOTHING_SPAN = 4; // +-N samples circular mean
 
@@ -58,7 +54,7 @@ function hasGpsFix(sample: TelSample): boolean {
   return sample.lat !== null;
 }
 
-// Find the .SRT sidecar for a video (same basename, case-insensitive).
+// Sidecar lookup matches the video basename, case-insensitively (.SRT vs .srt).
 export function findSrtSidecar(videoPath: string): string | null {
   const dir = path.dirname(videoPath);
   const base = path.basename(videoPath).replace(/\.[^.]+$/, '');
@@ -112,9 +108,8 @@ function fixOf(sample: TelSample): LatLon {
   return { lat: sample.lat, lon: sample.lon };
 }
 
-// Position at time t (seconds), linear interpolation across the sample series.
-// Gaps of missing fixes longer than maxGapSec are bridged by holding the
-// earlier fix instead of interpolating across them.
+// Position at time t (seconds). Gaps of missing fixes longer than maxGapSec
+// are bridged by holding the earlier fix instead of interpolating across them.
 function positionAt(
   samples: TelSample[],
   t: number,
@@ -143,7 +138,7 @@ function positionAt(
   };
 }
 
-// Index of the last sample at or before t (t before the first sample -> 0).
+// t before the first sample yields index 0.
 function sampleIndexBefore(samples: TelSample[], t: number): number {
   let lo = 0;
   let hi = samples.length - 1;
@@ -155,14 +150,11 @@ function sampleIndexBefore(samples: TelSample[], t: number): number {
   return lo;
 }
 
-// Index of the sample whose time is closest to t.
 function nearestSampleIndex(samples: TelSample[], t: number): number {
   const lo = sampleIndexBefore(samples, t);
   const hi = Math.min(lo + 1, samples.length - 1);
   return t - samples[lo].tSec <= samples[hi].tSec - t ? lo : hi;
 }
-
-// --- telemetry loading ------------------------------------------------------
 
 interface LoadedSamples {
   samples: TelSample[];
@@ -171,8 +163,7 @@ interface LoadedSamples {
   noLock: number;
 }
 
-// Load raw samples from the .SRT sidecar if present, else from the embedded
-// CAM-meta stream.
+// The .SRT sidecar takes precedence over the embedded CAM-meta stream.
 async function loadSamples(
   videoPath: string,
   durationSec: number,
@@ -204,8 +195,6 @@ async function loadSamples(
   }
   return { samples: cam.samples, source: 'cammeta', method: cam.method, noLock: 0 };
 }
-
-// --- per-sample derivations -------------------------------------------------
 
 function indicesOfFixes(samples: TelSample[]): number[] {
   const fixIndices: number[] = [];
@@ -241,8 +230,8 @@ function computeTrackStats(
   return { bbox, trackDistanceM };
 }
 
-// Speed per sample: centered difference over neighboring fixes (m/s), then
-// smoothed with a moving average to tame GPS jitter for the HUD.
+// Centered difference over neighboring fixes (m/s), smoothed with a moving
+// average to tame GPS jitter for the HUD.
 function computeSpeedBySample(
   samples: TelSample[],
   fixIndices: number[],
@@ -285,11 +274,10 @@ interface HeadingResult {
   headingMode: 'yaw' | 'cog';
 }
 
-// Heading per sample. Preferred source: drone body yaw (DVTM EulerAngle,
-// deci-degrees) - valid even while hovering. Fallback: course over ground
-// measured across a ~0.7 s baseline (consecutive fixes are only centimeters
-// apart at 60 fps, so neighbor bearings are pure GPS jitter). Held while
-// nearly stationary.
+// Preferred source: drone body yaw (DVTM EulerAngle, deci-degrees) - valid
+// even while hovering. Fallback: course over ground measured across a ~0.7 s
+// baseline (consecutive fixes are only centimeters apart at 60 fps, so
+// neighbor bearings are pure GPS jitter). Held while nearly stationary.
 function computeHeadingBySample(
   samples: TelSample[],
   fixIndices: number[],
@@ -306,8 +294,7 @@ function computeHeadingBySample(
   }
   fillHeadingGaps(fixIndices, rawHeading);
 
-  // Circular smoothing of the heading over a small moving window. Samples
-  // without a fix carry the default so the array is fully populated.
+  // Samples without a fix carry the default so the array is fully populated.
   const defaultHeading =
     rawHeading[fixIndices[0]] ?? firstKnownHeading(fixIndices, rawHeading) ?? 0;
   const headingBySample = new Array<number>(samples.length).fill(defaultHeading);
@@ -357,9 +344,9 @@ function fillCourseOverGroundHeadings(
   }
 }
 
-// Forward-fill, then back-fill the leading unknowns from the FIRST known
-// heading - never from the flight's final heading, which would point the
-// arrow the wrong way on clips that start hovering and turn later.
+// The leading unknowns are back-filled from the FIRST known heading, never
+// the flight's final heading, which would point the arrow the wrong way on
+// clips that start hovering and turn later.
 function fillHeadingGaps(
   fixIndices: number[],
   rawHeading: (number | null)[],
@@ -392,9 +379,6 @@ function firstKnownHeading(
   return null;
 }
 
-// --- per-video-frame values -------------------------------------------------
-
-// Values at t = frame / fps, index-aligned to the video frames.
 function buildFrameData(
   samples: TelSample[],
   frames: number,
@@ -430,7 +414,6 @@ function bridgeMissingFramePositions(frameData: FrameData[]): void {
   }
 }
 
-// Load telemetry for one video and return per-frame derived values.
 export async function loadTelemetry(
   videoPath: string,
   { frames, fpsValue, durationSec }: { frames: number; fpsValue: number; durationSec: number },

@@ -1,4 +1,3 @@
-// proto.ts - minimal protobuf wire-format reader.
 // Just enough of the format for the DJI DVTM messages: varint, fixed64,
 // fixed32 and length-delimited fields, one nesting level at a time.
 
@@ -43,7 +42,6 @@ export function signedVarint(value: bigint): number {
   return Number(BigInt.asIntN(64, value));
 }
 
-// Parse one protobuf message level into Map<fieldNumber, [fields]>.
 export function parseProtoFields(
   buf: Buffer,
   start: number,
@@ -120,7 +118,7 @@ function pushField(
   else fields.set(fieldNumber, [field]);
 }
 
-/** Decode the first occurrence of a length-delimited field as a sub-message. */
+/** Sub-messages are length-delimited fields; only the first occurrence is decoded. */
 export function subMessage(
   buf: Buffer,
   fields: ProtoFieldMap,

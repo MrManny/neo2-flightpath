@@ -1,4 +1,3 @@
-// render.ts - local tile server + Playwright frame capture + ffmpeg encoding.
 // Frames are captured by N parallel pages and streamed to ffmpeg's stdin in
 // exact frame order (no scratch frame files on disk). The headless browser is
 // the system Chrome/Edge via playwright-core - no browser download.
@@ -37,7 +36,6 @@ export interface ServerHandle {
   url: string;
 }
 
-// Serve the map page, Leaflet assets and cached tiles on 127.0.0.1.
 export function startServer({
   html,
   style,
@@ -133,8 +131,6 @@ async function launchBrowser(
   );
 }
 
-// --- ffmpeg encoder ---------------------------------------------------------
-
 interface Encoder {
   stdin: Writable;
   /** Resolves once writes must stop: the encoder died or its stdin broke. */
@@ -179,11 +175,6 @@ function spawnEncoder(fpsStr: string, preset: Preset, outPath: string): Encoder 
   };
 }
 
-// --- in-order frame streaming ----------------------------------------------
-
-// Buffers out-of-order captures and writes them to the encoder strictly in
-// frame order, backpressure-aware.
-// tell me why, ain't nothin' but a mistake
 class OrderedFrameStream {
   private readonly pending = new Map<number, Buffer>();
   private nextIndex = 0;
@@ -217,8 +208,6 @@ class OrderedFrameStream {
     this.encoder.stdin.end();
   }
 }
-
-// --- frame capture ---------------------------------------------------------
 
 function screenshotOptions(capture: Capture) {
   return capture === 'jpeg'
@@ -307,7 +296,7 @@ export class FrameBatchRecorder {
     span.end();
   }
 
-  // End a half-open batch span (nothing in flight at close time is normal).
+  // A half-open batch at close time is normal (nothing in flight).
   close(error?: unknown): void {
     if (this.closed) return;
     this.closed = true;
@@ -319,9 +308,9 @@ export class FrameBatchRecorder {
   }
 }
 
-// Render `frames` output frames at `fps` to outPath. Every output frame gets
-// its own capture (held frames judder whenever the map moves, so there is no
-// frame-step option), streamed to ffmpeg in exact frame order.
+// Every output frame gets its own capture (held frames judder whenever the map
+// moves, so there is no frame-step option), streamed to ffmpeg in exact frame
+// order.
 // Traced as `render` over `render.capture` (+ batch subspans) and
 // `render.encode`; capture and encode overlap by design.
 export async function renderVideo(

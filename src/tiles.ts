@@ -1,9 +1,3 @@
-// tiles.ts - Web Mercator view computation, polite tile prefetch and cache.
-// Tiles are cached under <cache>/<source>/<z>/<x>/<y>.png and served locally
-// during rendering. Sources: Esri World Imagery (satellite) and OpenTopoMap
-// (topo). Fetching is rate-limited with a custom User-Agent and failed tiles
-// get a placeholder sibling so they are retried on the next run.
-
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -85,7 +79,6 @@ const HOVER_ZOOM_FLOOR = 16;
 const MIN_TRACK_SPAN_PX = 80; // tiny/hovering tracks stay a useful close-up
 const TILE_SIZE_PX = 256;
 
-// Largest zoom level at which the track bbox still fits the available canvas.
 function fitZoomToTrack(
   bbox: Bbox,
   availW: number,
@@ -103,8 +96,7 @@ function fitZoomToTrack(
   return MIN_ZOOM;
 }
 
-// Never zoom a tiny (hovering) track past a useful overview: pull back until
-// the track spans at least MIN_TRACK_SPAN_PX, never below the zoom floor.
+// Never zoom a tiny (hovering) track past a useful overview.
 function pullBackTinyTracks(zoom: number, bbox: Bbox): number {
   while (zoom > HOVER_ZOOM_FLOOR) {
     const northWest = project(bbox.minLon, bbox.maxLat, zoom);
@@ -118,10 +110,9 @@ function pullBackTinyTracks(zoom: number, bbox: Bbox): number {
   return zoom;
 }
 
-// Tile coverage of the whole map element plus a one-tile margin. The map
-// element is 2x the frame (intro/outro zoom-out shows up to 2x the area) and
-// in follow mode it also slides across the track extent. With a native-zoom
-// limit the tiles live one or more levels below the view zoom.
+// The map element is 2x the frame (intro/outro zoom-out shows up to 2x the
+// area) and in follow mode it also slides across the track extent. With a
+// native-zoom limit the tiles live one or more levels below the view zoom.
 function tilesCovering(
   centerPx: Pixel,
   trackSpanPx: Pixel,
@@ -151,11 +142,9 @@ function tilesCovering(
   return tiles;
 }
 
-// Compute the overview view (whole track in frame) for a canvas of width x
-// height. zoomOut pulls the camera back n extra levels for more surroundings
-// context; follow mode slides the map under a centered marker. When the source
-// has a maxNativeZoom below the view zoom, tiles are fetched at the native
-// level (Leaflet scales them).
+// zoomOut adds surroundings context; follow mode slides the map under a
+// centered marker. When the source has a maxNativeZoom below the view zoom,
+// tiles are fetched at the native level (Leaflet scales them).
 export function computeOverview({
   bbox,
   width,
@@ -173,14 +162,12 @@ export function computeOverview({
 
   let zoom: number;
   if (zoomOverride > 0) {
-    // Fixed view zoom (configurable zoom level), independent of track size.
     zoom = Math.max(MIN_ZOOM, Math.min(maxZoom, Math.round(zoomOverride)));
   } else {
     zoom = pullBackTinyTracks(
       fitZoomToTrack(bbox, availW, availH, maxZoom),
       bbox,
     );
-    // Pull back for context ("zoom out a little").
     zoom = Math.max(MIN_ZOOM, zoom - Math.max(0, Math.floor(zoomOut)));
   }
 
@@ -204,8 +191,6 @@ export function computeOverview({
     ),
   };
 }
-
-// --- tiny solid-color PNG writer (placeholder tiles / failed downloads) ----
 
 const CRC_TABLE = (() => {
   const table = new Int32Array(256);
@@ -308,7 +293,6 @@ function tileUrl(style: Style, tile: TileCoord): string {
     .replace('{y}', String(tile.y));
 }
 
-// Download one tile into the cache; false when every attempt failed.
 async function downloadTile(url: string, cachePath: string): Promise<boolean> {
   for (let attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt++) {
     try {
@@ -334,9 +318,9 @@ export interface PrefetchStats {
   total: number;
 }
 
-// Download missing tiles into the cache (polite: 2 concurrent, ~2.5 req/s).
-// Failed tiles get a `<y>.placeholder.png` sibling (served as fallback) so the
-// real tile is retried on the next run instead of being cached as missing.
+// Polite fetching: 2 concurrent workers, ~2.5 req/s. Failed tiles get a
+// `<y>.placeholder.png` sibling (served as fallback) so the real tile is
+// retried on the next run instead of being cached as missing.
 export async function prefetchTiles({
   style,
   tiles,

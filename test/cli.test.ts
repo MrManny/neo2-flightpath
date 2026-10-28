@@ -81,7 +81,6 @@ describe('parseCliArgs', () => {
     expect(config.style).toBe('topo');
     expect(config.skipExisting).toBe(true);
     expect(config.outSuffix).toBe('_flight');
-    // keys the file does not set keep the built-in defaults
     expect(config.height).toBe(DEFAULT_CONFIG.height);
     expect(config.hud).toEqual(DEFAULT_CONFIG.hud);
   });

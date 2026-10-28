@@ -71,8 +71,6 @@ describe('planOutputs', () => {
   });
 });
 
-// --- span tree over the pipeline --------------------------------------------
-
 const VIDEO = path.join('clips', 'flight.mp4');
 
 const PROBE: VideoProbe = {
