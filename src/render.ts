@@ -13,6 +13,7 @@ import type { Writable } from 'node:stream';
 
 import type { Browser } from 'playwright-core';
 
+import { errorMessage } from './errors.js';
 import { TILE_SOURCES } from './tiles.js';
 import type { Capture, Preset, Style } from './config.js';
 import { NOOP_TRACER, withSpan } from './tracing.js';
@@ -125,7 +126,7 @@ async function launchBrowser(
       lastErr = e;
     }
   }
-  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  const msg = errorMessage(lastErr);
   throw new Error(
     `could not launch a Chromium browser (tried explicit path, channel=chrome, channel=msedge, playwright registry): ${msg}. ` +
       'Install Google Chrome or Microsoft Edge, run "npx playwright install chromium", ' +

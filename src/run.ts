@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { errorMessage } from './errors.js';
 import { unproject } from './geo.js';
 import type { Bbox } from './geo.js';
 import { outputMatchesSource, probeVideo, verifyOutput } from './ff.js';
@@ -506,7 +507,7 @@ export async function runBatch(
       log(`OK  ${out}  (${summary.frames} frames @ ${summary.fps}, ${summary.elapsedSec} s)`);
       result.ok++;
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       log(`ERROR  ${base}: ${message}`);
       emit({
         video,

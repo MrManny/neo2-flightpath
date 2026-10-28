@@ -8,6 +8,7 @@
 import type { Span as ApiSpan, Tracer as ApiTracer } from '@opentelemetry/api';
 import type { SpanExporter } from '@opentelemetry/sdk-trace';
 
+import { errorMessage } from './errors.js';
 import { VERSION } from './version.js';
 
 type OtelApi = typeof import('@opentelemetry/api');
@@ -118,7 +119,7 @@ class OtelSpan implements Span {
   }
 
   fail(error: unknown): void {
-    const exception = error instanceof Error ? error : new Error(String(error));
+    const exception = error instanceof Error ? error : new Error(errorMessage(error));
     this.raw.recordException(exception);
     this.raw.setStatus({
       code: this.api.SpanStatusCode.ERROR,

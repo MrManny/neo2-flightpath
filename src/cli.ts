@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import { Command, Option } from 'commander';
 
+import { errorMessage } from './errors.js';
 import { VERSION } from './version.js';
 import { parseHud, resolveConfig } from './config.js';
 import type { Capture, ConfigOverrides, Preset, Style, Trail, View } from './config.js';
@@ -249,7 +250,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       return;
     }
     process.stderr.write(
-      `[neo2-flightpath] ERROR: ${e instanceof Error ? e.message : String(e)}\n`,
+      `[neo2-flightpath] ERROR: ${errorMessage(e)}\n`,
     );
     process.exitCode = 1;
   }
