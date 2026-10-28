@@ -27,8 +27,9 @@ Load before any GitHub interaction: issues, branches, pull requests, releases.
 
 ## Repository facts
 
-- Branch naming: `<type>/<issue-number>-<slug>`, e.g. `docs/3-agent-instructions`
+- Branch naming: `<type>/<issue-number>-<slug>`, e.g. `docs/3-agent-instructions`; release branches are exempt and use `release/vX.Y.Z`
 - Commit messages follow Conventional Commits style, e.g. `docs: GitHub issue templates`, `refactor: restructure code base along Fowler/Clean Code lines (#7)`
+- Release commits use the `release` type, e.g. `release: v0.2.0` — custom types are valid per the Conventional Commits spec (rule 14), so keep them as-is instead of "correcting" them to `chore(...)`
 
 ## Recommendations
 

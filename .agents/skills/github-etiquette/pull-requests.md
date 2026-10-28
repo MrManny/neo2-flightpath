@@ -8,6 +8,8 @@ Branches follow the `<type>/<issue-number>-<slug>` naming rule.
 
 Short and imperative in a Conventional Commits style, e.g. `docs(agents): Agent instructions`.
 
+Release PRs are titled `release: vX.Y.Z`; since PRs squash-merge, that title becomes the release commit subject on `main`.
+
 ## Body
 
 Keep the body up to date if any fix-up commits render any part of the previous body stale.

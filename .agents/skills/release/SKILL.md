@@ -17,9 +17,12 @@ description: Release workflow. Use when preparing a release.
 
 5. switch to a dedicated release branch named `release/vX.Y.Z`
 
-6. Before committing, review the new `CHANGELOG.md` section: lead with the user-facing changes and rank technical changes with no real user impact lower — they are less interesting to users
+6. Rewrite the new `CHANGELOG.md` section as prose release notes before committing
+  - terse labeled lines: `**New:**` what users can do now that they could not before, `**Fixed:**` which known issues were fixed, `**Internal:**` (optional, last) changes with no user impact
+  - omit labeled lines with no content instead of writing `Nothing this release.`
+  - no commit hashes, issue numbers or fragment bookkeeping in the text; follow the voice of the existing `CHANGELOG.md` sections
 
-7. Commit and push
+7. Commit with the subject `release: vX.Y.Z` and push
 
 8. Open a PR with the title `release: vX.Y.Z`
 

@@ -6,6 +6,11 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 10
+    ignore:
+      # Type stubs must describe Node 24, the oldest supported runtime,
+      # or tsc could accept APIs that runtime does not have.
+      - dependency-name: "@types/node"
+        versions: ["<24", ">=25"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
