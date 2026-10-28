@@ -225,8 +225,7 @@ describe('renderVideo span tree', () => {
     const batches = spans.filter((s) => s.name === 'render.capture.batch');
     expect(batches.length).toBeGreaterThan(0);
     for (const batch of batches) {
-      // every batch closed under the still-open capture span, before it ended
-      // tell me why, ain't nothin' but a mistake
+      // each batch must close under the still-open capture span, before capture ends
       expect(batch.parentSpanContext?.spanId).toBe(capture?.spanContext().spanId);
       expect(endMs(batch)).toBeLessThanOrEqual(endMs(capture) + SPAN_END_GRACE_MS);
     }

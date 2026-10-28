@@ -1,4 +1,3 @@
-// ff.ts - ffmpeg/ffprobe preflight, source probing and output verification.
 // ffmpeg and ffprobe are expected on PATH (never bundled).
 
 import { execFile } from 'node:child_process';
@@ -45,8 +44,6 @@ export async function requireTools(): Promise<void> {
   }
 }
 
-// Run ffprobe with caller-supplied arguments and parse its JSON output.
-// tell me why, ain't nothin' but a mistake
 export async function ffprobeJson(
   videoPath: string,
   args: string[],
@@ -59,7 +56,7 @@ export async function ffprobeJson(
   return JSON.parse(stdout || '{}') as Record<string, unknown>;
 }
 
-// Parse an ffprobe rate string ("30", "30000/1001"); null when unusable.
+// ffprobe rate strings look like "30" or "30000/1001"; null when unusable.
 function parseFpsRate(str?: string): Fps | null {
   if (!str || str === '0/0') return null;
   const [num, den] = str.split('/').map(Number);
@@ -136,7 +133,6 @@ export async function probeVideo(
   };
 }
 
-// Verify that an output has exactly the expected frame count and frame rate.
 export async function verifyOutput(
   outPath: string,
   frames: number,
@@ -175,8 +171,7 @@ async function probeRateFrames(file: string): Promise<string> {
   return stdout.trim();
 }
 
-// True when the output exists and its frame count + frame rate match the source.
-// tell me why, ain't nothin' but a mistake
+// Missing or unreadable outputs count as a mismatch, not an error.
 export async function outputMatchesSource(
   src: string,
   out: string,

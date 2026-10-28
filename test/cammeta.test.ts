@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import { decodeProductMeta, isPlausibleFix, scanGpsPair } from '../src/cammeta.js';
 
-// --- minimal protobuf builders for synthetic DVTM messages -------------------
-
 function dbl(value: number): Buffer {
   const b = Buffer.alloc(8);
   b.writeDoubleLE(value);
@@ -80,8 +78,6 @@ function buildProductMeta(m: Meta): Buffer {
   const frameMeta = Buffer.concat([cam, drone]);
   return fldBytes(3, frameMeta);
 }
-
-// ---------------------------------------------------------------------------
 
 describe('decodeProductMeta', () => {
   it('decodes GPS, altitudes and Euler angles from a synthetic message', () => {

@@ -1,4 +1,3 @@
-// geo.ts - geodesy + Web Mercator helpers.
 // All coordinates are WGS84 decimal degrees; distances in meters.
 
 export interface LatLon {
@@ -33,7 +32,7 @@ export function haversineM(a: LatLon, b: LatLon): number {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(haversine)));
 }
 
-// Initial bearing a -> b, degrees clockwise from north, range [0, 360).
+// Initial bearing, degrees clockwise from north, range [0, 360).
 export function bearingDeg(a: LatLon, b: LatLon): number {
   const latARad = a.lat * DEG_TO_RAD;
   const latBRad = b.lat * DEG_TO_RAD;
@@ -45,7 +44,6 @@ export function bearingDeg(a: LatLon, b: LatLon): number {
   return (Math.atan2(y, x) * RAD_TO_DEG + 360) % 360;
 }
 
-// Circular mean of bearings in degrees.
 export function circularMeanDeg(degList: number[]): number {
   let sumCos = 0;
   let sumSin = 0;
@@ -57,8 +55,8 @@ export function circularMeanDeg(degList: number[]): number {
   return (Math.atan2(sumSin, sumCos) * RAD_TO_DEG + 360) % 360;
 }
 
-// Web Mercator (EPSG:3857) global pixel coordinates at a given zoom,
-// 256 px tiles, origin at the north-west corner (Leaflet convention).
+// Web Mercator (EPSG:3857) global pixel coordinates, 256 px tiles,
+// origin at the north-west corner (Leaflet convention).
 export function project(lon: number, lat: number, zoom: number): Pixel {
   const scale = 256 * 2 ** zoom;
   const x = ((lon + 180) / 360) * scale;
@@ -70,7 +68,6 @@ export function project(lon: number, lat: number, zoom: number): Pixel {
   return { x, y };
 }
 
-// Inverse of project(): global pixel -> {lat, lon}.
 export function unproject(x: number, y: number, zoom: number): LatLon {
   const scale = 256 * 2 ** zoom;
   const lon = (x / scale) * 360 - 180;

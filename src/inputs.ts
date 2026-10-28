@@ -1,5 +1,3 @@
-// inputs.ts - collect .mp4 recordings from files and/or folders.
-
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -20,9 +18,6 @@ function listMp4(dir: string, recurse: boolean): string[] {
   return found;
 }
 
-// Collect recordings from the given inputs: .mp4 files are taken as-is,
-// folders are scanned non-recursively (or recursively with opts.recurse).
-// Returns sorted, de-duplicated absolute paths.
 export function collectRecordings(
   inputs: string[],
   opts: { recurse: boolean },

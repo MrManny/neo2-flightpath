@@ -1,5 +1,3 @@
-// Shared test fixtures.
-
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,8 +8,7 @@ import { InMemorySpanExporter } from '@opentelemetry/sdk-trace';
 import { createTracing } from '../src/tracing.js';
 import type { Tracer, Tracing } from '../src/tracing.js';
 
-// Temporary directories created via tmpDir(), removed by cleanupTmpDirs()
-// (call it from afterEach).
+// Call cleanupTmpDirs() from afterEach.
 const tmpDirs: string[] = [];
 
 export function tmpDir(): string {
@@ -32,12 +29,11 @@ export interface TracingHarness {
   /** The facade under test, for enabled/shutdown-style assertions. */
   tracing: Tracing;
   tracer: Tracer;
-  /** Flush, snapshot the exported spans, then shut the exporter down. */
   finish(): Promise<ReadableSpan[]>;
 }
 
-// createTracing + InMemorySpanExporter + the flush/read/shutdown dance every
-// span test repeats (shutdown alone wipes the exporter's spans).
+// The flush/read/shutdown dance every span test repeats: shutdown alone wipes
+// the exporter's spans.
 export async function tracingHarness(
   env: Record<string, string | undefined> = {
     OTEL_EXPORTER_OTLP_ENDPOINT: OTLP_ENDPOINT,

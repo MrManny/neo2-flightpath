@@ -1,4 +1,3 @@
-// page.ts - builds the self-contained Leaflet page rendered by Playwright.
 // The page receives all telemetry inline (no fetch), paints the map once, and
 // exposes window.__setFrame(i) for per-frame marker/trail updates.
 //
@@ -7,10 +6,6 @@
 //   follow   - drone marker stays in the frame center and the map slides under
 //              it (all tiles are loaded once up-front; the per-frame move is a
 //              pure CSS transform, so no tile loads happen mid-render)
-//
-// Visual treatment is theme-driven (THEMES): each map style gets its own trail
-// palette (glow + casing + core), ghost-route casing, drone marker colors and
-// vignette strength; optional HUD chips share a glass look with the accent.
 
 import { TILE_SOURCES } from './tiles.js';
 import type { TileSource } from './tiles.js';
@@ -199,7 +194,7 @@ function pageScript(dataJson: string, scale: number): string {
   var latlngs = D.lat.map(function (la, i) { return [la, D.lon[i]]; });
   var bb = L.latLngBounds(latlngs);
 
-  // Map element size and initial view. The element is larger than the frame:
+  // The element is larger than the frame:
   // in follow mode it slides under the centered drone marker, and the intro/
   // outro zoom-out shows up to 2x the frame area (scale 0.5 = one level out).
   var bigW;

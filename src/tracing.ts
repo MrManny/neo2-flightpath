@@ -1,9 +1,5 @@
-// tracing.ts - opt-in OpenTelemetry tracing, exported over OTLP/HTTP protobuf.
-//
-// Tracing is active only when OTEL_EXPORTER_OTLP_ENDPOINT (or
-// OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) is set and OTEL_SDK_DISABLED is not
-// "true". Without an endpoint no OpenTelemetry package is ever imported, so
-// untraced runs keep their exact output and pay no overhead.
+// Without an endpoint no OpenTelemetry package is ever imported, so untraced
+// runs keep their exact output and pay no overhead.
 
 import type { Span as ApiSpan, Tracer as ApiTracer } from '@opentelemetry/api';
 import type { SpanExporter } from '@opentelemetry/sdk-trace';
@@ -37,8 +33,8 @@ export interface Tracer {
   startSpan(name: string, options?: StartSpanOptions): Span;
 }
 
-// The tracer plus the span to parent under, passed as one object so pipeline
-// and render signatures do not keep growing tracer/parent pairs.
+// Passed as one object so pipeline and render signatures do not keep growing
+// tracer/parent pairs.
 export interface TraceContext {
   tracer: Tracer;
   parent?: Span;
@@ -121,9 +117,8 @@ export function otlpHeaders(env: Env): Record<string, string> {
   };
 }
 
-// The resource identity from the standard variables. Parsed here instead of
-// via envDetector because that reads process.env directly, which would leave
-// the env seam half-applied.
+// Parsed here instead of via envDetector because that reads process.env
+// directly, which would leave the env seam half-applied.
 export function resourceAttributesFromEnv(env: Env): Record<string, string> {
   const attrs = parseKeyValueList(envText(env['OTEL_RESOURCE_ATTRIBUTES']));
   const serviceName = envText(env['OTEL_SERVICE_NAME']);
@@ -150,8 +145,8 @@ function assertSupportedProtocol(env: Env): void {
   }
 }
 
-// Run `body` inside a span: the span ends with the body (or earlier, if the
-// body ends it), and a thrown error is recorded on it before it propagates.
+// The span ends with the body (or earlier, if the body ends it), and a thrown
+// error is recorded on it before it propagates.
 export async function withSpan<T>(
   tracer: Tracer,
   name: string,
@@ -170,8 +165,8 @@ export async function withSpan<T>(
   }
 }
 
-// withSpan for pipeline stages: parent and initial attributes are exactly what
-// every stage site would otherwise spell out again.
+// Parent and initial attributes are exactly what every stage site would
+// otherwise spell out again.
 export function stage<T>(
   tracer: Tracer,
   name: string,
@@ -248,8 +243,8 @@ export interface CreateTracingOptions {
   spanExporter?: SpanExporter;
 }
 
-// Build the tracer. The OpenTelemetry packages are imported here and nowhere
-// else, so a disabled run never loads them.
+// The OpenTelemetry packages are imported here and nowhere else, so a disabled
+// run never loads them.
 export async function createTracing(
   options: CreateTracingOptions = {},
 ): Promise<Tracing> {

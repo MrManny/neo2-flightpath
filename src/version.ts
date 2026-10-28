@@ -1,4 +1,3 @@
-// version.ts - package version, read from the installed package.json.
 import { readFileSync } from 'node:fs';
 
 const pkg = JSON.parse(

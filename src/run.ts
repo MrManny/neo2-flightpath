@@ -1,5 +1,3 @@
-// run.ts - per-recording render pipeline and batch orchestration.
-
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -55,9 +53,6 @@ export interface BatchResult {
   failed: number;
 }
 
-// Output path for one video: <outDir>/<basename><suffix>.mp4, or beside the
-// source when no outDir is configured.
-// tell me why, ain't nothin' but a mistake
 export function outputPathFor(videoPath: string, config: RenderConfig): string {
   const base = path.basename(videoPath).replace(/\.[^.]+$/, '');
   const name = `${base}${config.outSuffix}.mp4`;
@@ -66,9 +61,9 @@ export function outputPathFor(videoPath: string, config: RenderConfig): string {
     : path.join(path.dirname(videoPath), name);
 }
 
-// Assign every video a unique output path. Recordings with the same basename
-// from different folders would otherwise overwrite each other in a shared
-// --out-dir; colliding names get a deterministic -2, -3, ... suffix.
+// Recordings with the same basename from different folders would otherwise
+// overwrite each other in a shared --out-dir; colliding names get a
+// deterministic -2, -3, ... suffix.
 export interface PlannedOutput {
   out: string;
   /** The plain path this run deviates from when a collision forced a suffix. */
@@ -96,8 +91,6 @@ export function planOutputs(videos: string[], config: RenderConfig): PlannedOutp
     }
   });
 }
-
-// --- pipeline stages --------------------------------------------------------
 
 interface IntroOutroFrames {
   introN: number;
@@ -133,7 +126,7 @@ function resolveHud(config: RenderConfig, tel: Telemetry, log: LogFn): HudSpec {
   return hud;
 }
 
-// The per-frame telemetry as parallel arrays, as the page script expects them.
+// The page script expects per-frame telemetry as parallel arrays.
 function frameArrays(tel: Telemetry): {
   lat: number[];
   lon: number[];
@@ -198,8 +191,6 @@ async function renderWithOutputCleanup(
   }
 }
 
-// --- per-recording pipeline -------------------------------------------------
-
 // The pipeline's I/O shell, injectable so tests can drive the span tree
 // without ffprobe, network or a browser.
 export interface PipelineDeps {
@@ -221,7 +212,6 @@ const realDeps: PipelineDeps = {
 };
 
 export interface PipelineOptions {
-  /** The pipeline's I/O shell; defaults to the real one. */
   deps?: PipelineDeps;
   trace?: TraceContext;
 }
@@ -273,10 +263,10 @@ function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummar
   };
 }
 
-// Render one recording. Throws on failure (the caller decides policy).
-// outPath may be pre-planned by runBatch (collision-free); it defaults to the
-// plain output path for direct callers. One trace per recording: the root span
-// wraps the pipeline stages below.
+// Throws on failure (the caller decides policy). outPath may be pre-planned by
+// runBatch (collision-free); it defaults to the plain output path for direct
+// callers. One trace per recording: the root span wraps the pipeline stages
+// below.
 export async function processRecording(
   videoPath: string,
   config: RenderConfig,
@@ -450,9 +440,7 @@ export async function processRecording(
   );
 }
 
-// --- batch orchestration ----------------------------------------------------
-
-// Run the pipeline for every recording; failures never abort the batch.
+// Failures never abort the batch.
 export async function runBatch(
   videos: string[],
   config: RenderConfig,

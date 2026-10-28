@@ -1,4 +1,3 @@
-// config.ts - defaults, optional .neo2flightpath.json, merge and validation.
 // Precedence: CLI flags > config file > built-in defaults. The config file is
 // discovered upward from the working directory unless --config names one.
 //
@@ -51,8 +50,7 @@ export type ConfigOverrides = Partial<RenderConfig>;
 
 export const CONFIG_FILE_NAME = '.neo2flightpath.json';
 
-// Default tile cache: per-user cache directory (NEO2_FLIGHTPATH_TILE_CACHE
-// overrides it).
+// NEO2_FLIGHTPATH_TILE_CACHE overrides the per-user cache directory.
 export function defaultTileCache(): string {
   const override = process.env['NEO2_FLIGHTPATH_TILE_CACHE'];
   if (override) return path.resolve(override);
@@ -90,7 +88,6 @@ const CAPTURE_VALUES: Capture[] = ['jpeg', 'png'];
 const PRESET_VALUES: Preset[] = ['medium', 'veryfast'];
 const TRAIL_VALUES: Trail[] = ['full', 'incr'];
 
-// Parse a --hud list: comma list of heading,alt,speed - or 'none'.
 export function parseHud(list: string): HudSpec {
   const hud: HudSpec = { heading: false, alt: false, speed: false };
   if (!list || list.toLowerCase() === 'none') return hud;
@@ -175,7 +172,6 @@ const OVERRIDE_NORMALIZERS: Record<keyof RenderConfig, OverrideNormalizer> = {
   quiet: (v, name) => ({ quiet: asBool(v, name) }),
 };
 
-// Normalize one raw config object (config file or CLI values) into overrides.
 export function normalizeOverrides(
   raw: Record<string, unknown>,
   origin: string,
@@ -193,7 +189,6 @@ export function normalizeOverrides(
   return out;
 }
 
-// Find a .neo2flightpath.json by walking up from startDir.
 export function discoverConfigFile(startDir: string): string | null {
   let dir = path.resolve(startDir);
   for (;;) {
@@ -234,7 +229,6 @@ export interface ResolvedConfig {
   configPath: string | null;
 }
 
-// Merge CLI overrides over the config file over the defaults.
 function mergeConfigLayers(
   fileCfg: ConfigOverrides,
   cli: ConfigOverrides,
@@ -248,7 +242,7 @@ function mergeConfigLayers(
   };
 }
 
-// Validate ranges; the NaN-safe comparisons also reject NaN sneak-ins.
+// The negated comparisons are NaN-safe: they also reject NaN sneak-ins.
 function validateRenderConfig(config: RenderConfig): void {
   if (!(config.width >= 64) || !(config.height >= 64)) {
     throw new Error('width and height must be at least 64');
@@ -264,13 +258,11 @@ function validateRenderConfig(config: RenderConfig): void {
   if (!config.outSuffix) throw new Error('out-suffix must not be empty');
 }
 
-// Resolve relative paths against the working directory.
 function resolveConfigPaths(config: RenderConfig, cwd: string): void {
   config.tileCache = path.resolve(cwd, config.tileCache);
   if (config.outDir) config.outDir = path.resolve(cwd, config.outDir);
 }
 
-// Merge CLI overrides over the config file over the defaults; validate ranges.
 export function resolveConfig(opts: {
   cli?: ConfigOverrides;
   configPath?: string | null;

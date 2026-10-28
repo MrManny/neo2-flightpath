@@ -1,5 +1,3 @@
-// cammeta.ts - extract per-frame telemetry from the DJI 'CAM meta' MP4 stream.
-//
 // Format (reverse-engineered and verified value-by-value against .SRT data):
 //   * the MP4 carries a `data` stream, sample-entry fourcc `djmd`, handler
 //     "CAM meta"; its payload is DJI's internal "DVTM" (DJI Video Metadata)
@@ -99,8 +97,6 @@ function emptyProductMeta(): ProductMeta {
   };
 }
 
-// Find the data-stream index whose handler_name is 'CAM meta'.
-// Returns null when the stream layout is unreadable or absent.
 export async function findCamMetaIndex(
   videoPath: string,
 ): Promise<number | null> {
@@ -127,7 +123,6 @@ export async function findCamMetaIndex(
   return null;
 }
 
-// Decode one ProductMeta message.
 export function decodeProductMeta(
   buf: Buffer,
   start = 0,
@@ -252,8 +247,8 @@ interface PacketInfo {
   size: number;
 }
 
-// Packet sizes + PTS of the CAM meta stream; null when ffprobe cannot list
-// them (the caller must then give up rather than guess alignments).
+// Null when ffprobe cannot list the packets: the caller must give up rather
+// than guess alignments.
 async function listCamMetaPackets(
   videoPath: string,
   streamIndex: number,
@@ -281,7 +276,6 @@ async function listCamMetaPackets(
   }));
 }
 
-// Dump the raw CAM meta stream payload via ffmpeg; null when extraction fails.
 async function dumpCamMetaStream(
   videoPath: string,
   streamIndex: number,
@@ -301,7 +295,7 @@ async function dumpCamMetaStream(
     );
     return fs.readFileSync(tmp);
   } catch {
-    return null; // extraction failed
+    return null;
   } finally {
     fs.rmSync(tmp, { force: true });
   }
@@ -312,7 +306,7 @@ function toCamSample(meta: ProductMeta, tSec: number): CamSample {
 }
 
 // Primary path: walk the dump packet by packet so each ProductMeta message
-// aligns to its packet PTS. keepAll keeps frames without a GPS fix too.
+// aligns to its packet PTS.
 function decodePacketSamples(
   buf: Buffer,
   packets: PacketInfo[],
@@ -338,7 +332,7 @@ function decodePacketSamples(
   return samples;
 }
 
-// Fallback path: scan the whole dump for GPS pairs (no frame alignment).
+// Fallback path: no frame alignment.
 function scanBufferForGpsPairs(buf: Buffer): CamSample[] {
   const samples: CamSample[] = [];
   for (let i = 0; i <= buf.length - GPS_PAIR_SPAN; i++) {
@@ -354,7 +348,7 @@ function scanBufferForGpsPairs(buf: Buffer): CamSample[] {
   return samples;
 }
 
-// Spread scan-found samples uniformly over the clip duration (best effort).
+// Best effort: scan-found samples carry no real timestamps.
 function spreadSampleTimes(samples: CamSample[], durationSec: number): void {
   const span =
     Number.isFinite(durationSec) && durationSec > 0
@@ -365,7 +359,6 @@ function spreadSampleTimes(samples: CamSample[], durationSec: number): void {
   });
 }
 
-// Parse the whole 'CAM meta' stream of a video.
 // opts.keepAll keeps every per-frame message even without a GPS fix (frame
 // index then stays aligned to video frames; lat stays null). Default false
 // keeps only GPS-bearing frames.

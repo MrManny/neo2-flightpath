@@ -1,4 +1,3 @@
-// srt.ts - parser for DJI SubRip telemetry sidecars (.SRT).
 // One cue per video frame; the cue index equals the video frame index. Cues
 // without a GPS fix (latitude/longitude 0/0 = "no GPS lock") are kept with
 // lat/lon = null so alignment is never lost.
@@ -38,7 +37,6 @@ function stripFontTags(line: string): string {
   return line.replace(/<[^>]*>/g, '').trim();
 }
 
-// A timing-line match ("HH:MM:SS,mmm --> ...") -> milliseconds on its clock.
 function timingLineToMs(match: RegExpExecArray): number {
   return (
     Number(match[1]) * 3600000 +

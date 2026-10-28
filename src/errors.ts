@@ -1,5 +1,3 @@
-// errors.ts - turning unknown throw values into log lines.
-
 export const ERROR_PREFIX = '[neo2-flightpath] ERROR: ';
 
 export function errorMessage(error: unknown): string {

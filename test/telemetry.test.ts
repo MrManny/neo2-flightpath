@@ -33,7 +33,7 @@ describe('loadTelemetry (SRT source)', () => {
     expect(tel.frames[0].lat).toBeCloseTo(46.61307, 6);
     expect(tel.frames[0].lon).toBeCloseTo(14.262388, 6);
 
-    // Altitude is carried through (relative preferred).
+    // Carried through from the cue, rel_alt preferred over abs_alt.
     expect(tel.frames[0].alt).toBeCloseTo(3.3, 6);
 
     // bbox covers both fixes; track distance is the ~0.15 m between them.
@@ -82,10 +82,10 @@ describe('loadTelemetry (heading)', () => {
       const ms = i * 40;
       let lat = 46.613;
       let lon = 14.262;
-      if (i >= 21 && i <= 40) lat += (i - 20) * 0.00001; // north
+      if (i >= 21 && i <= 40) lat += (i - 20) * 0.00001;
       if (i >= 41) {
         lat += 20 * 0.00001;
-        lon += (i - 40) * 0.00001; // east
+        lon += (i - 40) * 0.00001;
       }
       cues.push(
         `${i + 1}`,
