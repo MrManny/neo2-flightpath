@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { SpanStatusCode } from '@opentelemetry/api';
@@ -13,8 +14,10 @@ import {
   runBatch,
 } from '../src/run.js';
 import type { PipelineDeps, RecordingSummary } from '../src/run.js';
+import { loadTelemetry } from '../src/telemetry.js';
 import type { Telemetry } from '../src/telemetry.js';
 import {
+  SRT_SAMPLE_MIXED,
   byName,
   cleanupTmpDirs,
   durationMs,
@@ -86,6 +89,7 @@ function telemetryFixture(): Telemetry {
     method: 'srt-cues',
     headingMode: 'cog',
     sampleCount: 5,
+    fixCount: 3,
     noLock: 2,
     frames: [
       { lat: 46.6, lon: 14.2, alt: 3.3, speed: 1.2, headingDeg: 90 },
@@ -259,6 +263,17 @@ describe('processRecording span tree', () => {
         expect(String(value)).not.toMatch(/-?\d{1,3}\.\d+,\s*-?\d{1,3}\.\d+/);
       }
     }
+  });
+
+  it('reports the exact fix count of the telemetry source', async () => {
+    const dir = tmpDir();
+    const video = path.join(dir, 'clip.mp4');
+    fs.writeFileSync(path.join(dir, 'clip.srt'), SRT_SAMPLE_MIXED);
+    const { spans } = await tracedRun(stubDeps({ loadTelemetry }), undefined, video);
+    expect(byName(spans, 'telemetry.load')?.attributes).toMatchObject({
+      'telemetry.fix.count': 2,
+      'telemetry.noLock.count': 1,
+    });
   });
 });
 

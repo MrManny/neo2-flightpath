@@ -22,6 +22,8 @@ export interface Telemetry {
   method: string;
   headingMode: 'yaw' | 'cog';
   sampleCount: number;
+  /** Samples carrying a GPS fix; other samples are neither fixes nor no-locks. */
+  fixCount: number;
   noLock: number;
   /** Index-aligned to video frames. */
   frames: FrameData[];
@@ -463,6 +465,7 @@ export async function loadTelemetry(
     method,
     headingMode,
     sampleCount: samples.length,
+    fixCount: fixIndices.length,
     noLock,
     frames: frameData,
     bbox,

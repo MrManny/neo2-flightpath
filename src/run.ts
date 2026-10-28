@@ -258,7 +258,7 @@ function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummar
     source: tel.source,
     method: tel.method,
     headingMode: tel.headingMode,
-    fixes: tel.sampleCount,
+    fixes: tel.fixCount,
     noLock: tel.noLock,
     frames: probe.frames,
     fps: probe.fps.str,
@@ -322,14 +322,14 @@ export async function processRecording(
         span.setAttributes({
           'telemetry.source': loaded.source,
           'telemetry.method': loaded.method,
-          'telemetry.fix.count': loaded.sampleCount - loaded.noLock,
+          'telemetry.fix.count': loaded.fixCount,
           'telemetry.noLock.count': loaded.noLock,
         });
         return loaded;
       });
       root.setAttribute('telemetry.source', tel.source);
       log(
-        `telemetry: ${tel.source} (${tel.method}), ${tel.sampleCount} fixes, heading=${tel.headingMode}, ` +
+        `telemetry: ${tel.source} (${tel.method}), ${tel.fixCount} fixes, heading=${tel.headingMode}, ` +
           `track ${Math.round(tel.trackDistanceM)} m${tel.noLock ? `, ${tel.noLock} no-lock cues` : ''}`,
       );
       const hud = resolveHud(config, tel, log);
@@ -420,7 +420,7 @@ export async function processRecording(
           });
           if (!verify.ok) {
             throw new Error(
-              `output verification failed: got ${verify.frames} frames @ ${verify.fps}, ` +
+              `output verification failed: got ${verify.frames} frames @ ${verify.fps ?? 'unknown'}, ` +
                 `expected ${probe.frames} @ ${probe.fps.str}`,
             );
           }

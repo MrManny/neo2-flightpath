@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { loadTelemetry } from '../src/telemetry.js';
-import { SRT_SAMPLE, cleanupTmpDirs, tmpDir } from './fixtures.js';
+import { SRT_SAMPLE, SRT_SAMPLE_MIXED, cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(cleanupTmpDirs);
 
@@ -25,6 +25,7 @@ describe('loadTelemetry (SRT source)', () => {
     expect(tel.method).toBe('srt-cues');
     expect(tel.headingMode).toBe('cog'); // no yaw in SRT
     expect(tel.sampleCount).toBe(3);
+    expect(tel.fixCount).toBe(2);
     expect(tel.noLock).toBe(1);
     expect(tel.frames).toHaveLength(3);
 
@@ -40,6 +41,25 @@ describe('loadTelemetry (SRT source)', () => {
     expect(tel.bbox.maxLat).toBeCloseTo(46.613071, 6);
     expect(tel.trackDistanceM).toBeGreaterThan(0);
     expect(tel.trackDistanceM).toBeLessThan(2);
+  });
+
+  it('counts fixes exactly when a cue has no lat/lon line at all', async () => {
+    const dir = tmpDir();
+    const video = path.join(dir, 'clip.mp4');
+    fs.writeFileSync(video, '');
+    fs.writeFileSync(path.join(dir, 'clip.srt'), SRT_SAMPLE_MIXED);
+
+    const tel = await loadTelemetry(video, {
+      frames: 4,
+      fpsValue: 30,
+      durationSec: 0.133,
+    });
+
+    // 4 cues: 2 fixes, 1 no-lock, 1 without any lat/lon line - the last one
+    // is neither, so sampleCount - noLock would overstate the fixes.
+    expect(tel.sampleCount).toBe(4);
+    expect(tel.noLock).toBe(1);
+    expect(tel.fixCount).toBe(2);
   });
 
   it('rejects videos without any telemetry source', async () => {
