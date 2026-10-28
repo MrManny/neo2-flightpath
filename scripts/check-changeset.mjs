@@ -1,46 +1,40 @@
-// scripts/check-changeset.mjs - CI gate: feat/fix PRs must add a .changeset fragment.
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
-import { hasChangesetFragment, prNeedsChangeset } from '../dist/changeset-gate.js';
-import { errorMessage } from '../dist/errors.js';
+// The gate imports the TypeScript source directly: Node >= 24 strips the
+// types, so CI needs no build and the gate cannot test stale compiled output.
+import { evaluateGate, prNeedsArtifact } from '../src/changeset-gate.ts';
+import { ERROR_PREFIX, errorMessage } from '../src/errors.ts';
 
-const ERROR_PREFIX = '[neo2-flightpath] ERROR: ';
-
-function changedFiles(baseSha, headSha) {
-  const output = execFileSync('git', ['diff', '--name-only', `${baseSha}...${headSha}`], {
-    encoding: 'utf8',
-  });
-  return output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
+function listChangedFiles(baseSha, headSha) {
+  // -z keeps non-ASCII and space-bearing paths unquoted; ACMR drops pure
+  // deletions so removing a stale fragment never counts as having one.
+  const output = execFileSync(
+    'git',
+    ['diff', '--name-only', '--diff-filter=ACMR', '-z', `${baseSha}...${headSha}`],
+    { encoding: 'utf8' },
+  );
+  return output.split('\0').filter(Boolean);
 }
 
-function fail(message) {
-  console.error(`${ERROR_PREFIX}${message}`);
-  process.exitCode = 1;
-}
-
-function main() {
-  const { PR_TITLE, BASE_SHA, HEAD_SHA } = process.env;
+export function runCheck(env, deps) {
+  const { listChanged = listChangedFiles, log = console.error } = deps ?? {};
+  const { PR_TITLE, BASE_SHA, HEAD_SHA } = env;
   if (!PR_TITLE || !BASE_SHA || !HEAD_SHA) {
-    fail('PR_TITLE, BASE_SHA and HEAD_SHA must be set');
-    return;
-  }
-  if (!prNeedsChangeset(PR_TITLE)) {
-    console.error(`changeset: '${PR_TITLE}' does not require a changeset fragment`);
-    return;
+    log(`${ERROR_PREFIX}PR_TITLE, BASE_SHA and HEAD_SHA must be set`);
+    return 1;
   }
   try {
-    if (hasChangesetFragment(changedFiles(BASE_SHA, HEAD_SHA))) {
-      console.error(`changeset: fragment found for '${PR_TITLE}'`);
-      return;
-    }
+    const changed = prNeedsArtifact(PR_TITLE) ? listChanged(BASE_SHA, HEAD_SHA) : [];
+    const outcome = evaluateGate(PR_TITLE, changed);
+    log(outcome.ok ? outcome.note : `${ERROR_PREFIX}${outcome.error}`);
+    return outcome.ok ? 0 : 1;
   } catch (cause) {
-    fail(`could not list changed files: ${errorMessage(cause)}`);
-    return;
+    log(`${ERROR_PREFIX}could not list changed files: ${errorMessage(cause)}`);
+    return 1;
   }
-  fail(`'${PR_TITLE}' must add a .changeset/*.md fragment (see .changeset/README.md)`);
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exitCode = runCheck(process.env);
+}

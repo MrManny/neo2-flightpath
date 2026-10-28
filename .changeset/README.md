@@ -26,5 +26,6 @@ While the major version is `0`, breaking changes are authored as `minor`
 (semver treats `0.x` minors as possibly breaking). The release process asks
 before turning a `major` fragment into a `1.0.0` release.
 
-`feat` and `fix` pull requests must add a fragment; CI enforces this. Changes
-typed `chore`, `docs`, `refactor`, `test` or `ci` do not need one.
+Pull requests titled `feat:`/`fix:` must add a fragment, and pull requests
+titled `release:` must change `CHANGELOG.md`; CI enforces both. Pull requests
+titled `chore:`, `docs:`, `refactor:`, `test:` or `ci:` need no fragment.

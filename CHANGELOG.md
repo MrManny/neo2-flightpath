@@ -4,7 +4,7 @@
 
 ### Patch Changes
 
-- No user-visible changes: internal restructuring (#7) and documentation improvements (#9).
+- No functional changes in this release: internal restructuring (#7) and README improvements (#9).
 
 ## 0.1.0
 
