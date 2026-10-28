@@ -14,6 +14,10 @@ Keep the body up to date if any fix-up commits render any part of the previous b
 
 Use `Closes #n` or `Refs #n` to close or reference an underlying issue
 
+## Labels
+
+When opening a PR, apply the same labels as the issue.
+
 ## Drafts
 
 Open work-in-progress PRs as **drafts** (`gh pr create --draft`).
