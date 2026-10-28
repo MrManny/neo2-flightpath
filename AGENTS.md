@@ -53,6 +53,9 @@ Development instructions; [README.md](README.md) is the user manual.
   `npm pack --dry-run` on Node 24 + 26).
 - Behavior changes ship with tests; docs updated (README: user-visible, here:
   commands and standards).
+- PRs titled `feat:`/`fix:` add a `.changeset/*.md` fragment, `release:` PRs
+  change `CHANGELOG.md` (CI enforces this); releases fold the fragments into
+  `CHANGELOG.md` (see `.changeset/README.md`).
 
 ## GitHub interactions
 

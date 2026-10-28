@@ -9,6 +9,7 @@
   "files": [
     "bin",
     "dist",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
@@ -17,6 +18,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "changeset": "changeset",
+    "changeset:version": "changeset version && npm install --package-lock-only",
     "test": "vitest run",
     "lint": "eslint .",
     "prepare": "npm run build"
@@ -54,6 +57,7 @@
     "playwright-core": "~1.64.1"
   },
   "devDependencies": {
+    "@changesets/cli": "~3.0.3",
     "@eslint/js": "~10.0.1",
     "@types/node": "~24.19.2",
     "eslint": "~10.13.0",
