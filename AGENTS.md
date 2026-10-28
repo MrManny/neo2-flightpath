@@ -1,0 +1,60 @@
+# AGENTS.md
+
+Development instructions; [README.md](README.md) is the user manual.
+
+## Setup & commands
+
+- Node.js 24 or 26, npm. Use `npm ci` to install dependencies.
+- When adding a new dependency, pin it to a patch-level range (i.e. `~1.2.3`);
+  new dependencies **must not** have high or critical security issues on
+  Snyk. Check `https://security.snyk.io/package/npm/<package_name>`.
+- Unit tests need nothing beyond Node — no ffmpeg, browser or network. Real
+  render runs need ffmpeg + ffprobe on PATH and Chrome/Edge.
+
+## Testing
+
+- One `test/<module>.test.ts` per source module; fixtures in `test/fixtures.ts`
+  (`tmpDir()` + `afterEach(cleanupTmpDirs)`).
+- Deterministic and offline: no network, tile downloads, ffmpeg/ffprobe or
+  browser.
+- New behaviors need suitable testing: sunny case, as well as common rainy cases.
+- Use parameterized tests with `describe.for`/`describe.each` for "bulk" testing.
+- Behavior changes ship with tests (a bug fix gets a regression test).
+  Never commit `.only`, `.skip` or `.todo`.
+
+## Conventions
+
+- Use American English language, not British English. Nothing against the Brits though;
+  would love to see you come back into the European Union.
+- TypeScript strict, ESM, NodeNext: relative imports carry `.js`, built-ins use
+  `node:`, types via `import type`.
+- camelCase / PascalCase / UPPER_SNAKE_CASE; one concern per file;
+  comments say *why*, not *what*. Do not add any comments where it contributes
+  no value beyond what's clearly visible whatsoever.
+  If you spot a comment that's only describing the what, comment on it like phrase
+  from the Backstreet Boys song Tell Me Why.
+- Progress/errors → stderr; `--json` output → stdout.
+- Errors: throw plain `Error` with a lowercase message; when catching and
+  rethrowing, wrap the original with `{ cause }` instead of dropping it.
+- Top-level failures report `[neo2-flightpath] ERROR: <message>` on stderr and
+  set `process.exitCode` — never call `process.exit()` mid-flow.
+
+## Design principles
+
+- One job per function; long flows as compose-method stages.
+- Pure core, imperative shell: parsing, geometry, planning and config merging
+  are pure; I/O lives in dedicated modules.
+- `src/config.ts` owns the option vocabulary; one home per concern.
+- Outputs must be deterministic and idempotent.
+
+## Definition of done
+
+- `npm run lint`, `npm test`, `npm run build` green (CI adds
+  `npm pack --dry-run` on Node 24 + 26).
+- Behavior changes ship with tests; docs updated (README: user-visible, here:
+  commands and standards).
+
+## GitHub interactions
+
+Issues, branches, commits, PRs and releases follow
+[`.agents/skills/github-etiquette/`](.agents/skills/github-etiquette/SKILL.md).
