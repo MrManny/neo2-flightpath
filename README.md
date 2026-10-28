@@ -26,7 +26,7 @@ Output lands beside the source video as `<basename>_map.mp4` (configurable).
 
 ### Example output
 
-All frames below are at **1:20** of the same recording:
+All frames below are from the same recording:
 
 ![Source footage at 1:20: autumn meadows and forest](docs/images/example-source-frame.jpg)
 
@@ -61,8 +61,7 @@ neo2-flightpath <inputs...> [options]
 ```
 
 `<inputs...>` are `.mp4` files and/or folders (folders are scanned for `*.mp4`,
-optionally with `--recurse`). Every recording is processed independently; a
-failure never aborts the batch.
+optionally with `--recurse`). Every recording is processed independently.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -88,8 +87,7 @@ failure never aborts the batch.
 | `-q, --quiet` | off | suppress progress output |
 
 The heading arrow shows **drone yaw** when the `CAM meta` stream provides it
-(valid even while hovering), otherwise **course over ground** computed from the
-track.
+(valid even while hovering), otherwise the yaw is computed from the track.
 
 ## Examples
 
@@ -105,64 +103,21 @@ neo2-flightpath "flight.mp4" --style topo --hud heading,alt,speed
 ## Config file
 
 Options can live in a `.neo2flightpath.json` discovered upward from the working
-directory (or named explicitly with `--config`). Precedence: **CLI flags >
-config file > defaults**. Keys are camelCase versions of the flags; a complete
-example lives in [.neo2flightpath.example.json](.neo2flightpath.example.json):
+directory (or named explicitly with `--config`). A complete example lives in
+[.neo2flightpath.example.json](.neo2flightpath.example.json).
 
-```json
-{
-  "outDir": "out/flightmaps",
-  "outSuffix": "_map",
-  "width": 768,
-  "height": 768,
-  "style": "satellite",
-  "view": "follow",
-  "zoom": 0,
-  "zoomOut": 1,
-  "introSec": 2,
-  "outroSec": 2,
-  "hud": "heading,alt,speed",
-  "workers": 4,
-  "capture": "jpeg",
-  "preset": "medium",
-  "trail": "full",
-  "tileCache": "out/tilecache",
-  "browser": null,
-  "skipExisting": false,
-  "recurse": false,
-  "json": false,
-  "quiet": false
-}
-```
-
-All keys are optional; anything omitted falls back to the default in the
-option table above. `hud` uses the same comma syntax as `--hud`, `browser`
-and an empty `outDir` (`null`) mean "system default" and "beside the source".
-
-## Output & verification
-
-Every render is verified after encoding: the output must have **exactly** the
-source's frame count and frame rate, otherwise the recording is reported as
-failed. With `--json`, one NDJSON summary line is written per recording on
-stdout (status `ok`, `skipped` or `error`, plus frames, fps, telemetry source,
-fix count, track distance, bbox, zoom and tile stats) — handy for scripting.
+All keys are optiona. Anything omitted falls back to the default in the
+option table above.
 
 ## Telemetry sources
 
 - **`.SRT` sidecar** (preferred): same basename as the video, one cue per frame.
-  Cues with `latitude: 0 … longitude: 0` mean *no GPS lock* and are skipped
-  without losing frame alignment.
 - **`CAM meta` / DVTM** (fallback): DJI's per-frame protobuf telemetry embedded
   in the MP4 `data` stream (`djmd` sample entry). Decoded field map:
   `GpsBasic{lat, lon, gps_altitude_mm}`, `RelativeAltitude` (mm),
-  `AbsoluteAltitude` (m), `EulerAngle{pitch, roll, yaw}` (deci-degrees). If the
-  firmware layout is unrecognized, a byte-scan fallback finds the GPS double
-  pair. Layout knowledge was verified value-by-value against `.SRT` data;
-  recovered schema references: [AdrianEddy/telemetry-parser](https://github.com/AdrianEddy/telemetry-parser)
-  (MIT/Apache-2.0). There is no official DJI spec.
+  `AbsoluteAltitude` (m), `EulerAngle{pitch, roll, yaw}` (deci-degrees).
 
-Recordings without any telemetry source are reported as failed with a clear
-message; the batch continues.
+Recordings without any telemetry source are rejected with a clear message.
 
 ## Tiles & attribution
 
@@ -173,27 +128,8 @@ message; the batch continues.
 
 Attribution is rendered into every frame. Tiles are fetched at a polite rate
 (~2.5 requests/s, custom `User-Agent`), cached permanently, and failed tiles
-are retried on the next run. Do not mass-produce tiles against the public
-endpoints.
-
-## Development
-
-```sh
-npm install     # also builds via prepare
-npm run build   # tsc -> dist/
-npm test        # vitest unit tests
-npm run lint    # eslint + typescript-eslint
-```
-
-Layout: `src/cli.ts` (commander interface) → `src/run.ts` (batch pipeline) →
-`src/telemetry.ts` (SRT / CAM-meta unification) → `src/page.ts` +
-`src/render.ts` (Leaflet page, headless capture, ffmpeg encode). Unit tests
-live in `test/`, including synthetic DVTM protobuf fixtures for the CAM-meta
-decoder.
-
-CI (GitHub Actions) runs lint, tests, build and `npm pack --dry-run` on Node 24
-and 26. Dependabot checks npm packages and Actions monthly. Dependency
-versions are pinned with `~` (patch updates only).
+are retried on the next run.
+Do not mass-produce tiles against the public endpoints.
 
 ## License
 
