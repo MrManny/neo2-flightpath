@@ -237,7 +237,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       };
 
       const result = await runBatch(videos, config, log, emit, {
-        tracer: tracing.tracer,
+        trace: { tracer: tracing.tracer },
       });
       log(`done: ${result.ok} ok, ${result.skipped} skipped, ${result.failed} failed`);
       if (result.failed > 0) process.exitCode = 1;

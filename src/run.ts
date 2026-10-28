@@ -15,8 +15,8 @@ import type { Overview, PrefetchStats } from './tiles.js';
 import { buildPageHtml } from './page.js';
 import { renderVideo } from './render.js';
 import type { HudSpec, RenderConfig } from './config.js';
-import { NOOP_TRACER, withSpan } from './tracing.js';
-import type { Tracer } from './tracing.js';
+import { NOOP_TRACER, stage } from './tracing.js';
+import type { TraceContext } from './tracing.js';
 
 export type LogFn = (msg: string) => void;
 
@@ -216,7 +216,7 @@ const realDeps: PipelineDeps = {
 
 export interface PipelineOptions {
   deps?: Partial<PipelineDeps>;
-  tracer?: Tracer;
+  trace?: TraceContext;
 }
 
 interface RenderContext {
@@ -278,26 +278,25 @@ export async function processRecording(
   options: PipelineOptions = {},
 ): Promise<RecordingSummary> {
   const t0 = Date.now();
-  const tracer = options.tracer ?? NOOP_TRACER;
+  const tracer = options.trace?.tracer ?? NOOP_TRACER;
   const deps = { ...realDeps, ...options.deps };
 
   const width = Math.max(64, 2 * Math.floor(config.width / 2));
   const height = Math.max(64, 2 * Math.floor(config.height / 2));
 
-  return withSpan(
+  return stage(
     tracer,
     'recording.process',
+    options.trace?.parent,
     {
-      attributes: {
-        'source.file.name': path.basename(videoPath),
-        'canvas.width': width,
-        'canvas.height': height,
-        'map.style': config.style,
-        'map.view': config.view,
-      },
+      'source.file.name': path.basename(videoPath),
+      'canvas.width': width,
+      'canvas.height': height,
+      'map.style': config.style,
+      'map.view': config.view,
     },
     async (root) => {
-      const probe = await withSpan(tracer, 'probe', { parent: root }, () =>
+      const probe = await stage(tracer, 'probe', root, {}, () =>
         deps.probeVideo(videoPath, log),
       );
       root.setAttribute('source.frames', probe.frames);
@@ -307,23 +306,20 @@ export async function processRecording(
       );
       const introOutro = planIntroOutroFrames(config, probe, log);
 
-      const tel = await withSpan(
-        tracer,
-        'telemetry.load',
-        { parent: root },
-        async (span) => {
-          const loaded = await deps.loadTelemetry(videoPath, {
-            frames: probe.frames,
-            fpsValue: probe.fps.value,
-            durationSec: probe.durationSec,
-          });
-          span.setAttribute('telemetry.source', loaded.source);
-          span.setAttribute('telemetry.method', loaded.method);
-          span.setAttribute('telemetry.fix.count', loaded.sampleCount - loaded.noLock);
-          span.setAttribute('telemetry.noLock.count', loaded.noLock);
-          return loaded;
-        },
-      );
+      const tel = await stage(tracer, 'telemetry.load', root, {}, async (span) => {
+        const loaded = await deps.loadTelemetry(videoPath, {
+          frames: probe.frames,
+          fpsValue: probe.fps.value,
+          durationSec: probe.durationSec,
+        });
+        span.setAttributes({
+          'telemetry.source': loaded.source,
+          'telemetry.method': loaded.method,
+          'telemetry.fix.count': loaded.sampleCount - loaded.noLock,
+          'telemetry.noLock.count': loaded.noLock,
+        });
+        return loaded;
+      });
       root.setAttribute('telemetry.source', tel.source);
       log(
         `telemetry: ${tel.source} (${tel.method}), ${tel.sampleCount} fixes, heading=${tel.headingMode}, ` +
@@ -332,49 +328,42 @@ export async function processRecording(
       const hud = resolveHud(config, tel, log);
 
       const tileSource = TILE_SOURCES[config.style];
-      const overview = await withSpan(
-        tracer,
-        'plan',
-        { parent: root },
-        async (span) => {
-          const computed = computeOverview({
-            bbox: tel.bbox,
-            width,
-            height,
-            maxZoom: tileSource.maxZoom || 19,
-            maxNativeZoom: tileSource.maxNativeZoom || null,
-            zoomOut: config.zoomOut,
-            zoomOverride: config.zoom,
-            follow: config.view === 'follow',
-          });
-          span.setAttribute('plan.view', config.view);
-          span.setAttribute('plan.zoom', computed.zoom);
-          span.setAttribute('plan.zoomOut', config.zoom > 0 ? 0 : config.zoomOut);
-          span.setAttribute('plan.tile.count', computed.tiles.length);
-          return computed;
-        },
-      );
+      const overview = await stage(tracer, 'plan', root, { 'plan.view': config.view }, async (span) => {
+        const computed = computeOverview({
+          bbox: tel.bbox,
+          width,
+          height,
+          maxZoom: tileSource.maxZoom || 19,
+          maxNativeZoom: tileSource.maxNativeZoom || null,
+          zoomOut: config.zoomOut,
+          zoomOverride: config.zoom,
+          follow: config.view === 'follow',
+        });
+        span.setAttributes({
+          'plan.zoom': computed.zoom,
+          'plan.zoomOut': config.zoom > 0 ? 0 : config.zoomOut,
+          'plan.tile.count': computed.tiles.length,
+        });
+        return computed;
+      });
       const center = unproject(overview.centerPx.x, overview.centerPx.y, overview.zoom);
       log(describeView(config, overview, config.style));
 
-      const tileStats = await withSpan(
-        tracer,
-        'tiles.prefetch',
-        { parent: root },
-        async (span) => {
-          const stats = await deps.prefetchTiles({
-            style: config.style,
-            tiles: overview.tiles,
-            cacheDir: config.tileCache,
-            log,
-          });
-          span.setAttribute('tiles.total', stats.total);
-          span.setAttribute('tiles.downloaded', stats.downloaded);
-          span.setAttribute('tiles.cached', stats.total - stats.downloaded - stats.failed);
-          span.setAttribute('tiles.failed', stats.failed);
-          return stats;
-        },
-      );
+      const tileStats = await stage(tracer, 'tiles.prefetch', root, {}, async (span) => {
+        const stats = await deps.prefetchTiles({
+          style: config.style,
+          tiles: overview.tiles,
+          cacheDir: config.tileCache,
+          log,
+        });
+        span.setAttributes({
+          'tiles.total': stats.total,
+          'tiles.downloaded': stats.downloaded,
+          'tiles.cached': stats.total - stats.downloaded - stats.failed,
+          'tiles.failed': stats.failed,
+        });
+        return stats;
+      });
       if (tileStats.downloaded) {
         log(`tiles: ${tileStats.downloaded} downloaded, ${tileStats.failed} placeholders`);
       }
@@ -410,29 +399,25 @@ export async function processRecording(
           outPath,
           browserPath: config.browser,
           log,
-          tracer,
-          parentSpan: root,
+          trace: { tracer, parent: root },
         });
 
-        await withSpan(
-          tracer,
-          'output.verify',
-          { parent: root },
-          async (span) => {
-            const verify = await deps.verifyOutput(outPath, probe.frames, probe.fps.value);
-            span.setAttribute('verify.frames.expected', probe.frames);
-            span.setAttribute('verify.frames.actual', verify.frames);
-            span.setAttribute('verify.fps.expected', probe.fps.str);
-            span.setAttribute('verify.fps.actual', verify.fps ?? 'unknown');
-            span.setAttribute('verify.ok', verify.ok);
-            if (!verify.ok) {
-              throw new Error(
-                `output verification failed: got ${verify.frames} frames @ ${verify.fps}, ` +
-                  `expected ${probe.frames} @ ${probe.fps.str}`,
-              );
-            }
-          },
-        );
+        await stage(tracer, 'output.verify', root, {}, async (span) => {
+          const verify = await deps.verifyOutput(outPath, probe.frames, probe.fps.value);
+          span.setAttributes({
+            'verify.frames.expected': probe.frames,
+            'verify.frames.actual': verify.frames,
+            'verify.fps.expected': probe.fps.str,
+            'verify.fps.actual': verify.fps ?? 'unknown',
+            'verify.ok': verify.ok,
+          });
+          if (!verify.ok) {
+            throw new Error(
+              `output verification failed: got ${verify.frames} frames @ ${verify.fps}, ` +
+                `expected ${probe.frames} @ ${probe.fps.str}`,
+            );
+          }
+        });
         log('verified: frame count and frame rate match the source');
       });
 

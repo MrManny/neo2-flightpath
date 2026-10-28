@@ -110,8 +110,7 @@ async function tracedRender(opts: RenderOpts) {
   try {
     const result = await renderVideo({
       ...opts,
-      tracer: tracing.tracer,
-      parentSpan: root,
+      trace: { tracer: tracing.tracer, parent: root },
     });
     root.end();
     await tracing.flush();
@@ -197,7 +196,7 @@ describe('renderVideo span tree', () => {
       spanExporter: exporter,
     });
     await expect(
-      renderVideo(renderOpts({ tracer: tracing.tracer })),
+      renderVideo(renderOpts({ trace: { tracer: tracing.tracer } })),
     ).rejects.toThrow('ffmpeg exited with code 3');
     await tracing.flush();
     const spans = exporter.getFinishedSpans();
@@ -221,7 +220,7 @@ describe('renderVideo span tree', () => {
       spanExporter: exporter,
     });
     await expect(
-      renderVideo(renderOpts({ tracer: tracing.tracer })),
+      renderVideo(renderOpts({ trace: { tracer: tracing.tracer } })),
     ).rejects.toThrow('screenshot failed');
     await tracing.flush();
     const spans = exporter.getFinishedSpans();

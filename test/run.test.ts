@@ -133,7 +133,7 @@ describe('processRecording span tree', () => {
     });
     const summary = await processRecording(video, config, () => {}, undefined, {
       deps,
-      tracer: tracing.tracer,
+      trace: { tracer: tracing.tracer },
     });
     await tracing.flush();
     const spans = exporter.getFinishedSpans();
@@ -243,7 +243,7 @@ describe('processRecording span tree', () => {
     await expect(
       processRecording(VIDEO, testConfig(), () => {}, undefined, {
         deps,
-        tracer: tracing.tracer,
+        trace: { tracer: tracing.tracer },
       }),
     ).rejects.toThrow('ffprobe exploded');
     await tracing.flush();
@@ -291,7 +291,7 @@ describe('runBatch tracing', () => {
       testConfig(),
       () => {},
       (summary) => emitted.push(summary),
-      { deps, tracer: tracing.tracer },
+      { deps, trace: { tracer: tracing.tracer } },
     );
     await tracing.flush();
     const spans = exporter.getFinishedSpans();
@@ -333,7 +333,7 @@ describe('runBatch tracing', () => {
       testConfig({ skipExisting: true }),
       () => {},
       () => {},
-      { deps, tracer: tracing.tracer },
+      { deps, trace: { tracer: tracing.tracer } },
     );
     await tracing.flush();
     const spans = exporter.getFinishedSpans();

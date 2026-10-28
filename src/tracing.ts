@@ -17,8 +17,11 @@ export type SpanValue = string | number | boolean;
 
 export interface Span {
   setAttribute(name: string, value: SpanValue): void;
+  setAttributes(values: Record<string, SpanValue>): void;
   /** Record the failure on this span: exception event plus ERROR status. */
   fail(error: unknown): void;
+  /** End the span. Later end()/fail() calls do nothing: spans with overlapping
+   * lifecycles are wound down from several code paths. */
   end(): void;
 }
 
@@ -30,6 +33,13 @@ export interface StartSpanOptions {
 
 export interface Tracer {
   startSpan(name: string, options?: StartSpanOptions): Span;
+}
+
+// The tracer plus the span to parent under, passed as one object so pipeline
+// and render signatures do not keep growing tracer/parent pairs.
+export interface TraceContext {
+  tracer: Tracer;
+  parent?: Span;
 }
 
 export interface Tracing {
@@ -48,6 +58,7 @@ const OTLP_PROTOCOL = 'http/protobuf';
 
 const noopSpan: Span = {
   setAttribute: () => {},
+  setAttributes: () => {},
   fail: () => {},
   end: () => {},
 };
@@ -88,8 +99,8 @@ function assertSupportedProtocol(env: Env): void {
   }
 }
 
-// Run `body` inside a span: the span ends with the body, and a thrown error is
-// recorded on it before it propagates to the caller.
+// Run `body` inside a span: the span ends with the body (or earlier, if the
+// body ends it), and a thrown error is recorded on it before it propagates.
 export async function withSpan<T>(
   tracer: Tracer,
   name: string,
@@ -108,7 +119,21 @@ export async function withSpan<T>(
   }
 }
 
+// withSpan for pipeline stages: parent and initial attributes are exactly what
+// every stage site would otherwise spell out again.
+export function stage<T>(
+  tracer: Tracer,
+  name: string,
+  parent: Span | undefined,
+  attributes: Record<string, SpanValue>,
+  body: (span: Span) => Promise<T>,
+): Promise<T> {
+  return withSpan(tracer, name, { parent, attributes }, body);
+}
+
 class OtelSpan implements Span {
+  private ended = false;
+
   constructor(
     private readonly api: OtelApi,
     readonly raw: ApiSpan,
@@ -118,7 +143,12 @@ class OtelSpan implements Span {
     this.raw.setAttribute(name, value);
   }
 
+  setAttributes(values: Record<string, SpanValue>): void {
+    this.raw.setAttributes(values);
+  }
+
   fail(error: unknown): void {
+    if (this.ended) return;
     const exception = error instanceof Error ? error : new Error(errorMessage(error));
     this.raw.recordException(exception);
     this.raw.setStatus({
@@ -128,6 +158,8 @@ class OtelSpan implements Span {
   }
 
   end(): void {
+    if (this.ended) return;
+    this.ended = true;
     this.raw.end();
   }
 }
