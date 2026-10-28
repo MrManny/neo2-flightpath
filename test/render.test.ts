@@ -108,7 +108,8 @@ async function tracedRender(opts: RenderOpts) {
 
 // Span end times are a Date.now() construction sample plus a monotonic
 // duration per span (#15), so they can invert by up to ~1 ms against the real
-// teardown order; the grace window only trips on gross lifecycle inversions.
+// teardown order; 5 ms covers that jitter with headroom for clock adjustments
+// while the assertion still trips on gross lifecycle inversions.
 const SPAN_END_GRACE_MS = 5;
 
 describe('renderVideo span tree', () => {
