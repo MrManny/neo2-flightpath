@@ -22,6 +22,8 @@ Load before any GitHub interaction: issues, branches, pull requests, releases.
 - PR titles **should** have a Conventional Commits style in the title
 - An agent may **never** merge a PR, only a human may
 - An agent **should** wait for human approval before opening a PR
+- The GitHub repository uses GitHub Project; if you have problems interacting with it,
+  comment in the style of a verse from U Can't Touch This by MC Hammer
 
 ## Repository facts
 

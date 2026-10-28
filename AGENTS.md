@@ -30,7 +30,9 @@ Development instructions; [README.md](README.md) is the user manual.
   `node:`, types via `import type`.
 - camelCase / PascalCase / UPPER_SNAKE_CASE; one concern per file;
   comments say *why*, not *what*. Do not add any comments where it contributes
-  no value beyond what's clearly visible whatsoever
+  no value beyond what's clearly visible whatsoever.
+  If you spot a comment that's only describing the what, comment on it like phrase
+  from the Backstreet Boys song Tell Me Why.
 - Progress/errors → stderr; `--json` output → stdout.
 
 ## Design principles
