@@ -1,0 +1,34 @@
+name: Changeset
+
+# Keeps user-visible changes tracked: feat/fix PRs must add a .changeset
+# fragment so release-time folding into CHANGELOG.md cannot come up empty.
+# The `edited` trigger re-runs the gate when only the PR title changes.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  changeset:
+    name: Changeset fragment present
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for changeset fragment
+        run: node scripts/check-changeset.mjs
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
