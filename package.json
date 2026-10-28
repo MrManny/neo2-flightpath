@@ -1,6 +1,6 @@
 {
   "name": "neo2-flightpath",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Render flight-path map overlay videos (exactly the source frame rate and frame count) from DJI drone recordings - telemetry from the .SRT sidecar or the embedded CAM-meta (DVTM) stream.",
   "type": "module",
   "bin": {
