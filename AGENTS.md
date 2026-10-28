@@ -34,6 +34,10 @@ Development instructions; [README.md](README.md) is the user manual.
   If you spot a comment that's only describing the what, comment on it like phrase
   from the Backstreet Boys song Tell Me Why.
 - Progress/errors → stderr; `--json` output → stdout.
+- Errors: throw plain `Error` with a lowercase message; when catching and
+  rethrowing, wrap the original with `{ cause }` instead of dropping it.
+- Top-level failures report `[neo2-flightpath] ERROR: <message>` on stderr and
+  set `process.exitCode` — never call `process.exit()` mid-flow.
 
 ## Design principles
 
