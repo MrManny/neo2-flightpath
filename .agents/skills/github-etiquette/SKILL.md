@@ -38,6 +38,8 @@ Load before any GitHub interaction: issues, branches, pull requests, releases.
 
 Read on demand, only the part you need:
 
-- [issues.md](issues.md): templates, description structure, refinement workflow
-- [pull-requests.md](pull-requests.md): draft/undraft etiquette, titles, reviews, merging
+- [issues.md](issues.md): templates, description structure, refinement workflow;
+  read this when opening or editing issue bodies
+- [pull-requests.md](pull-requests.md): draft/undraft etiquette, titles, reviews, merging;
+  read this when opening or editing pull requests
 - [commands.md](commands.md): `gh` CLI cheat sheet (issues, pull requests, CI)
