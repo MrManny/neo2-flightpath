@@ -119,6 +119,61 @@ option table above.
 
 Recordings without any telemetry source are rejected with a clear message.
 
+## Observability
+
+Rendering can export **OpenTelemetry traces** over OTLP/HTTP protobuf, so you
+can see where the time goes — ffprobe, telemetry decoding, tile prefetch,
+browser capture, ffmpeg encoding — and compare recordings or runs.
+
+Enable it with the standard OpenTelemetry environment variables; there is no
+flag and no config key:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 neo2-flightpath "flight.mp4"
+```
+
+Tracing is active iff `OTEL_EXPORTER_OTLP_ENDPOINT` (or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is set and `OTEL_SDK_DISABLED` is not
+`true`. With nothing set, no OpenTelemetry code is loaded, nothing is sent, and
+the output is identical to untraced runs. `OTEL_EXPORTER_OTLP_HEADERS` adds
+collector headers (auth); `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`
+override the service identity (default `neo2-flightpath`, with the app version
+as `service.version` on every span). Any other effective
+`OTEL_EXPORTER_OTLP_PROTOCOL` fails fast instead of exporting into the wrong
+port — `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` takes precedence over it, as the
+signal-specific variable.
+
+Every processed recording yields one trace (skipped recordings yield none):
+
+```
+recording.process
+├─ probe                             ffprobe
+├─ telemetry.load                   source, fix/no-lock counts
+├─ plan                             view, zoom, tile-set size
+├─ tiles.prefetch                   downloaded / cached / failed
+├─ render
+│  ├─ render.capture
+│  │  └─ render.capture.batch        every 100 frames; min/avg/max frame time
+│  └─ render.encode                  ffmpeg; overlaps capture by design
+└─ output.verify                     frame count and rate vs. the source
+```
+
+Attributes carry counts and distances only — **never coordinates**, so traces
+cannot leak where a flight took place. A failed recording records the exception
+and marks its spans `ERROR`; the batch continues and the remaining recordings
+still export.
+
+Minimal collector — Jaeger all-in-one, in-memory storage:
+
+```sh
+docker run --rm -p 4318:4318 -p 16686:16686 jaegertracing/all-in-one:latest
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 neo2-flightpath "flight.mp4"
+```
+
+Then open the Jaeger UI at `http://localhost:16686`. Grafana Tempo or an
+OpenTelemetry Collector work the same way — point the endpoint at their OTLP
+HTTP port.
+
 ## Tiles & attribution
 
 - `satellite`: Esri World Imagery — attribution *Imagery © Esri, Maxar,

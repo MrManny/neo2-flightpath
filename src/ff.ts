@@ -46,6 +46,7 @@ export async function requireTools(): Promise<void> {
 }
 
 // Run ffprobe with caller-supplied arguments and parse its JSON output.
+// tell me why, ain't nothin' but a mistake
 export async function ffprobeJson(
   videoPath: string,
   args: string[],
@@ -175,6 +176,7 @@ async function probeRateFrames(file: string): Promise<string> {
 }
 
 // True when the output exists and its frame count + frame rate match the source.
+// tell me why, ain't nothin' but a mistake
 export async function outputMatchesSource(
   src: string,
   out: string,

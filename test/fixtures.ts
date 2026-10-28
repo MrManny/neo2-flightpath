@@ -4,6 +4,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import type { ReadableSpan } from '@opentelemetry/sdk-trace';
+import { InMemorySpanExporter } from '@opentelemetry/sdk-trace';
+
+import { createTracing } from '../src/tracing.js';
+import type { Tracer, Tracing } from '../src/tracing.js';
+
 // Temporary directories created via tmpDir(), removed by cleanupTmpDirs()
 // (call it from afterEach).
 const tmpDirs: string[] = [];
@@ -18,6 +24,59 @@ export function cleanupTmpDirs(): void {
   for (const dir of tmpDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+export const OTLP_ENDPOINT = 'http://127.0.0.1:4318';
+
+export interface TracingHarness {
+  /** The facade under test, for enabled/shutdown-style assertions. */
+  tracing: Tracing;
+  tracer: Tracer;
+  /** Flush, snapshot the exported spans, then shut the exporter down. */
+  finish(): Promise<ReadableSpan[]>;
+}
+
+// createTracing + InMemorySpanExporter + the flush/read/shutdown dance every
+// span test repeats (shutdown alone wipes the exporter's spans).
+export async function tracingHarness(
+  env: Record<string, string | undefined> = {
+    OTEL_EXPORTER_OTLP_ENDPOINT: OTLP_ENDPOINT,
+  },
+): Promise<TracingHarness> {
+  const exporter = new InMemorySpanExporter();
+  const tracing = await createTracing({ env, spanExporter: exporter });
+  return {
+    tracing,
+    tracer: tracing.tracer,
+    async finish() {
+      await tracing.flush();
+      const spans = exporter.getFinishedSpans();
+      await tracing.shutdown();
+      return spans;
+    },
+  };
+}
+
+export function byName(
+  spans: ReadableSpan[],
+  name: string,
+): ReadableSpan | undefined {
+  return spans.find((s) => s.name === name);
+}
+
+export function startMs(span: ReadableSpan | undefined): number {
+  if (!span) throw new Error('span not found');
+  return span.startTime[0] * 1000 + span.startTime[1] / 1e6;
+}
+
+export function endMs(span: ReadableSpan | undefined): number {
+  if (!span) throw new Error('span not found');
+  return span.endTime[0] * 1000 + span.endTime[1] / 1e6;
+}
+
+export function durationMs(span: ReadableSpan | undefined): number {
+  if (!span) throw new Error('span not found');
+  return span.duration[0] * 1000 + span.duration[1] / 1e6;
 }
 
 // Three cues: two with GPS fixes, one with no GPS lock (0/0) in between.
@@ -39,4 +98,32 @@ export const SRT_SAMPLE = `1
 <font size="28">FrameCnt: 3, DiffTime: 34ms
 2026-05-25 09:18:11.775
 [iso: 340] [latitude: 46.613071] [longitude: 14.262389] [rel_alt: 3.500 abs_alt: 313.427]</font>
+`;
+
+// Four cues: two fixes, one no-lock (0/0), and one without any lat/lon line.
+// That fourth cue is neither a fix nor a no-lock event - only the exact fix
+// count keeps the three kinds apart.
+export const SRT_SAMPLE_MIXED = `1
+00:00:00,000 --> 00:00:00,033
+<font size="28">FrameCnt: 1, DiffTime: 33ms
+2026-05-25 09:18:11.708
+[iso: 340] [latitude: 46.613070] [longitude: 14.262388] [rel_alt: 3.300 abs_alt: 313.227]</font>
+
+2
+00:00:00,033 --> 00:00:00,066
+<font size="28">FrameCnt: 2, DiffTime: 33ms
+2026-05-25 09:18:11.741
+[iso: 340] [latitude: 0.000000] [longitude: 0.000000] [rel_alt: 3.400 abs_alt: 313.327]</font>
+
+3
+00:00:00,066 --> 00:00:00,100
+<font size="28">FrameCnt: 3, DiffTime: 34ms
+2026-05-25 09:18:11.775
+[iso: 340] [rel_alt: 3.500 abs_alt: 313.427]</font>
+
+4
+00:00:00,100 --> 00:00:00,133
+<font size="28">FrameCnt: 4, DiffTime: 33ms
+2026-05-25 09:18:11.808
+[iso: 340] [latitude: 46.613072] [longitude: 14.262390] [rel_alt: 3.600 abs_alt: 313.527]</font>
 `;
