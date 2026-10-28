@@ -204,6 +204,28 @@ describe('renderVideo span tree', () => {
     expect(encode?.status.code).toBe(SpanStatusCode.ERROR);
     expect(render?.status.code).toBe(SpanStatusCode.ERROR);
   });
+
+  it('winds down every batch span when a worker fails', async () => {
+    mocks.screenshotFailAt = 3;
+    const harness = await tracingHarness();
+    await expect(
+      renderVideo(
+        renderOpts({ frames: 250, trace: { tracer: harness.tracer } }),
+      ),
+    ).rejects.toThrow('screenshot failed');
+    const spans = await harness.finish();
+
+    const capture = byName(spans, 'render.capture');
+    const batches = spans.filter((s) => s.name === 'render.capture.batch');
+    expect(batches.length).toBeGreaterThan(0);
+    for (const batch of batches) {
+      // every batch closed under the still-open capture span, before it ended
+      expect(batch.parentSpanContext?.spanId).toBe(capture?.spanContext().spanId);
+      expect(endMs(batch)).toBeLessThanOrEqual(endMs(capture));
+    }
+    // the failed screenshot never counts as a captured frame
+    expect(capture?.attributes['render.frames.captured']).toBe(mocks.screenshots - 1);
+  });
 });
 
 describe('FrameBatchRecorder', () => {
@@ -255,6 +277,15 @@ describe('FrameBatchRecorder', () => {
     const spans = await recorderRun(10, 5, (recorder) => {
       recorder.close();
       recorder.close();
+    });
+    expect(spans.filter((s) => s.name === 'render.capture.batch')).toHaveLength(0);
+  });
+
+  it('ignores frames recorded after close instead of re-opening a batch', async () => {
+    const spans = await recorderRun(10, 5, (recorder) => {
+      recorder.close();
+      recorder.recordFrame(1, 5);
+      recorder.close(new Error('late'));
     });
     expect(spans.filter((s) => s.name === 'render.capture.batch')).toHaveLength(0);
   });

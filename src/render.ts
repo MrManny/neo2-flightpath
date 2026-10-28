@@ -271,6 +271,7 @@ interface StageTiming {
 export class FrameBatchRecorder {
   private openSpan: Span | null = null;
   private durations: number[] = [];
+  private closed = false;
 
   constructor(
     private readonly tracer: Tracer,
@@ -280,6 +281,9 @@ export class FrameBatchRecorder {
   ) {}
 
   recordFrame(capturedSoFar: number, captureMs: number): void {
+    // close() is permanent: a straggling frame must not re-open a batch under
+    // the already-ended capture span.
+    if (this.closed) return;
     if (this.openSpan === null) {
       this.openSpan = this.tracer.startSpan('render.capture.batch', {
         parent: this.parent,
@@ -305,10 +309,13 @@ export class FrameBatchRecorder {
 
   // End a half-open batch span (nothing in flight at close time is normal).
   close(error?: unknown): void {
+    if (this.closed) return;
+    this.closed = true;
     if (this.openSpan === null) return;
     if (error !== undefined) this.openSpan.fail(error);
     this.openSpan.end();
     this.openSpan = null;
+    this.durations = [];
   }
 }
 
@@ -356,7 +363,7 @@ export async function renderVideo(
 
               let captureCursor = 0;
               let capturesDone = 0;
-              let failure: { error: unknown } | null = null;
+              let failed = false;
 
               async function worker(workerId: number): Promise<void> {
                 const page = await active.newPage({
@@ -367,6 +374,9 @@ export async function renderVideo(
                   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
                   await page.waitForFunction('window.__READY === true', null, { timeout: PAGE_LOAD_TIMEOUT_MS });
                   for (;;) {
+                    // A doomed render stops at the next frame: survivors have
+                    // to settle before the spans below are wound down.
+                    if (failed) return;
                     const idx = captureCursor++;
                     if (idx >= frames) break;
                     let t0 = Date.now();
@@ -393,19 +403,22 @@ export async function renderVideo(
                 log(`worker ${workerId} done`);
               }
 
-              try {
-                await Promise.all(
-                  Array.from({ length: workerCount }, (_, i) =>
-                    worker(i + 1).catch((e) => {
-                      failure ??= { error: e };
-                      throw e;
-                    }),
-                  ),
-                );
-              } finally {
-                batches.close(failure?.error);
-                captureSpan.setAttribute('render.frames.captured', capturesDone);
-              }
+              // allSettled, not all: the batch spans and the captured-frame
+              // count must be final before the capture span is wound down.
+              const settled = await Promise.allSettled(
+                Array.from({ length: workerCount }, (_, i) =>
+                  worker(i + 1).catch((e) => {
+                    failed = true;
+                    throw e;
+                  }),
+                ),
+              );
+              const rejected = settled.find(
+                (r): r is PromiseRejectedResult => r.status === 'rejected',
+              );
+              batches.close(rejected?.reason);
+              captureSpan.setAttribute('render.frames.captured', capturesDone);
+              if (rejected) throw rejected.reason;
             });
             await stream.flushReady();
             stream.end();
