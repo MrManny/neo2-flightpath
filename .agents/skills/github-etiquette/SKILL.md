@@ -13,7 +13,7 @@ Load before any GitHub interaction: issues, branches, pull requests, releases.
 
 - Issue bodies **must** follow templates where possible
 - Before opening an issue, spot-check that such an issue does not already exist
-- Bug issues **should** carry a root cause analysis — in the body when done before opening, in the comments when done after — grounded in evidence (the OpenTelemetry export of #1 is meant to supply it)
+- Bug issues **should** carry a root cause analysis — in the body when done before opening, in the comments when done after — grounded in evidence (e.g.  OpenTelemetry traces)
 - Before working on an issue: read its comments and assign it to the user
 - Write issue and PR bodies to a file first, pass it via `--body-file`; never inline long bodies into shell arguments
 - Issues and PRs **should** be free of bloat: one paragraph per section, or a list where one fits (e.g. Acceptance Criteria, Steps to Reproduce)

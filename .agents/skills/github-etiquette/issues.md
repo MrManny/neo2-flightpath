@@ -7,11 +7,7 @@ Two templates live in `.github/ISSUE_TEMPLATE/`:
 - `bug-report.md` - what happened / what should have happened / steps to reproduce / additional context
 - `feature-request.md` - problem first (GIVEN/WHEN/THEN is offered as structure), proposed solution, acceptance sketch
 
-The templates are deliberately lean. Fill in every section they do contain; if one does not apply, write `N/A` instead of deleting it. Put whatever else a reader needs — exact command line, versions, logs — under the last section ("Additional context") or the template's closing comment slot.
-
-## Description structure
-
-Issues in this repo use **Goal** (GIVEN/WHEN/THEN), **Why**, **What** (in/out of scope), **Acceptance criteria**, **Notes** (see #1, #3 for examples). Feature requests may put the GIVEN/WHEN/THEN story in **Problem**, per the template.
+The templates are deliberately lean. Fill in every section they do contain; if one does not apply, write `N/A` instead of deleting it. Put whatever else a reader needs under the last section ("Additional context") or the template's closing comment slot.
 
 ## Labels
 
@@ -38,7 +34,7 @@ Notes:
 
 ## Planning
 
-Planning happens in the GitHub Project **"MrManny's Flight Path Recorder"** (#3, <https://github.com/users/MrManny/projects/3>), not in milestones. It tracks issues and pull requests alike.
+Planning happens in a GitHub Project, not in milestones.
 
 - Newly filed issues will be added to the project automatically.
 - Project commands need extra OAuth scopes: `gh auth refresh -s read:project` to read, add `write:project` to add or edit items.
