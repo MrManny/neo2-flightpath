@@ -26,6 +26,8 @@ export interface PageVideo {
 export interface UiSession {
   scene: SceneData;
   video: PageVideo;
+  /** Where tiles are served from; restyle rebuilds scene.tileUrl from it. */
+  tileBase: string;
 }
 
 export interface PickResult {
@@ -52,6 +54,7 @@ export const prepareUiSession: PrepareUiSession = async (videoPath, config, log)
       width: prep.probe.width,
       height: prep.probe.height,
     },
+    tileBase: TILE_BASE,
   };
 };
 
