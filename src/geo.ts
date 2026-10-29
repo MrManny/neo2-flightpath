@@ -75,23 +75,3 @@ export function unproject(x: number, y: number, zoom: number): LatLon {
   const lat = RAD_TO_DEG * Math.atan(Math.sinh(mercatorN));
   return { lat, lon };
 }
-
-export function bboxOf(
-  lat: readonly number[],
-  lon: readonly number[],
-): Bbox {
-  if (lat.length === 0 || lat.length !== lon.length) {
-    throw new Error('bboxOf needs non-empty, equally sized lat/lon arrays');
-  }
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  let minLon = Infinity;
-  let maxLon = -Infinity;
-  for (let i = 0; i < lat.length; i++) {
-    if (lat[i] < minLat) minLat = lat[i];
-    if (lat[i] > maxLat) maxLat = lat[i];
-    if (lon[i] < minLon) minLon = lon[i];
-    if (lon[i] > maxLon) maxLon = lon[i];
-  }
-  return { minLat, maxLat, minLon, maxLon };
-}
