@@ -6,12 +6,16 @@ import http from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pipeline } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 
-import { TILE_SOURCES } from './tiles.js';
+import { TILE_SOURCES } from './tilesources.js';
 import type { Style } from './config.js';
 
 const require_ = createRequire(import.meta.url);
 const LEAFLET_DIR = path.dirname(require_.resolve('leaflet/dist/leaflet.js'));
+
+/** Compiled shared renderer modules, served to generated pages as ESM. */
+export const RENDERER_DIR = fileURLToPath(new URL('./renderer/', import.meta.url));
 
 export const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -24,11 +28,13 @@ export const MIME: Record<string, string> = {
 export interface AssetRoutes {
   style: Style;
   tileCache: string;
+  rendererDir: string;
 }
 
-// Serves /leaflet/* and /tiles/* from disk (missing tiles fall back to their
-// placeholder). Writes the response and returns true when the URL belongs to
-// one of those routes; callers route everything else themselves.
+// Serves /leaflet/*, /tiles/* and /renderer/* from disk (missing tiles fall
+// back to their placeholder). Writes the response and returns true when the
+// URL belongs to one of those routes; callers route everything else
+// themselves.
 export function serveAsset(
   url: string,
   res: http.ServerResponse,
@@ -50,6 +56,11 @@ export function serveAsset(
         const alt = path.join(routes.tileCache, key, m[2], m[3], `${m[4]}.placeholder.png`);
         if (fs.existsSync(alt)) file = alt;
       }
+    }
+  } else if (url.startsWith('/renderer/')) {
+    const rel = url.slice('/renderer/'.length);
+    if (/^[a-z0-9_-]+\.js$/.test(rel)) {
+      file = path.join(routes.rendererDir, rel);
     }
   } else {
     return false;

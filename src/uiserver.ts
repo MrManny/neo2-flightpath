@@ -12,7 +12,7 @@ import type { RenderConfig } from './config.js';
 import { buildPageHtml, pickFlowScript } from './page.js';
 import { prepareSession, recordingPageOpts } from './run.js';
 import type { LogFn } from './run.js';
-import { MIME, serveAsset, serveFileWithRange } from './serve.js';
+import { MIME, RENDERER_DIR, serveAsset, serveFileWithRange } from './serve.js';
 
 export interface UiSession {
   pageHtml: string;
@@ -205,7 +205,7 @@ export async function startUiServer(
       streams.add(done);
       return;
     }
-    if (serveAsset(url, res, { style: config.style, tileCache: config.tileCache })) return;
+    if (serveAsset(url, res, { style: config.style, tileCache: config.tileCache, rendererDir: RENDERER_DIR })) return;
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('not found');
   });
