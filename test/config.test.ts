@@ -7,9 +7,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   discoverConfigFile,
   loadConfigFile,
+  PANEL_PRESETS,
   parseHud,
   resolveConfig,
+  resolveHudSpec,
 } from '../src/config.js';
+import type { RenderConfig } from '../src/config.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(cleanupTmpDirs);
@@ -98,5 +101,68 @@ describe('resolveConfig', () => {
     expect(() =>
       resolveConfig({ cli: { outSuffix: '' }, configPath: null, cwd: tmpDir() }),
     ).toThrow(/out-suffix/);
+  });
+});
+
+describe('resolveHudSpec', () => {
+  it('keeps the alt chip when the telemetry has altitude', () => {
+    const hud = { heading: true, alt: true, speed: false };
+    expect(resolveHudSpec(hud, true)).toEqual(hud);
+  });
+
+  it('drops the alt chip when the telemetry has no altitude', () => {
+    expect(
+      resolveHudSpec({ heading: true, alt: true, speed: true }, false),
+    ).toEqual({ heading: true, alt: false, speed: true });
+  });
+
+  it('leaves the other chips untouched when alt is already off', () => {
+    const hud = { heading: true, alt: false, speed: true };
+    expect(resolveHudSpec(hud, false)).toEqual(hud);
+  });
+});
+
+describe('PANEL_PRESETS', () => {
+  const PANEL_KEYS: Array<keyof RenderConfig> = [
+    'style',
+    'view',
+    'zoom',
+    'zoomOut',
+    'introSec',
+    'outroSec',
+    'hud',
+  ];
+
+  it('names the two documented presets', () => {
+    expect(PANEL_PRESETS.map((p) => p.label)).toEqual([
+      'Quick render',
+      'Topo + full HUD',
+    ]);
+  });
+
+  it('has unique ids', () => {
+    const ids = PANEL_PRESETS.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('bundles every panel knob so no stale values survive a switch', () => {
+    for (const preset of PANEL_PRESETS) {
+      for (const key of PANEL_KEYS) {
+        expect(preset.overrides).toHaveProperty(key);
+      }
+    }
+  });
+
+  it('resolves each bundle to a valid config', () => {
+    for (const preset of PANEL_PRESETS) {
+      const { config } = resolveConfig({
+        cli: preset.overrides,
+        configPath: null,
+        cwd: tmpDir(),
+      });
+      expect(config.zoom).toBeGreaterThanOrEqual(0);
+      expect(config.introSec).toBeGreaterThanOrEqual(0);
+      expect(config.outroSec).toBeGreaterThanOrEqual(0);
+    }
   });
 });

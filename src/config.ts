@@ -46,6 +46,44 @@ export interface RenderConfig {
 
 export type ConfigOverrides = Partial<RenderConfig>;
 
+// Named bundles of panel knobs ("presets sit on top of the advanced knobs"):
+// each one sets every look control so switching presets never leaves stale
+// values behind. Export-side options are untouched.
+export interface PanelPreset {
+  id: string;
+  label: string;
+  overrides: ConfigOverrides;
+}
+
+export const PANEL_PRESETS: readonly PanelPreset[] = [
+  {
+    id: 'quick-render',
+    label: 'Quick render',
+    overrides: {
+      style: 'satellite',
+      view: 'follow',
+      zoom: 0,
+      zoomOut: 1,
+      introSec: 0,
+      outroSec: 0,
+      hud: { heading: true, alt: false, speed: false },
+    },
+  },
+  {
+    id: 'topo-full-hud',
+    label: 'Topo + full HUD',
+    overrides: {
+      style: 'topo',
+      view: 'follow',
+      zoom: 0,
+      zoomOut: 1,
+      introSec: 2,
+      outroSec: 2,
+      hud: { heading: true, alt: true, speed: true },
+    },
+  },
+];
+
 export const CONFIG_FILE_NAME = '.neo2flightpath.json';
 
 // NEO2_FLIGHTPATH_TILE_CACHE overrides the per-user cache directory.
@@ -100,6 +138,11 @@ export function parseHud(list: string): HudSpec {
       );
   }
   return hud;
+}
+
+// The "alt hides when unavailable" rule, one home for the pipeline and the UI.
+export function resolveHudSpec(hud: HudSpec, hasAltitude: boolean): HudSpec {
+  return hud.alt && !hasAltitude ? { ...hud, alt: false } : hud;
 }
 
 function asNumber(value: unknown, name: string): number {

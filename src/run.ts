@@ -19,6 +19,7 @@ import { buildPageHtml } from './page.js';
 import type { PageOpts } from './page.js';
 import { renderVideo } from './render.js';
 import type { HudSpec, RenderConfig } from './config.js';
+import { resolveHudSpec } from './config.js';
 import { NOOP_TRACER, stage } from './tracing.js';
 import type { TraceContext } from './tracing.js';
 
@@ -100,10 +101,8 @@ export function planOutputs(videos: string[], config: RenderConfig): PlannedOutp
 
 // HUD sanity: drop chips whose data does not exist for this source.
 function resolveHud(config: RenderConfig, tel: Telemetry, log: LogFn): HudSpec {
-  const hud: HudSpec = { ...config.hud };
-  const hasAltitude = tel.frames.some((f) => f.alt !== null);
-  if (hud.alt && !hasAltitude) {
-    hud.alt = false;
+  const hud = resolveHudSpec(config.hud, tel.frames.some((f) => f.alt !== null));
+  if (config.hud.alt && !hud.alt) {
     log('hud: altitude unavailable in this telemetry source (chip disabled)');
   }
   return hud;
