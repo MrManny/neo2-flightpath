@@ -36,7 +36,7 @@ export function PlayerChrome({
   onSettingsChange,
   onOpen,
 }: PlayerChromeProps) {
-  const { scene: preparedScene, video, tileBase } = session;
+  const { scene: preparedScene, video, tileBase, bbox } = session;
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubRef = useRef<HTMLInputElement>(null);
   const sceneRef = useRef<Scene | null>(null);
@@ -57,8 +57,9 @@ export function PlayerChrome({
         fps: video.fps,
         frames: video.frames,
         tileBase,
+        bbox,
       }),
-    [preparedScene, settings, video.fps, video.frames, tileBase],
+    [preparedScene, settings, video.fps, video.frames, tileBase, bbox],
   );
 
   const handleScene = useCallback((scene: Scene) => {

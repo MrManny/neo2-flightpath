@@ -7,6 +7,7 @@ import path from 'node:path';
 import { MEDIA_URL, TILE_BASE } from './apppaths.js';
 import type { RenderConfig } from './config.js';
 import { errorMessage } from './errors.js';
+import type { Bbox } from './geo.js';
 import { buildSceneData } from './page.js';
 import type { SceneData } from './renderer/scene.js';
 import { prepareSession, recordingPageOpts } from './run.js';
@@ -28,6 +29,8 @@ export interface UiSession {
   video: PageVideo;
   /** Where tiles are served from; restyle rebuilds scene.tileUrl from it. */
   tileBase: string;
+  /** The telemetry's fix bbox: restyle plans the view from it, like the pipeline. */
+  bbox: Bbox;
 }
 
 export interface PickResult {
@@ -55,6 +58,7 @@ export const prepareUiSession: PrepareUiSession = async (videoPath, config, log)
       height: prep.probe.height,
     },
     tileBase: TILE_BASE,
+    bbox: prep.tel.bbox,
   };
 };
 

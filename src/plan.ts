@@ -6,6 +6,7 @@
 import type { RenderConfig } from './config.js';
 import { project } from './geo.js';
 import type { Bbox, Pixel } from './geo.js';
+import { TILE_SOURCES } from './renderer/tilesources.js';
 
 export interface TileCoord {
   z: number;
@@ -151,6 +152,28 @@ export function computeOverview({
 export interface IntroOutroFrames {
   introN: number;
   outroN: number;
+}
+
+// The one place that turns look settings into view planning: the tile-source
+// constraints (maxZoom, native zoom) are part of the rule, so callers never
+// hand-roll the computeOverview inputs.
+export function planView(
+  bbox: Bbox,
+  width: number,
+  height: number,
+  config: Pick<RenderConfig, 'style' | 'view' | 'zoom' | 'zoomOut'>,
+): Overview {
+  const src = TILE_SOURCES[config.style];
+  return computeOverview({
+    bbox,
+    width,
+    height,
+    maxZoom: src.maxZoom || 19,
+    maxNativeZoom: src.maxNativeZoom || null,
+    zoomOut: config.zoomOut,
+    zoomOverride: config.zoom,
+    follow: config.view === 'follow',
+  });
 }
 
 // Intro/outro zoom timing (frames); clamp for very short clips.
