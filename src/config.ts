@@ -2,7 +2,7 @@
 // discovered upward from the working directory unless --config names one.
 //
 // This module is the vocabulary home for the option types (Style, View,
-// Capture, Preset, Trail, HudSpec); feature modules import them from here.
+// Capture, Preset, HudSpec); feature modules import them from here.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,7 +12,6 @@ export type Style = 'satellite' | 'topo';
 export type View = 'follow' | 'overview';
 export type Capture = 'jpeg' | 'png';
 export type Preset = 'medium' | 'veryfast';
-export type Trail = 'full' | 'incr';
 
 export interface HudSpec {
   heading: boolean;
@@ -37,7 +36,6 @@ export interface RenderConfig {
   workers: number;
   capture: Capture;
   preset: Preset;
-  trail: Trail;
   tileCache: string;
   browser: string | null;
   skipExisting: boolean;
@@ -73,7 +71,6 @@ export const DEFAULT_CONFIG: RenderConfig = {
   workers: 4,
   capture: 'jpeg',
   preset: 'medium',
-  trail: 'full',
   tileCache: defaultTileCache(),
   browser: null,
   skipExisting: false,
@@ -86,7 +83,6 @@ const STYLE_VALUES: Style[] = ['satellite', 'topo'];
 const VIEW_VALUES: View[] = ['follow', 'overview'];
 const CAPTURE_VALUES: Capture[] = ['jpeg', 'png'];
 const PRESET_VALUES: Preset[] = ['medium', 'veryfast'];
-const TRAIL_VALUES: Trail[] = ['full', 'incr'];
 
 export function parseHud(list: string): HudSpec {
   const hud: HudSpec = { heading: false, alt: false, speed: false };
@@ -163,7 +159,6 @@ const OVERRIDE_NORMALIZERS: Record<keyof RenderConfig, OverrideNormalizer> = {
   workers: (v, name) => ({ workers: asNumber(v, name) }),
   capture: (v, name) => ({ capture: asEnum(v, name, CAPTURE_VALUES) }),
   preset: (v, name) => ({ preset: asEnum(v, name, PRESET_VALUES) }),
-  trail: (v, name) => ({ trail: asEnum(v, name, TRAIL_VALUES) }),
   tileCache: (v, name) => ({ tileCache: asString(v, name) }),
   browser: (v, name) => ({ browser: asNullableString(v, name) }),
   skipExisting: (v, name) => ({ skipExisting: asBool(v, name) }),

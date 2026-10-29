@@ -55,6 +55,12 @@ describe('loadConfigFile', () => {
     expect(() => loadConfigFile(file)).toThrow(/unknown config key/);
   });
 
+  it('rejects the removed trail key', () => {
+    const file = path.join(tmpDir(), 'c.json');
+    fs.writeFileSync(file, '{"trail": "incr"}');
+    expect(() => loadConfigFile(file)).toThrow(/unknown config key/);
+  });
+
   it('rejects invalid JSON', () => {
     const file = path.join(tmpDir(), 'c.json');
     fs.writeFileSync(file, '{oops');
@@ -83,14 +89,14 @@ describe('resolveConfig', () => {
   });
 
   it('validates ranges', () => {
-    expect(() => resolveConfig({ cli: { workers: 0 }, configPath: null })).toThrow(
+    expect(() => resolveConfig({ cli: { workers: 0 }, configPath: null, cwd: tmpDir() })).toThrow(
       /workers/,
     );
-    expect(() => resolveConfig({ cli: { width: 10 }, configPath: null })).toThrow(
+    expect(() => resolveConfig({ cli: { width: 10 }, configPath: null, cwd: tmpDir() })).toThrow(
       /at least 64/,
     );
     expect(() =>
-      resolveConfig({ cli: { outSuffix: '' }, configPath: null }),
+      resolveConfig({ cli: { outSuffix: '' }, configPath: null, cwd: tmpDir() }),
     ).toThrow(/out-suffix/);
   });
 });

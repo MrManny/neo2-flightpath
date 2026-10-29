@@ -17,7 +17,9 @@ It is a CLI tool, since I plan to support agentic use cases.
 Meaning, if an agent wants to use it to help you create flight-path videos,
 that's all cool with me.
 
-I will tack on a UI version later on for us humans though.
+For us humans, there is a desktop app (see *Desktop app*): it opens a window
+where you pick a recording and watch its flight path on the map in sync with
+the footage.
 
 ## Quick start
 
@@ -64,6 +66,24 @@ All frames below are from the same recording:
 - Internet on the first run: map tiles are fetched politely and cached
   permanently afterwards (see *Tiles & attribution*).
 
+## Desktop app
+
+For reviewing flights without the terminal, grab the packaged Windows app from
+[GitHub Releases](https://github.com/MrManny/neo2-flightpath/releases), or run
+`npm run app` from a checkout. Launching it opens a window where
+**Open recording&hellip;** picks a video through the native file dialog; the
+screen then shows the footage and the map overlay (trail, heading arrow, HUD
+chips) in a swappable picture-in-picture layout on one shared timeline
+scrubber. Play, pause and scrub keep the video frame, trail, drone position
+and HUD chips on the same frame; the map fills its pane at any window size,
+while the export framing follows `--width` / `--height` as usual.
+
+- The app embeds Chromium and needs no system browser, but it does need
+  **ffmpeg + ffprobe** on `PATH` like the CLI; map tiles need internet on the
+  first run and are cached like CLI tiles.
+- One recording at a time — batch rendering stays a CLI concern.
+- Exporting straight from the app is planned; use the CLI to render until then.
+
 ## Usage
 
 If you are stuck, `npx neo2-flightpath --help` can help.
@@ -89,7 +109,6 @@ optionally with `--recurse`). Every recording is processed independently.
 | `--workers <n>` | `4` | parallel browser capture pages |
 | `--capture <mode>` | `jpeg` | `jpeg` (q95 screenshots, ~5x faster) or `png`; `canvas` is parked |
 | `--preset <name>` | `medium` | x264 preset (`medium` \| `veryfast`) |
-| `--trail <mode>` | `full` | trail update strategy (`full` \| `incr`) |
 | `--tile-cache <dir>` | per-user cache | tile cache directory |
 | `--browser <path>` | system Chrome/Edge | browser executable |
 | `--skip-existing` | off | skip recordings whose output exists and matches the source (frame count + frame rate) |

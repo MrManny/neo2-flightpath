@@ -46,7 +46,8 @@ interface Position {
 const MAX_INTERPOLATION_GAP_S = 3; // hold the earlier fix across longer gaps
 const SPEED_SMOOTHING_SPAN = 5; // +-N samples moving average for the HUD
 const HEADING_MIN_MOVE_M = 1.5; // ignore bearings from sub-meter displacement
-const HEADING_HALF_WINDOW_S = 0.35;
+const HEADING_HALF_WINDOW_S = 0.35; // preferred course baseline half-width
+const HEADING_MAX_BASELINE_S = 3; // widened baseline for slow flights
 const HEADING_MIN_SPEED_MPS = 0.5; // below this the course is meaningless
 const HEADING_SMOOTHING_SPAN = 4; // +-N samples circular mean
 
@@ -275,9 +276,9 @@ interface HeadingResult {
 }
 
 // Preferred source: drone body yaw (DVTM EulerAngle, deci-degrees) - valid
-// even while hovering. Fallback: course over ground measured across a ~0.7 s
+// even while hovering. Fallback: course over ground measured across a moving
 // baseline (consecutive fixes are only centimeters apart at 60 fps, so
-// neighbor bearings are pure GPS jitter). Held while nearly stationary.
+// neighbor bearings are pure GPS jitter). Held while truly stationary.
 function computeHeadingBySample(
   samples: TelSample[],
   fixIndices: number[],
@@ -330,16 +331,22 @@ function fillCourseOverGroundHeadings(
   for (let k = 0; k < fixIndices.length; k++) {
     const ik = fixIndices[k];
     const tk = samples[ik].tSec;
+    if ((speedBySample[ik] ?? 0) < HEADING_MIN_SPEED_MPS) continue;
+    // Grow the baseline until the pair clears the GPS jitter floor: slow
+    // flights get a wider window instead of losing their heading to holds.
     let ka = k;
     let kb = k;
-    while (ka > 0 && samples[fixIndices[ka]].tSec > tk - HEADING_HALF_WINDOW_S) ka--;
-    while (kb < fixIndices.length - 1 && samples[fixIndices[kb]].tSec < tk + HEADING_HALF_WINDOW_S) kb++;
-    const a = samples[fixIndices[ka]];
-    const b = samples[fixIndices[kb]];
-    const displacement = haversineM(fixOf(a), fixOf(b));
-    const speed = speedBySample[ik] ?? 0;
-    if (displacement >= HEADING_MIN_MOVE_M && speed >= HEADING_MIN_SPEED_MPS) {
-      rawHeading[ik] = bearingDeg(fixOf(a), fixOf(b));
+    let displacement = 0;
+    for (const half of [HEADING_HALF_WINDOW_S, HEADING_MAX_BASELINE_S]) {
+      ka = k;
+      kb = k;
+      while (ka > 0 && samples[fixIndices[ka]].tSec > tk - half) ka--;
+      while (kb < fixIndices.length - 1 && samples[fixIndices[kb]].tSec < tk + half) kb++;
+      displacement = haversineM(fixOf(samples[fixIndices[ka]]), fixOf(samples[fixIndices[kb]]));
+      if (displacement >= HEADING_MIN_MOVE_M) break;
+    }
+    if (displacement >= HEADING_MIN_MOVE_M) {
+      rawHeading[ik] = bearingDeg(fixOf(samples[fixIndices[ka]]), fixOf(samples[fixIndices[kb]]));
     }
   }
 }

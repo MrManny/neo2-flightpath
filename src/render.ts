@@ -2,10 +2,7 @@
 // exact frame order (no scratch frame files on disk). The headless browser is
 // the system Chrome/Edge via playwright-core - no browser download.
 
-import fs from 'node:fs';
 import http from 'node:http';
-import path from 'node:path';
-import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import type { Writable } from 'node:stream';
@@ -13,20 +10,10 @@ import type { Writable } from 'node:stream';
 import type { Browser } from 'playwright-core';
 
 import { errorMessage } from './errors.js';
-import { TILE_SOURCES } from './tiles.js';
+import { MIME, serveAsset } from './serve.js';
 import type { Capture, Preset, Style } from './config.js';
 import { NOOP_TRACER, stage } from './tracing.js';
 import type { Span, Tracer, TraceContext } from './tracing.js';
-
-const require_ = createRequire(import.meta.url);
-const LEAFLET_DIR = path.dirname(require_.resolve('leaflet/dist/leaflet.js'));
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.png': 'image/png',
-};
 
 const PAGE_LOAD_TIMEOUT_MS = 60000;
 const SCREENSHOT_TIMEOUT_MS = 60000;
@@ -57,38 +44,14 @@ export function startServer({
       res.end('bad request');
       return;
     }
-    let file: string | null = null;
     if (url === '/' || url === '/index.html') {
       res.writeHead(200, { 'Content-Type': MIME['.html'] });
       res.end(html);
       return;
     }
-    if (url.startsWith('/leaflet/')) {
-      const rel = url.slice('/leaflet/'.length);
-      if (/^(leaflet\.(js|css|js\.map|css\.map)|images\/[a-z0-9_-]+\.png)$/.test(rel)) {
-        file = path.join(LEAFLET_DIR, rel);
-      }
-    } else if (url.startsWith('/tiles/')) {
-      const m = /^\/tiles\/([a-z0-9_-]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(url);
-      const src = m ? TILE_SOURCES[m[1] as Style] : null;
-      if (m && src && m[1] === style) {
-        const key = src.cacheKey || m[1];
-        file = path.join(tileCache, key, m[2], m[3], `${m[4]}.png`);
-        if (!fs.existsSync(file)) {
-          const alt = path.join(tileCache, key, m[2], m[3], `${m[4]}.placeholder.png`);
-          if (fs.existsSync(alt)) file = alt;
-        }
-      }
-    }
-    if (file && fs.existsSync(file) && fs.statSync(file).isFile()) {
-      res.writeHead(200, {
-        'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
-      });
-      res.end(fs.readFileSync(file));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('not found');
-    }
+    if (serveAsset(url, res, { style, tileCache })) return;
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('not found');
   });
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
@@ -368,9 +331,14 @@ export async function renderVideo(
                     const idx = captureCursor++;
                     if (idx >= frames) break;
                     let t0 = Date.now();
-                    await page.evaluate((i: number) => {
-                      (globalThis as unknown as { __setFrame: (n: number) => void }).__setFrame(i);
-                    }, idx);
+                    // __setFrame resolves after the canvas painted (canvas
+                    // drawing is deferred to requestAnimationFrame); awaiting
+                    // it keeps every screenshot on the current frame.
+                    await page.evaluate(
+                      (i: number) =>
+                        (globalThis as unknown as { __setFrame: (n: number) => Promise<void> }).__setFrame(i),
+                      idx,
+                    );
                     timing.evalMs += Date.now() - t0;
                     t0 = Date.now();
                     const buf = await page.screenshot(screenshotOptions(capture));
