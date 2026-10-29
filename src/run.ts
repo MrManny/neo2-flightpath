@@ -10,8 +10,10 @@ import { outputMatchesSource, probeVideo, verifyOutput } from './ff.js';
 import type { VideoProbe } from './ff.js';
 import { loadTelemetry } from './telemetry.js';
 import type { Telemetry } from './telemetry.js';
-import { computeOverview, prefetchTiles } from './tiles.js';
-import type { Overview, PrefetchStats } from './tiles.js';
+import { prefetchTiles } from './tiles.js';
+import type { PrefetchStats } from './tiles.js';
+import { computeOverview, planIntroOutroFrames } from './plan.js';
+import type { IntroOutroFrames, Overview } from './plan.js';
 import { TILE_SOURCES } from './renderer/tilesources.js';
 import { buildPageHtml } from './page.js';
 import type { PageOpts } from './page.js';
@@ -94,29 +96,6 @@ export function planOutputs(videos: string[], config: RenderConfig): PlannedOutp
       }
     }
   });
-}
-
-export interface IntroOutroFrames {
-  introN: number;
-  outroN: number;
-}
-
-// Intro/outro zoom timing (frames); clamp for very short clips.
-function planIntroOutroFrames(
-  config: RenderConfig,
-  probe: VideoProbe,
-  log: LogFn,
-): IntroOutroFrames {
-  let introN = Math.max(0, Math.round(config.introSec * probe.fps.value));
-  let outroN = Math.max(0, Math.round(config.outroSec * probe.fps.value));
-  const budget = Math.max(2, Math.floor(probe.frames / 2));
-  if (introN + outroN > budget) {
-    const scale = budget / (introN + outroN);
-    introN = Math.floor(introN * scale);
-    outroN = Math.floor(outroN * scale);
-    log(`intro/outro shortened to ${introN}/${outroN} frames for this clip`);
-  }
-  return { introN, outroN };
 }
 
 // HUD sanity: drop chips whose data does not exist for this source.
@@ -259,7 +238,11 @@ export async function prepareSession(
   log(
     `source: ${path.basename(videoPath)}  ${probe.width}x${probe.height} @ ${probe.fps.str} fps, ${probe.frames} frames`,
   );
-  const introOutro = planIntroOutroFrames(config, probe, log);
+  const introOutro = planIntroOutroFrames(
+    config,
+    { fps: probe.fps.value, frames: probe.frames },
+    log,
+  );
 
   const tel = await stage(tracer, 'telemetry.load', parent, {}, async (span) => {
     const loaded = await deps.loadTelemetry(videoPath, {
