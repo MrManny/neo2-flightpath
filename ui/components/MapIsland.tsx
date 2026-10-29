@@ -54,5 +54,14 @@ export function MapIsland({ data, onScene }: MapIslandProps) {
     sceneRef.current?.update(data);
   }, [data]);
 
-  return <div id="scene-host" className="scene-host" ref={hostRef} />;
+  // Leaflet's internal panes are z-indexed up to 700; isolating the host
+  // keeps them from painting over the picture-in-picture pane.
+  return (
+    <div
+      id="scene-host"
+      className="scene-host"
+      style={{ isolation: 'isolate' }}
+      ref={hostRef}
+    />
+  );
 }

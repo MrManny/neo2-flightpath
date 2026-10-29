@@ -149,9 +149,10 @@ describe('PlayerChrome', () => {
     const mapPane = screen.getByTestId('map-island').parentElement as HTMLElement;
     const videoPane = (document.querySelector('video') as HTMLElement).parentElement as HTMLElement;
 
-    // Map in the pip box (CSS-sized); the video pane must fill the stage.
+    // Map in the pip box (pipStyle-sized); the video pane must fill the stage.
     expect(mapPane.className).toContain('pane-pip');
-    expect(mapPane.style.width).toBe('');
+    expect(mapPane.style.width).toBe('30%');
+    expect(mapPane.style.aspectRatio).toBe('16 / 9');
     expect(videoPane.className).toContain('pane-main');
     expect(videoPane.style.width).toBe('');
 
@@ -163,5 +164,26 @@ describe('PlayerChrome', () => {
     expect(mapPane.style.aspectRatio).toBe('');
     expect(videoPane.style.width).toBe('auto');
     expect(videoPane.style.aspectRatio).toBe('1512 / 2688');
+  });
+
+  it('keeps the map pip above the footage in video view', () => {
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
+    const mapPane = screen.getByTestId('map-island').parentElement as HTMLElement;
+    const videoPane = (document.querySelector('video') as HTMLElement).parentElement as HTMLElement;
+    expect(mapPane.className).toContain('pane-pip');
+    expect(mapPane.style.zIndex).toBe('2');
+    expect(videoPane.className).toContain('pane-main');
+    expect(videoPane.style.zIndex).toBe('');
+  });
+
+  it('keeps the drone footage pip above the map in map view', () => {
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Swap view' }));
+    const videoPane = (document.querySelector('video') as HTMLElement).parentElement as HTMLElement;
+    const mapPane = screen.getByTestId('map-island').parentElement as HTMLElement;
+    expect(videoPane.className).toContain('pane-pip');
+    expect(videoPane.style.zIndex).toBe('2');
+    expect(mapPane.className).toContain('pane-main');
+    expect(mapPane.style.zIndex).toBe('');
   });
 });

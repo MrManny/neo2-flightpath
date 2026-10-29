@@ -132,6 +132,12 @@ describe('MapIsland', () => {
     expect(observers[0]?.disconnected).toBe(true);
   });
 
+  it('isolates the map stacking so leaflet cannot paint over the pip', () => {
+    const { container } = render(<MapIsland data={DATA} onScene={vi.fn()} />);
+    const host = container.querySelector('#scene-host') as HTMLElement;
+    expect(host.style.isolation).toBe('isolate');
+  });
+
   it('restyles the scene in place when the data changes', async () => {
     const onScene = vi.fn();
     const { rerender } = render(<MapIsland data={DATA} onScene={onScene} />);

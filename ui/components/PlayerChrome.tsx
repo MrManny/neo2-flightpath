@@ -124,6 +124,7 @@ export function PlayerChrome({
         </div>
         <div
           className={`pane ${mapIsMain ? 'pane-main' : 'pane-pip'}`}
+          style={mapIsMain ? undefined : pipStyle(false)}
           title="Click to swap"
           onClick={swap}
         >
