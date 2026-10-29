@@ -103,7 +103,7 @@ export function createScene(
     preferCanvas: true,
     zoomSnap: 1,
   });
-  const tiles = L.tileLayer(data.tileUrl, {
+  let tiles = L.tileLayer(data.tileUrl, {
     maxZoom: TILE_SOURCES[data.style].maxZoom,
     maxNativeZoom: TILE_SOURCES[data.style].maxNativeZoom || undefined,
   });
@@ -347,7 +347,18 @@ export function createScene(
       bb = L.latLngBounds(latlngs);
     }
     applyChrome();
-    if (next.tileUrl !== prev.tileUrl) tiles.setUrl(next.tileUrl);
+    if (next.style !== prev.style) {
+      // The zoom constraints are per source (topo tiles are native to z17),
+      // so a style switch swaps the layer instead of only its URL.
+      tiles.remove();
+      tiles = L.tileLayer(next.tileUrl, {
+        maxZoom: TILE_SOURCES[next.style].maxZoom,
+        maxNativeZoom: TILE_SOURCES[next.style].maxNativeZoom || undefined,
+      });
+      tiles.addTo(map);
+    } else if (next.tileUrl !== prev.tileUrl) {
+      tiles.setUrl(next.tileUrl);
+    }
     const decorInvalidated =
       next.style !== prev.style ||
       next.trailLat !== prev.trailLat ||

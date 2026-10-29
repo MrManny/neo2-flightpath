@@ -28,7 +28,12 @@ function fakeL(host: HTMLElement): {
   L: LeafletApi;
   polylines: PolylineRecord[];
   markers: MarkerRecord[];
-  tile: { url: string; urls: string[]; handlers: Record<string, () => void> };
+  tile: {
+    url: string;
+    urls: string[];
+    options: Array<{ maxZoom: number; maxNativeZoom?: number }>;
+    handlers: Record<string, () => void>;
+  };
   map: { views: Array<[LatLngExpr, number]>; invalidations: number };
   removals: { count: number };
 } {
@@ -38,6 +43,7 @@ function fakeL(host: HTMLElement): {
   const tile = {
     url: '',
     urls: [] as string[],
+    options: [] as Array<{ maxZoom: number; maxNativeZoom?: number }>,
     handlers: {} as Record<string, () => void>,
   };
   const map = { views: [] as Array<[LatLngExpr, number]>, invalidations: 0 };
@@ -53,9 +59,10 @@ function fakeL(host: HTMLElement): {
         map.invalidations++;
       },
     }),
-    tileLayer: (url): TileLayerHandle => {
+    tileLayer: (url, options): TileLayerHandle => {
       tile.url = url;
       tile.urls.push(url);
+      tile.options.push(options);
       return {
         addTo: () => {},
         remove: () => {
@@ -338,6 +345,9 @@ describe('Scene.update', () => {
     );
 
     expect(tile.urls).toContain('/tiles/topo/{z}/{x}/{y}.png');
+    // The new source's zoom constraints go with the layer (topo is native
+    // to z17; asking it for z18+ returns placeholder tiles).
+    expect(tile.options.at(-1)).toMatchObject({ maxZoom: 19, maxNativeZoom: 17 });
     expect(document.head.textContent).toContain('#e63946');
     expect(host.querySelector('#attr')?.textContent).toBe('Topo Attribution');
     expect(removals.count).toBeGreaterThan(0);
