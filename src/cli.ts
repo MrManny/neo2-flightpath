@@ -4,7 +4,7 @@ import { Command, Option } from 'commander';
 import { ERROR_PREFIX, errorMessage } from './errors.js';
 import { VERSION } from './version.js';
 import { parseHud, resolveConfig } from './config.js';
-import type { Capture, ConfigOverrides, Preset, Style, Trail, View } from './config.js';
+import type { Capture, ConfigOverrides, Preset, Style, View } from './config.js';
 import { collectRecordings } from './inputs.js';
 import { requireTools } from './ff.js';
 import { runBatch } from './run.js';
@@ -32,7 +32,6 @@ interface RawOpts {
   workers: string;
   capture: Capture;
   preset: Preset;
-  trail: Trail;
   tileCache: string;
   browser?: string;
   skipExisting?: boolean;
@@ -103,11 +102,6 @@ export function buildProgram(): Command {
         .choices(['medium', 'veryfast'])
         .default('medium'),
     )
-    .addOption(
-      new Option('--trail <mode>', 'trail update strategy')
-        .choices(['full', 'incr'])
-        .default('full'),
-    )
     .option(
       '--tile-cache <dir>',
       'tile cache directory (default: per-user cache dir)',
@@ -158,7 +152,6 @@ function collectOverrides(program: Command, opts: RawOpts): ConfigOverrides {
   if (given('workers')) cli.workers = numOpt(opts.workers, '--workers');
   if (given('capture')) cli.capture = opts.capture;
   if (given('preset')) cli.preset = opts.preset;
-  if (given('trail')) cli.trail = opts.trail;
   if (given('tileCache')) cli.tileCache = opts.tileCache;
   if (given('browser')) cli.browser = opts.browser ?? null;
   if (given('skipExisting')) cli.skipExisting = opts.skipExisting ?? false;

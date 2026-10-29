@@ -3,10 +3,12 @@
   "version": "0.2.0",
   "description": "Render flight-path map overlay videos (exactly the source frame rate and frame count) from DJI drone recordings - telemetry from the .SRT sidecar or the embedded CAM-meta (DVTM) stream.",
   "type": "module",
+  "main": "app/main.mjs",
   "bin": {
     "neo2-flightpath": "bin/neo2-flightpath.mjs"
   },
   "files": [
+    "app",
     "bin",
     "dist",
     "CHANGELOG.md",
@@ -17,6 +19,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "app": "electron app/main.mjs",
     "build": "tsc -p tsconfig.json",
     "changeset": "changeset",
     "changeset:version": "changeset version && npm install --package-lock-only",
@@ -60,6 +63,8 @@
     "@changesets/cli": "~3.0.3",
     "@eslint/js": "~10.0.1",
     "@types/node": "~24.19.2",
+    "electron": "~45.1.0",
+    "electron-builder": "~26.18.0",
     "eslint": "~10.13.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "~8.72.1",

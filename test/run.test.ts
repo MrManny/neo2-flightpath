@@ -10,6 +10,7 @@ import type { VideoProbe } from '../src/ff.js';
 import {
   outputPathFor,
   planOutputs,
+  prepareSession,
   processRecording,
   runBatch,
 } from '../src/run.js';
@@ -124,6 +125,23 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 afterEach(cleanupTmpDirs);
+
+describe('prepareSession', () => {
+  it('rounds the canvas to even sizes and wires the decimated track', async () => {
+    const prep = await prepareSession(
+      VIDEO,
+      testConfig({ width: 767, height: 500 }),
+      () => {},
+      { deps: stubDeps() },
+    );
+    expect(prep.width).toBe(766);
+    expect(prep.height).toBe(500);
+    expect(prep.frames.lat).toHaveLength(3);
+    expect(prep.decimated.frame[0]).toBe(0);
+    expect(prep.decimated.frame[prep.decimated.frame.length - 1]).toBe(2);
+    expect(prep.hud).toEqual({ heading: true, alt: false, speed: false });
+  });
+});
 
 describe('processRecording span tree', () => {
   async function tracedRun(

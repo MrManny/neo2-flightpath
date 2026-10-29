@@ -1,0 +1,152 @@
+// Static assets and video streaming shared by the headless render server and
+// the app's session server.
+
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { pipeline } from 'node:stream';
+
+import { TILE_SOURCES } from './tiles.js';
+import type { Style } from './config.js';
+
+const require_ = createRequire(import.meta.url);
+const LEAFLET_DIR = path.dirname(require_.resolve('leaflet/dist/leaflet.js'));
+
+export const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png',
+  '.mp4': 'video/mp4',
+};
+
+export interface AssetRoutes {
+  style: Style;
+  tileCache: string;
+}
+
+// Serves /leaflet/* and /tiles/* from disk (missing tiles fall back to their
+// placeholder). Writes the response and returns true when the URL belongs to
+// one of those routes; callers route everything else themselves.
+export function serveAsset(
+  url: string,
+  res: http.ServerResponse,
+  routes: AssetRoutes,
+): boolean {
+  let file: string | null = null;
+  if (url.startsWith('/leaflet/')) {
+    const rel = url.slice('/leaflet/'.length);
+    if (/^(leaflet\.(js|css|js\.map|css\.map)|images\/[a-z0-9_-]+\.png)$/.test(rel)) {
+      file = path.join(LEAFLET_DIR, rel);
+    }
+  } else if (url.startsWith('/tiles/')) {
+    const m = /^\/tiles\/([a-z0-9_-]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(url);
+    const src = m ? TILE_SOURCES[m[1] as Style] : null;
+    if (m && src && m[1] === routes.style) {
+      const key = src.cacheKey || m[1];
+      file = path.join(routes.tileCache, key, m[2], m[3], `${m[4]}.png`);
+      if (!fs.existsSync(file)) {
+        const alt = path.join(routes.tileCache, key, m[2], m[3], `${m[4]}.placeholder.png`);
+        if (fs.existsSync(alt)) file = alt;
+      }
+    }
+  } else {
+    return false;
+  }
+  if (file && fs.existsSync(file) && fs.statSync(file).isFile()) {
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
+    });
+    res.end(fs.readFileSync(file));
+  } else {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('not found');
+  }
+  return true;
+}
+
+interface ByteRange {
+  start: number;
+  end: number;
+}
+
+// RFC 7233: malformed range headers are ignored (full response), only
+// syntactically valid but unsatisfiable ranges earn a 416.
+function parseRange(
+  header: string | string[] | undefined,
+  size: number,
+): ByteRange | null | 'unsatisfiable' {
+  if (header === undefined) return null;
+  const text = Array.isArray(header) ? header[0] : header;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(text.trim());
+  if (!m) return null;
+  const from = m[1];
+  const to = m[2];
+  if (from === '' && to === '') return null;
+  let start: number;
+  let end: number;
+  if (from === '') {
+    const suffix = Number(to);
+    if (!Number.isFinite(suffix) || suffix <= 0) return 'unsatisfiable';
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(from);
+    end = to === '' ? size - 1 : Number(to);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  }
+  if (start > end || start >= size) return 'unsatisfiable';
+  return { start, end: Math.min(end, size - 1) };
+}
+
+// Streams a file with HTTP Range support so the <video> element can seek.
+// The returned promise resolves once the file handle is released, so callers
+// can order file cleanup after the stream.
+export function serveFileWithRange(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  filePath: string,
+): Promise<void> {
+  let size: number;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('not found');
+    return Promise.resolve();
+  }
+  const mime = MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+  const range = parseRange(req.headers['range'], size);
+  if (range === 'unsatisfiable') {
+    res.writeHead(416, {
+      'Content-Range': `bytes */${size}`,
+      'Content-Type': 'text/plain',
+    });
+    res.end('range not satisfiable');
+    return Promise.resolve();
+  }
+  const head = req.method === 'HEAD';
+  const headers: Record<string, string | number> = {
+    'Content-Type': mime,
+    'Accept-Ranges': 'bytes',
+    'Content-Length': range === null ? size : range.end - range.start + 1,
+  };
+  if (range !== null) {
+    headers['Content-Range'] = `bytes ${range.start}-${range.end}/${size}`;
+  }
+  res.writeHead(range === null ? 200 : 206, headers);
+  if (head) {
+    res.end();
+    return Promise.resolve();
+  }
+  const stream =
+    range === null
+      ? fs.createReadStream(filePath)
+      : fs.createReadStream(filePath, { start: range.start, end: range.end });
+  // pipeline tears the read stream down when the client aborts (every video
+  // seek does), so the file handle is released and the promise settles.
+  return new Promise<void>((resolve) => {
+    pipeline(stream, res, () => resolve());
+  });
+}

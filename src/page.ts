@@ -1,16 +1,31 @@
 // The page receives all telemetry inline (no fetch), paints the map once, and
-// exposes window.__setFrame(i) for per-frame marker/trail updates.
+// exposes window.__setFrame(i) for per-frame marker/trail updates. Headless
+// capture workers and the app's interactive driver both call that one
+// function; it resolves after the canvas has painted so screenshots are
+// frame-exact.
 //
 // Views:
 //   overview - static map fitted to the whole track (trail grows with time)
 //   follow   - drone marker stays in the frame center and the map slides under
 //              it (all tiles are loaded once up-front; the per-frame move is a
 //              pure CSS transform, so no tile loads happen mid-render)
+//
+// With opts.video the page grows the app chrome (video pane, scrubber,
+// swappable picture-in-picture layout) around the same renderer.
 
+import { createTrailController } from './trail.js';
+import type { DecimatedTrack } from './decimate.js';
 import { TILE_SOURCES } from './tiles.js';
 import type { TileSource } from './tiles.js';
-import type { HudSpec, Style, Trail, View } from './config.js';
+import type { HudSpec, Style, View } from './config.js';
 import type { LatLon } from './geo.js';
+
+export interface PageVideo {
+  /** Media URL the <video> element loads, e.g. "/video". */
+  src: string;
+  fpsValue: number;
+  frames: number;
+}
 
 export interface PageOpts {
   width: number;
@@ -26,9 +41,10 @@ export interface PageOpts {
   speed: (number | null)[];
   headingDeg: number[];
   hud: HudSpec;
+  decimated: DecimatedTrack;
   introN?: number;
   outroN?: number;
-  trail?: Trail;
+  video?: PageVideo;
 }
 
 interface Theme {
@@ -150,6 +166,47 @@ function pageCss(
   }`;
 }
 
+// App chrome around the renderer: stage with a main and a picture-in-picture
+// slot (the map frame is export-sized and CSS-scaled into its slot, so the
+// preview stays export-faithful) plus a control bar.
+function uiCss(src: TileSource, width: number, height: number): string {
+  return `
+  body.ui { background: #0e131c; }
+  #stage { position: absolute; left: 0; top: 0; right: 0; bottom: 64px; overflow: hidden; }
+  #slot-main { position: absolute; inset: 0; }
+  #slot-pip {
+    position: absolute; right: 12px; bottom: 12px; width: 28%; height: 28%;
+    overflow: hidden; border-radius: 10px; background: #000; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.30);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  }
+  #map-frame {
+    position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px;
+    overflow: hidden; transform-origin: top left; background: ${src.bg};
+  }
+  #video {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; background: #000; display: block;
+  }
+  #controls {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 64px;
+    display: flex; align-items: center; gap: 12px; padding: 0 16px;
+    box-sizing: border-box; background: rgba(14,19,28,0.94); color: #ffffff;
+    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  #controls button {
+    background: rgba(255,255,255,0.12); color: #ffffff;
+    border: 1px solid rgba(255,255,255,0.25); border-radius: 8px;
+    padding: 8px 14px; font-size: 14px; cursor: pointer; white-space: nowrap;
+  }
+  #controls button:disabled { opacity: 0.55; cursor: default; }
+  #scrub { flex: 1; accent-color: #41f0ff; }
+  #time, #fps {
+    font-size: 13px; font-variant-numeric: tabular-nums;
+    color: rgba(255,255,255,0.85); white-space: nowrap;
+  }`;
+}
+
 function hudMarkup(hud: HudSpec): string {
   const chips: string[] = [];
   if (hud.alt) {
@@ -163,6 +220,16 @@ function hudMarkup(hud: HudSpec): string {
     );
   }
   return chips.map((chip) => `  ${chip}`).join('\n');
+}
+
+function mapMarkup(hud: HudSpec, attribution: string): string {
+  return `<div id="map"></div>
+<div id="vignette"></div>
+<div id="hud">
+${hudMarkup(hud)}
+</div>
+<div id="attr">${attribution}</div>
+<div id="scalebar"><span id="scaletext"></span><div id="scaleline"></div></div>`;
 }
 
 function pageScript(dataJson: string, scale: number): string {
@@ -183,6 +250,7 @@ function pageScript(dataJson: string, scale: number): string {
     fadeAnimation: false,
     zoomAnimation: false,
     markerZoomAnimation: false,
+    preferCanvas: true,
     zoomSnap: 1
   });
   var tiles = L.tileLayer('/tiles/' + D.style + '/{z}/{x}/{y}.png', {
@@ -227,45 +295,53 @@ function pageScript(dataJson: string, scale: number): string {
   document.getElementById('scaletext').textContent =
     bestM >= 1000 ? (bestM / 1000) + ' km' : bestM + ' m';
 
-  // Layered trail: ghost (whole route, optional casing) -> glow -> casing -> core.
+  // Layered trail: ghost (whole route, optional casing) -> glow -> casing ->
+  // core. All geometry is pre-decimated (smoothFactor 0 skips Leaflet's own
+  // simplification) and the canvas renderer keeps redraws rAF-batched.
+  var ghostLatlngs = D.trailLat.map(function (la, i) { return [la, D.trailLon[i]]; });
   var ghostDash = Math.round(7 * S) + ' ' + Math.round(9 * S);
   if (T.ghostCasing) {
-    L.polyline(latlngs, {
+    L.polyline(ghostLatlngs, {
       color: T.ghostCasing,
       weight: Math.max(3, 4.6 * S),
       opacity: 1,
       dashArray: ghostDash,
-      lineCap: 'round'
+      lineCap: 'round',
+      smoothFactor: 0
     }).addTo(map);
   }
-  L.polyline(latlngs, {
+  L.polyline(ghostLatlngs, {
     color: T.ghost,
     weight: Math.max(2, 2.8 * S),
     opacity: T.ghostOpacity,
     dashArray: ghostDash,
-    lineCap: 'round'
+    lineCap: 'round',
+    smoothFactor: 0
   }).addTo(map);
   var wCore = Math.max(3, 5.5 * S);
-  var trailGlow = L.polyline([latlngs[0]], {
+  var trailGlow = L.polyline([], {
     color: T.glow,
     weight: wCore * 2.6,
     opacity: 1,
     lineCap: 'round',
-    lineJoin: 'round'
+    lineJoin: 'round',
+    smoothFactor: 0
   }).addTo(map);
-  var trailCasing = L.polyline([latlngs[0]], {
+  var trailCasing = L.polyline([], {
     color: T.casing,
     weight: wCore * 1.6,
     opacity: 0.9,
     lineCap: 'round',
-    lineJoin: 'round'
+    lineJoin: 'round',
+    smoothFactor: 0
   }).addTo(map);
-  var trail = L.polyline([latlngs[0]], {
+  var trail = L.polyline([], {
     color: T.core,
     weight: wCore,
     opacity: 1,
     lineCap: 'round',
-    lineJoin: 'round'
+    lineJoin: 'round',
+    smoothFactor: 0
   }).addTo(map);
   L.circleMarker(latlngs[0], {
     radius: Math.round(7 * S),
@@ -300,29 +376,10 @@ function pageScript(dataJson: string, scale: number): string {
   var N = D.lat.length;
   function smooth(t) { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); }
 
-  var trailIdx = 0;
+  var trailCtl = (${createTrailController.toString()})(D.trailLat, D.trailLon, D.trailFrame, [trail, trailGlow, trailCasing]);
+
   window.__setFrame = function (i) {
-    if (D.trail === 'incr') {
-      if (i > trailIdx) {
-        for (var j = trailIdx + 1; j <= i; j++) {
-          trail.addLatLng(latlngs[j]);
-          trailGlow.addLatLng(latlngs[j]);
-          trailCasing.addLatLng(latlngs[j]);
-        }
-        trailIdx = i;
-      } else if (i < trailIdx) {
-        var ptsBack = latlngs.slice(0, i + 1);
-        trail.setLatLngs(ptsBack);
-        trailGlow.setLatLngs(ptsBack);
-        trailCasing.setLatLngs(ptsBack);
-        trailIdx = i;
-      }
-    } else if (i > 0) {
-      var pts = latlngs.slice(0, i + 1);
-      trail.setLatLngs(pts);
-      trailGlow.setLatLngs(pts);
-      trailCasing.setLatLngs(pts);
-    }
+    trailCtl.setFrame(i);
     drone.setLatLng(latlngs[i]);
     var kIn = 1;
     var kOut = 1;
@@ -356,6 +413,12 @@ function pageScript(dataJson: string, scale: number): string {
     if (speedEl) {
       speedEl.textContent = (D.speed[i] === null || D.speed[i] === undefined) ? '--' : D.speed[i].toFixed(1);
     }
+    // Canvas painting is deferred to requestAnimationFrame; the headless
+    // capture awaits this barrier so screenshots never catch the previous
+    // frame.
+    return new Promise(function (resolve) {
+      requestAnimationFrame(function () { requestAnimationFrame(resolve); });
+    });
   };
   window.__setFrame(0);
 
@@ -367,11 +430,168 @@ function pageScript(dataJson: string, scale: number): string {
 })();`;
 }
 
+// Shared pick-and-reload flow for the landing page and the app controls.
+export function pickFlowScript(buttonId: string, statusId: string | null): string {
+  const status = statusId === null ? null : `document.getElementById('${statusId}')`;
+  const report = (msg: string): string =>
+    status ? `          status.textContent = ${msg};` : `          window.alert(${msg});`;
+  return `  (function () {
+    var btn = document.getElementById('${buttonId}');
+${status ? `    var status = ${status};` : ''}
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+${status ? "      status.textContent = 'Preparing the recording (telemetry and map tiles)…';" : ''}
+      fetch('/api/pick', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j.ok) { window.location.reload(); return; }
+          btn.disabled = false;
+${report("j.canceled ? 'No recording picked.' : ('Could not open the recording: ' + j.error)")}
+        })
+        .catch(function (e) {
+          btn.disabled = false;
+${report("'Could not reach the app backend: ' + e")}
+        });
+    });
+  })();`;
+}
+
+// Interactive driver: frame index is the single source of truth. Every
+// explicit seek snaps the video to i / fps; during playback the index is
+// derived from the frame the video actually presents (never clocked
+// separately), so video and map cannot drift apart.
+function videoDriverScript(): string {
+  return `(function () {
+  var D = window.__DATA;
+  if (!D.video) return;
+  var V = D.video;
+  var mapIsMain = false;
+  var mapFrame = document.getElementById('map-frame');
+  var videoEl = document.getElementById('video');
+  var slotMain = document.getElementById('slot-main');
+  var slotPip = document.getElementById('slot-pip');
+  var scrub = document.getElementById('scrub');
+  var timeEl = document.getElementById('time');
+  var fpsEl = document.getElementById('fps');
+  var playBtn = document.getElementById('btn-play');
+  var shownIdx = -1;
+  var pendingScrub = null;
+  var lastFpsT = 0;
+  var fpsAcc = 0;
+  var fpsCount = 0;
+  var fpsShownAt = 0;
+
+  scrub.max = String(Math.max(0, V.frames - 1));
+
+  function fitMap() {
+    var slot = mapFrame.parentElement;
+    var w = slot.clientWidth;
+    var h = slot.clientHeight;
+    var s = Math.min(w / D.width, h / D.height);
+    mapFrame.style.transform =
+      'translate(' + ((w - D.width * s) / 2) + 'px,' +
+      ((h - D.height * s) / 2) + 'px) scale(' + s + ')';
+  }
+
+  function setLayout(mainIsMap) {
+    mapIsMain = mainIsMap;
+    if (mapIsMain) {
+      slotMain.appendChild(mapFrame);
+      slotPip.appendChild(videoEl);
+    } else {
+      slotMain.appendChild(videoEl);
+      slotPip.appendChild(mapFrame);
+    }
+    fitMap();
+  }
+
+  function fmt(sec) {
+    var total = Math.max(0, Math.round(sec));
+    return Math.floor(total / 60) + ':' + ('0' + (total % 60)).slice(-2);
+  }
+
+  function applyFrame(i) {
+    if (i === shownIdx) return;
+    shownIdx = i;
+    window.__setFrame(i);
+    scrub.value = String(i);
+    timeEl.textContent = fmt(i / V.fps) + ' / ' + fmt((V.frames - 1) / V.fps);
+  }
+
+  // The frame the browser actually presents is the truth: its mediaTime maps
+  // to the frame index via floor (round would make the map lead the footage
+  // by half a frame). One callback per presented frame, chained.
+  var usePresented = typeof videoEl.requestVideoFrameCallback === 'function';
+  function onPresentedFrame(now, meta) {
+    applyFrame(Math.max(0, Math.min(V.frames - 1, Math.floor(meta.mediaTime * V.fps + 1e-6))));
+    videoEl.requestVideoFrameCallback(onPresentedFrame);
+  }
+  if (usePresented) videoEl.requestVideoFrameCallback(onPresentedFrame);
+
+  playBtn.addEventListener('click', function () {
+    if (videoEl.paused) videoEl.play();
+    else videoEl.pause();
+  });
+  videoEl.addEventListener('play', function () { playBtn.textContent = 'Pause'; });
+  videoEl.addEventListener('pause', function () { playBtn.textContent = 'Play'; });
+  videoEl.addEventListener('ended', function () { playBtn.textContent = 'Play'; });
+  scrub.addEventListener('input', function () {
+    pendingScrub = Number(scrub.value);
+  });
+  document.getElementById('btn-swap').addEventListener('click', function () {
+    setLayout(!mapIsMain);
+  });
+  slotPip.addEventListener('click', function () {
+    setLayout(!mapIsMain);
+  });
+${pickFlowScript('btn-open', null)}
+  window.addEventListener('resize', fitMap);
+
+  function loop(now) {
+    requestAnimationFrame(loop);
+    if (pendingScrub !== null) {
+      var seekTo = pendingScrub;
+      pendingScrub = null;
+      videoEl.currentTime = seekTo / V.fps;
+      applyFrame(seekTo);
+    } else if (!usePresented && !videoEl.paused && !videoEl.ended) {
+      // Fallback clock when requestVideoFrameCallback is unavailable; only
+      // while playing, so a paused scrub target is never re-derived into a
+      // neighboring frame.
+      var i = Math.floor(videoEl.currentTime * V.fps + 1e-6);
+      applyFrame(Math.max(0, Math.min(V.frames - 1, i)));
+    }
+    if (lastFpsT > 0) {
+      fpsAcc += now - lastFpsT;
+      fpsCount++;
+    }
+    lastFpsT = now;
+    if (fpsCount >= 20 && now - fpsShownAt > 500) {
+      fpsEl.textContent = (1000 / (fpsAcc / fpsCount)).toFixed(0) + ' fps';
+      fpsAcc = 0;
+      fpsCount = 0;
+      fpsShownAt = now;
+    }
+  }
+
+  setLayout(false);
+  applyFrame(0);
+  var readyWait = setInterval(function () {
+    if (window.__READY === true) {
+      clearInterval(readyWait);
+      playBtn.disabled = false;
+      playBtn.textContent = 'Play';
+    }
+  }, 200);
+  requestAnimationFrame(loop);
+})();`;
+}
+
 export function buildPageHtml(opts: PageOpts): string {
   const {
     width, height, style, view, center, zoom, attribution,
-    lat, lon, alt, speed, headingDeg, hud,
-    introN = 0, outroN = 0, trail = 'full',
+    lat, lon, alt, speed, headingDeg, hud, decimated,
+    introN = 0, outroN = 0, video,
   } = opts;
 
   const src = TILE_SOURCES[style];
@@ -390,34 +610,65 @@ export function buildPageHtml(opts: PageOpts): string {
     theme,
     introN,
     outroN,
-    trail,
     lat, lon, alt, speed, headingDeg,
     hud,
+    trailLat: decimated.lat,
+    trailLon: decimated.lon,
+    trailFrame: decimated.frame,
+    video: video ?? null,
   };
   // "</" must not appear verbatim: the JSON is inlined into a <script> tag.
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
 
-  return `<!DOCTYPE html>
+  const head = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>flight map</title>
+<title>${video ? 'neo2-flightpath' : 'flight map'}</title>
 <link rel="stylesheet" href="/leaflet/leaflet.css">
 <style>${pageCss(src, theme, width, height, scale)}
-</style>
-</head>
-<body>
-<div id="map"></div>
-<div id="vignette"></div>
-<div id="hud">
-${hudMarkup(hud)}
-</div>
-<div id="attr">${attribution}</div>
-<div id="scalebar"><span id="scaletext"></span><div id="scaleline"></div></div>
-<script src="/leaflet/leaflet.js"></script>
+</style>${video ? `
+<style>${uiCss(src, width, height)}
+</style>` : ''}
+</head>`;
+
+  const scripts = `<script src="/leaflet/leaflet.js"></script>
 <script>
 ${pageScript(json, scale)}
-</script>
+</script>${video ? `
+<script>
+${videoDriverScript()}
+</script>` : ''}`;
+
+  if (!video) {
+    return `${head}
+<body>
+${mapMarkup(hud, attribution)}
+${scripts}
+</body>
+</html>`;
+  }
+
+  return `${head}
+<body class="ui">
+<div id="stage">
+  <div id="slot-main"><video id="video" src="${video.src}" preload="auto" playsinline></video></div>
+  <div id="slot-pip" title="Click to swap">
+    <div id="map-frame">
+${mapMarkup(hud, attribution)}
+    </div>
+  </div>
+</div>
+<div id="controls">
+  <button id="btn-play" disabled>Warming tiles…</button>
+  <button id="btn-open">Open recording…</button>
+  <input id="scrub" type="range" min="0" max="0" step="1" value="0">
+  <span id="time">0:00 / 0:00</span>
+  <span id="fps"></span>
+  <span style="flex: 1"></span>
+  <button id="btn-swap">Swap view</button>
+</div>
+${scripts}
 </body>
 </html>`;
 }
