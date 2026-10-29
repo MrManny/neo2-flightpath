@@ -3,7 +3,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/', 'node_modules/', 'ui/.next/', 'ui/out/', 'ui/next-env.d.ts'] },
+  { ignores: ['dist/', 'node_modules/', 'out/', 'ui/.next/', 'ui/out/', 'ui/next-env.d.ts'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

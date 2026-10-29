@@ -18,6 +18,7 @@ export function PlayerChrome({ session, onOpen }: PlayerChromeProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubRef = useRef<HTMLInputElement>(null);
   const sceneRef = useRef<Scene | null>(null);
+  const latestIndexRef = useRef(0);
   const driverRef = useRef<ReturnType<typeof createFrameDriver> | null>(null);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -27,6 +28,9 @@ export function PlayerChrome({ session, onOpen }: PlayerChromeProps) {
 
   const handleScene = useCallback((scene: Scene) => {
     sceneRef.current = scene;
+    // The driver may have committed frames before the scene existed; the
+    // scene must show the current one, not its initial frame.
+    void scene.setFrame(latestIndexRef.current);
     scene.ready.then(() => setReady(true));
   }, []);
 
@@ -40,6 +44,7 @@ export function PlayerChrome({ session, onOpen }: PlayerChromeProps) {
         void sceneRef.current?.setFrame(i);
       },
       onIndex: (i) => {
+        latestIndexRef.current = i;
         if (scrubRef.current) scrubRef.current.value = String(i);
         setTimeText(
           `${formatTime(i / video.fps)} / ${formatTime((video.frames - 1) / video.fps)}`,

@@ -62,9 +62,15 @@ interface FakeObserver {
 }
 
 const observers: FakeObserver[] = [];
+const rafQueue: Array<() => void> = [];
+
+function flushRaf(): void {
+  for (const cb of rafQueue.splice(0)) cb();
+}
 
 beforeEach(() => {
   observers.length = 0;
+  rafQueue.length = 0;
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -80,8 +86,8 @@ beforeEach(() => {
     },
   );
   vi.stubGlobal('requestAnimationFrame', (cb: () => void): number => {
-    cb();
-    return 0;
+    rafQueue.push(cb);
+    return rafQueue.length;
   });
 });
 
@@ -95,6 +101,16 @@ describe('MapIsland', () => {
     render(<MapIsland data={DATA} onScene={onScene} />);
     await waitFor(() => expect(onScene).toHaveBeenCalledTimes(1));
     expect(observers[0]?.observed).toBe(true);
+  });
+
+  it('re-lays out after creation once the layout settles', async () => {
+    const onScene = vi.fn();
+    render(<MapIsland data={DATA} onScene={onScene} />);
+    await waitFor(() => expect(onScene).toHaveBeenCalledTimes(1));
+    const scene = onScene.mock.calls[0]![0] as Scene;
+    const relayout = vi.spyOn(scene, 'relayout').mockImplementation(() => {});
+    act(() => flushRaf());
+    expect(relayout).toHaveBeenCalledTimes(1);
   });
 
   it('re-lays out the scene when the host resizes', async () => {

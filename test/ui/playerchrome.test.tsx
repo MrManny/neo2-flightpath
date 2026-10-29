@@ -12,12 +12,20 @@ const fakeScene = vi.hoisted((): Scene => ({
   ready: Promise.resolve(),
 }));
 
-vi.mock('../../ui/components/MapIsland.js', () => ({
-  MapIsland: ({ onScene }: { onScene: (scene: Scene) => void }) => {
-    onScene(fakeScene);
-    return <div data-testid="map-island" />;
-  },
-}));
+// The real island delivers its scene asynchronously (after the Leaflet
+// chunk); the mock keeps that timing so late-arrival behavior stays covered.
+vi.mock('../../ui/components/MapIsland.js', async () => {
+  const { useEffect } = await import('react');
+  return {
+    MapIsland: ({ onScene }: { onScene: (scene: Scene) => void }) => {
+      useEffect(() => {
+        const t = setTimeout(() => onScene(fakeScene), 0);
+        return () => clearTimeout(t);
+      }, [onScene]);
+      return <div data-testid="map-island" />;
+    },
+  };
+});
 
 const SESSION: UiSession = {
   scene: {
@@ -55,6 +63,7 @@ function flushRaf(): void {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   rafQueue.length = 0;
   rafNow = 0;
   vi.stubGlobal('requestAnimationFrame', (cb: (now: number) => void): number => {
@@ -87,7 +96,12 @@ describe('PlayerChrome', () => {
     expect(video?.getAttribute('src')).toBe('/video');
   });
 
-  it('seeks the video to i / fps and repaints the scene when scrubbing', () => {
+  it('applies the frame the driver already reached when the scene arrives', async () => {
+    render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
+    await waitFor(() => expect(fakeScene.setFrame).toHaveBeenCalledWith(0));
+  });
+
+  it('seeks the video to i / fps and repaints the scene when scrubbing', async () => {
     render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
     const video = document.querySelector('video') as HTMLVideoElement;
     // jsdom's media element ignores currentTime writes; track them instead.
@@ -103,7 +117,7 @@ describe('PlayerChrome', () => {
     fireEvent.change(scrub as HTMLInputElement, { target: { value: '30' } });
     act(() => flushRaf());
     expect(currentTime).toBeCloseTo(1);
-    expect(fakeScene.setFrame).toHaveBeenCalledWith(30);
+    await waitFor(() => expect(fakeScene.setFrame).toHaveBeenCalledWith(30));
   });
 
   it('swaps the picture-in-picture layout', () => {
