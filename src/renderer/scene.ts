@@ -346,7 +346,12 @@ export function createScene(
       latlngs = next.lat.map((la, i): LatLngTuple => [la, next.lon[i]]);
       bb = L.latLngBounds(latlngs);
     }
-    applyChrome();
+    const chromeChanged =
+      next.style !== prev.style ||
+      next.width !== prev.width ||
+      next.height !== prev.height ||
+      next.attribution !== prev.attribution;
+    if (chromeChanged) applyChrome();
     if (next.style !== prev.style) {
       // The zoom constraints are per source (topo tiles are native to z17),
       // so a style switch swaps the layer instead of only its URL.

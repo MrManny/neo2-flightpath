@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createTileFetcher, solidPng } from '../src/tiles.js';
+import { createTileFetcher, prefetchTiles, solidPng } from '../src/tiles.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(() => {
@@ -107,6 +107,91 @@ describe('createTileFetcher', () => {
     for (let i = 1; i < starts.length; i++) {
       expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(500);
     }
+  });
+
+  it('paces retries at the same polite rate', async () => {
+    vi.useFakeTimers();
+    const dir = tmpDir();
+    const starts: number[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        starts.push(Date.now());
+        return new Response('nope', { status: 500 });
+      }),
+    );
+    const fetcher = createTileFetcher(dir);
+
+    const pending = fetcher.ensure('satellite', { z: 1, x: 0, y: 0 });
+    await vi.advanceTimersByTimeAsync(3000);
+    await pending;
+
+    expect(starts.length).toBeGreaterThan(1); // it retried
+    for (let i = 1; i < starts.length; i++) {
+      expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(500);
+    }
+  });
+
+  it('recovers on a later request after a failed download', async () => {
+    const dir = tmpDir();
+    const fetchStub = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue(new Response(new Uint8Array([1]), { status: 200 }));
+    vi.stubGlobal('fetch', fetchStub);
+    const fetcher = createTileFetcher(dir);
+
+    const failed = await fetcher.ensure('topo', { z: 1, x: 2, y: 3 });
+    expect(failed).toContain('placeholder');
+
+    // The placeholder must not pin the tile: the next request retries and
+    // caches the real tile once the network is back.
+    const recovered = await fetcher.ensure('topo', { z: 1, x: 2, y: 3 });
+    expect(recovered).toBe(path.join(dir, 'opentopomap', '1', '2', '3.png'));
+    expect(fs.existsSync(recovered)).toBe(true);
+  });
+});
+
+describe('prefetchTiles', () => {
+  it('downloads missing tiles and marks failures with placeholders', async () => {
+    const dir = tmpDir();
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200 }))
+      .mockResolvedValue(new Response('nope', { status: 500 }));
+    vi.stubGlobal('fetch', fetchStub);
+
+    const stats = await prefetchTiles({
+      style: 'satellite',
+      tiles: [
+        { z: 1, x: 0, y: 0 },
+        { z: 1, x: 0, y: 1 },
+      ],
+      cacheDir: dir,
+    });
+
+    expect(stats).toEqual({ downloaded: 1, failed: 1, total: 2 });
+    expect(fs.existsSync(path.join(dir, 'esri-imagery', '1', '0', '0.png'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'esri-imagery', '1', '0', '1.placeholder.png'))).toBe(true);
+  });
+
+  it('does not fetch anything that is already cached', async () => {
+    const dir = tmpDir();
+    const cachePath = path.join(dir, 'esri-imagery', '1', '0', '0.png');
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, 'cached');
+    const fetchStub = vi.fn();
+    vi.stubGlobal('fetch', fetchStub);
+
+    const stats = await prefetchTiles({
+      style: 'satellite',
+      tiles: [{ z: 1, x: 0, y: 0 }],
+      cacheDir: dir,
+    });
+
+    expect(stats).toEqual({ downloaded: 0, failed: 0, total: 1 });
+    expect(fetchStub).not.toHaveBeenCalled();
   });
 });
 

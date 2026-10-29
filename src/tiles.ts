@@ -69,9 +69,12 @@ const REQUEST_INTERVAL_MS = 500;
 const RETRY_DELAY_MS = 500;
 const FETCH_TIMEOUT_MS = 20000;
 
-// Politeness for the tile servers: request starts in one queue are spaced
-// REQUEST_INTERVAL_MS apart (2.0 req/s), whichever queue drives them.
-function createRequestGate(): () => Promise<void> {
+// Politeness for the tile servers: every request start in one queue is spaced
+// REQUEST_INTERVAL_MS apart (2.0 req/s), retries included, whichever queue
+// drives them.
+type RequestGate = () => Promise<void>;
+
+function createRequestGate(): RequestGate {
   let nextSlotAt = 0;
   return async () => {
     const now = Date.now();
@@ -121,8 +124,13 @@ function tileUrl(style: Style, tile: TileCoord): string {
     .replace('{y}', String(tile.y));
 }
 
-async function downloadTile(url: string, cachePath: string): Promise<boolean> {
+async function downloadTile(
+  url: string,
+  cachePath: string,
+  acquire: RequestGate,
+): Promise<boolean> {
   for (let attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt++) {
+    await acquire();
     try {
       const res = await fetch(url, {
         headers: { 'User-Agent': USER_AGENT },
@@ -164,10 +172,11 @@ async function fetchTileToCache(
   cacheDir: string,
   style: Style,
   tile: TileCoord,
+  acquire: RequestGate,
 ): Promise<TileFetchResult> {
   const cachePath = tileCachePath(cacheDir, style, tile);
   if (fs.existsSync(cachePath)) return { file: cachePath, status: 'cached' };
-  if (await downloadTile(tileUrl(style, tile), cachePath)) {
+  if (await downloadTile(tileUrl(style, tile), cachePath, acquire)) {
     return { file: cachePath, status: 'downloaded' };
   }
   const placeholderPath = tilePlaceholderPath(cacheDir, style, tile);
@@ -210,8 +219,7 @@ export async function prefetchTiles({
   async function worker(): Promise<void> {
     while (cursor < missing.length) {
       const { tile } = missing[cursor++];
-      await gate();
-      const result = await fetchTileToCache(cacheDir, style, tile);
+      const result = await fetchTileToCache(cacheDir, style, tile, gate);
       if (result.status === 'downloaded') downloaded++;
       else if (result.status === 'failed') failed++;
     }
@@ -246,8 +254,7 @@ export function createTileFetcher(cacheDir: string): TileFetcher {
       active++;
       void (async () => {
         try {
-          await gate();
-          const result = await fetchTileToCache(cacheDir, job.style, job.tile);
+          const result = await fetchTileToCache(cacheDir, job.style, job.tile, gate);
           job.settle(result.file);
         } catch (e) {
           job.fail(e);
@@ -265,7 +272,10 @@ export function createTileFetcher(cacheDir: string): TileFetcher {
       let task = inFlight.get(key);
       if (!task) {
         task = new Promise<string>((resolve, reject) => {
-          queue.push({ style, tile, settle: resolve, fail: reject });
+          // Newest requests first: a style flip or zoom change makes the
+          // previous viewport stale, and those tiles can wait behind what
+          // the user is looking at now.
+          queue.unshift({ style, tile, settle: resolve, fail: reject });
           pump();
         });
         void task.then(

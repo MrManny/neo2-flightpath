@@ -1,6 +1,6 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useState } from 'react';
 
 import { PANEL_PRESETS, STYLE_VALUES, VIEW_VALUES } from '../../src/config.js';
 import type { RenderConfig, Style, View } from '../../src/config.js';
@@ -20,9 +20,15 @@ function NumberField(props: {
   min: number;
   step?: number;
   hint?: string;
-  onValue: (value: number) => void;
+  /** Returns whether the value committed; rejected values snap back. */
+  onValue: (value: number) => boolean;
 }) {
   const id = useId();
+  // The display is derived: it shows the draft while the user types and the
+  // committed value otherwise, so it can never desync from the settings and
+  // never races any effect timing. Rejected keystrokes drop the draft and
+  // snap back immediately.
+  const [draft, setDraft] = useState<string | null>(null);
   return (
     <div className="settings-row">
       <label className="settings-label" htmlFor={id}>
@@ -33,13 +39,18 @@ function NumberField(props: {
         type="number"
         min={props.min}
         step={props.step ?? 1}
-        value={props.value}
+        value={draft ?? String(props.value)}
         onChange={(e) => {
           const raw = e.target.value;
-          if (raw === '') return;
+          if (raw === '') {
+            setDraft(raw);
+            return;
+          }
           const value = Number(raw);
-          if (Number.isFinite(value)) props.onValue(value);
+          const committed = Number.isFinite(value) && props.onValue(value);
+          setDraft(committed ? raw : null);
         }}
+        onBlur={() => setDraft(null)}
       />
       {props.hint ? <span className="hint">{props.hint}</span> : null}
     </div>
@@ -85,9 +96,11 @@ export function SettingsPanel({
   onChange,
   onClose,
 }: SettingsPanelProps) {
-  const apply = (patch: Parameters<typeof patchConfig>[1]): void => {
+  const apply = (patch: Parameters<typeof patchConfig>[1]): boolean => {
     const next = patchConfig(config, patch);
-    if (next) onChange(next);
+    if (!next) return false;
+    onChange(next);
+    return true;
   };
 
   return (
@@ -167,7 +180,7 @@ export function SettingsPanel({
               <label key={chip} className="settings-row">
                 <input
                   type="checkbox"
-                  checked={config.hud[chip]}
+                  checked={config.hud[chip] && !altUnavailable}
                   disabled={altUnavailable}
                   title={
                     altUnavailable

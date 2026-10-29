@@ -117,16 +117,11 @@ async function handleRequest(request) {
     case 'video':
       return videoResponse(request, plan.filePath);
     case 'tile': {
-      const file = fs.existsSync(plan.filePath)
-        ? plan.filePath
-        : fs.existsSync(plan.placeholderPath)
-          ? plan.placeholderPath
-          : null;
-      if (file) return fileResponse(file, 'image/png');
-      // Cache miss (live restyle changed style or zoom): fetch politely into
-      // the shared cache and serve whatever came back.
-      const fetched = await tileFetcher.ensure(plan.style, plan.tile);
-      return fileResponse(fetched, 'image/png');
+      // Always through the fetcher: it serves cached tiles immediately,
+      // retries tiles whose earlier download failed (so they recover once
+      // connectivity returns) and falls back to the placeholder.
+      const file = await tileFetcher.ensure(plan.style, plan.tile);
+      return fileResponse(file, 'image/png');
     }
     case 'export':
       if (fs.existsSync(plan.filePath)) return fileResponse(plan.filePath, plan.mime);

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -97,6 +98,58 @@ describe('SettingsPanel', () => {
       target: { value: '' },
     });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('snaps back to the committed value when a keystroke is rejected', () => {
+    function Harness() {
+      const [current, setCurrent] = useState(DEFAULT_CONFIG);
+      return (
+        <SettingsPanel
+          config={current}
+          hasAltitude
+          onChange={setCurrent}
+          onClose={() => {}}
+        />
+      );
+    }
+    render(<Harness />);
+    const intro = screen.getByLabelText('Intro (s)') as HTMLInputElement;
+
+    fireEvent.change(intro, { target: { value: '-1' } });
+    expect(intro.value).toBe('2'); // never keeps displaying a rejected value
+
+    fireEvent.change(intro, { target: { value: '1.5' } });
+    expect(intro.value).toBe('1.5'); // the committed value stays editable
+  });
+
+  it('shows preset values in the fields after the preset commits', () => {
+    function Harness() {
+      const [current, setCurrent] = useState(DEFAULT_CONFIG);
+      return (
+        <SettingsPanel
+          config={current}
+          hasAltitude
+          onChange={setCurrent}
+          onClose={() => {}}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Quick render' }));
+
+    expect((screen.getByLabelText('Intro (s)') as HTMLInputElement).value).toBe('0');
+    expect((screen.getByLabelText('Zoom') as HTMLInputElement).value).toBe('0');
+    expect((screen.getByLabelText('Map style') as HTMLSelectElement).value).toBe('satellite');
+  });
+
+  it('shows the effective chip state when the alt chip cannot render', () => {
+    renderPanel(
+      { ...DEFAULT_CONFIG, hud: { heading: true, alt: true, speed: false } },
+      false,
+    );
+    const alt = screen.getByLabelText('Altitude (ALT)') as HTMLInputElement;
+    expect(alt.checked).toBe(false); // the chip would not show
+    expect(alt.disabled).toBe(true);
   });
 
   it('disables the alt chip toggle when the telemetry has no altitude', () => {
