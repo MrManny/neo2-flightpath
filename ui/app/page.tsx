@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
 import type { UiSession } from '../../src/appsession.js';
+import { DEFAULT_CONFIG } from '../../src/config.js';
+import type { RenderConfig } from '../../src/config.js';
 import { LandingPanel } from '../components/LandingPanel.js';
 import { PlayerChrome } from '../components/PlayerChrome.js';
 import { appBridge } from '../lib/backend.js';
@@ -16,7 +18,25 @@ interface LoadedSession {
 export default function Page() {
   const [pickState, dispatch] = useReducer(pickReducer, { kind: 'idle' });
   const [loaded, setLoaded] = useState<LoadedSession | null>(null);
+  // One settings object for the panel and (later) the export queue; seeded
+  // from the resolved config the app backend hands over.
+  const [settings, setSettings] = useState<RenderConfig>(DEFAULT_CONFIG);
   const nextId = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const resolved = await appBridge().getSettings();
+        if (!cancelled) setSettings(resolved);
+      } catch {
+        // Outside the app shell there is no backend: keep the defaults.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handlePick = useCallback(() => {
     dispatch({ type: 'pick' });
@@ -46,7 +66,15 @@ export default function Page() {
   }, []);
 
   if (loaded) {
-    return <PlayerChrome key={loaded.id} session={loaded.value} onOpen={handlePick} />;
+    return (
+      <PlayerChrome
+        key={loaded.id}
+        session={loaded.value}
+        settings={settings}
+        onSettingsChange={setSettings}
+        onOpen={handlePick}
+      />
+    );
   }
   return <LandingPanel state={pickState} onPick={handlePick} />;
 }

@@ -17,10 +17,10 @@ exact flags later.
   responds. The `--webpack` flag is mandatory: Turbopack cannot resolve the
   renderer's NodeNext `.js` specifiers.
 - The shell (`app/main.mjs`) is thin: one window, a privileged `app://bundle`
-  scheme serving `ui/out` plus media and tiles, and two IPC handlers
-  (`neo2flightpath:pick`, `neo2flightpath:session`) bridged through
-  `app/preload.cjs` as `window.neo2flightpath`. All session logic lives in the
-  Electron-free state machine `src/appsession.ts`
+  scheme serving `ui/out` plus media and tiles, and three IPC handlers
+  (`neo2flightpath:pick`, `neo2flightpath:session`, `neo2flightpath:settings`)
+  bridged through `app/preload.cjs` as `window.neo2flightpath`. All session
+  logic lives in the Electron-free state machine `src/appsession.ts`
   (`pick -> validate -> prepare`).
 - Startup hard requirements: **ffmpeg and ffprobe on PATH**. `requireTools()`
   fails startup otherwise (a native error box appears and the app quits).
@@ -39,6 +39,10 @@ const app = await _electron.launch({
   executablePath: 'node_modules/electron/dist/electron.exe', // explicit is safest on Windows
   args: ['app/main.mjs'], // add '--dev-url', 'http://localhost:3210' for dev mode
   cwd: 'E:/DJI_001/scripts/neo2-flightpath',
+  // Harness shells may export ELECTRON_RUN_AS_NODE; see the notes below.
+  env: Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => k !== 'ELECTRON_RUN_AS_NODE'),
+  ),
 });
 
 // Stub the native file dialog BEFORE the UI picks a file (see below).
@@ -107,6 +111,20 @@ frames and the dev URL, so the preload bridge works in either mode.
   EPERM-on-piped-stdio restriction in confined sandbox modes. Run the driver
   under at least workspace-write (FullLanguage on Windows) or as a background
   job.
+- **`ELECTRON_RUN_AS_NODE` trap:** harness shells and some IDE terminals
+  export `ELECTRON_RUN_AS_NODE=1`. Every spawned `electron.exe` then behaves
+  like plain Node: `app/main.mjs` dies with `SyntaxError: The requested module
+  'electron' does not provide an export named 'BrowserWindow'` (or the
+  equivalent for `app`), and `_electron.launch` reports `Process failed to
+  launch!`. Clear the variable in the driving shell *and* pass an `env`
+  without it to `_electron.launch` (children inherit it otherwise).
+- **Driver script location:** keep the driver inside the repo (the gitignored
+  `out/` is a good spot). `import 'playwright-core'` resolves through the
+  repo's `node_modules`; a script in the OS temp directory fails with
+  `ERR_MODULE_NOT_FOUND`.
+- **PowerShell exit codes:** the app logs progress to stderr. Piping a driver
+  through `2>&1` in a PowerShell background job can make a successful run
+  report `[exit code: 1]`; trust the driver's own output and exit status.
 - Expect a **visible window** on the desktop: Electron has no true headless
   mode on Windows, which is convenient for supervision.
 - CDP and Playwright traffic is plain TCP loopback and unaffected by the

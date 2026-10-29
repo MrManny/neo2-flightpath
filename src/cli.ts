@@ -3,7 +3,8 @@ import { Command, Option } from 'commander';
 
 import { ERROR_PREFIX, errorMessage } from './errors.js';
 import { VERSION } from './version.js';
-import { parseHud, resolveConfig } from './config.js';
+import { parseHud } from './config.js';
+import { resolveConfig } from './configfile.js';
 import type { Capture, ConfigOverrides, Preset, Style, View } from './config.js';
 import { collectRecordings } from './inputs.js';
 import { requireTools } from './ff.js';

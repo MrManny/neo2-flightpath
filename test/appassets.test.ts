@@ -12,7 +12,6 @@ function routes(overrides: Partial<AppRoutes> = {}): AppRoutes {
   return {
     exportRoot: path.join(root, 'out'),
     tileCache: path.join(root, 'tiles'),
-    style: 'satellite',
     videoPath: null,
     ...overrides,
   };
@@ -55,20 +54,24 @@ describe('resolveAppAsset (export files)', () => {
 });
 
 describe('resolveAppAsset (tiles)', () => {
-  it('maps an active-style tile to the cache with its placeholder', () => {
+  it.for([
+    { style: 'satellite', cacheKey: 'esri-imagery' },
+    { style: 'topo', cacheKey: 'opentopomap' },
+  ])('maps a $style tile to the cache with its placeholder', ({ style, cacheKey }) => {
     const r = routes();
-    const asset = resolveAppAsset('/tiles/satellite/1/2/3.png', r);
+    const asset = resolveAppAsset(`/tiles/${style}/1/2/3.png`, r);
     expect(asset.kind).toBe('tile');
     if (asset.kind === 'tile') {
-      expect(asset.filePath).toBe(path.join(r.tileCache, 'esri-imagery', '1', '2', '3.png'));
+      expect(asset.filePath).toBe(path.join(r.tileCache, cacheKey, '1', '2', '3.png'));
       expect(asset.placeholderPath).toBe(
-        path.join(r.tileCache, 'esri-imagery', '1', '2', '3.placeholder.png'),
+        path.join(r.tileCache, cacheKey, '1', '2', '3.placeholder.png'),
       );
+      expect(asset.style).toBe(style);
+      expect(asset.tile).toEqual({ z: 1, x: 2, y: 3 });
     }
   });
 
-  it('refuses tiles of a style that is not active', () => {
-    expect(resolveAppAsset('/tiles/topo/1/2/3.png', routes()).kind).toBe('not-found');
+  it('refuses unknown tile styles and non-png tiles', () => {
     expect(resolveAppAsset('/tiles/evil/1/2/3.png', routes()).kind).toBe('not-found');
     expect(resolveAppAsset('/tiles/satellite/1/2/3.jpg', routes()).kind).not.toBe('tile');
   });

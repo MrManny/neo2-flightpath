@@ -5,4 +5,5 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('neo2flightpath', {
   pickRecording: () => ipcRenderer.invoke('neo2flightpath:pick'),
   getSession: () => ipcRenderer.invoke('neo2flightpath:session'),
+  getSettings: () => ipcRenderer.invoke('neo2flightpath:settings'),
 });

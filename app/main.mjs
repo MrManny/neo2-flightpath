@@ -14,10 +14,11 @@ import { app, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron';
 import { resolveAppAsset } from '../dist/appassets.js';
 import { APP_ORIGIN, uiExportRoot } from '../dist/apppaths.js';
 import { createAppSession } from '../dist/appsession.js';
-import { resolveConfig } from '../dist/config.js';
+import { resolveConfig } from '../dist/configfile.js';
 import { ERROR_PREFIX, errorMessage } from '../dist/errors.js';
 import { requireTools } from '../dist/ff.js';
 import { parseRange } from '../dist/range.js';
+import { createTileFetcher } from '../dist/tiles.js';
 
 const SCHEME = 'app';
 // --dev-url points the window at `next dev` (hot reload) instead of the
@@ -42,6 +43,7 @@ const exportRoot = uiExportRoot(import.meta.dirname);
 let win = null;
 let session = null;
 let config = null;
+let tileFetcher = null;
 
 async function pickRecording() {
   const options = {
@@ -109,21 +111,17 @@ async function handleRequest(request) {
   const plan = resolveAppAsset(pathname, {
     exportRoot,
     tileCache: config.tileCache,
-    style: config.style,
     videoPath: session ? session.videoPath() : null,
   });
   switch (plan.kind) {
     case 'video':
       return videoResponse(request, plan.filePath);
     case 'tile': {
-      const file = fs.existsSync(plan.filePath)
-        ? plan.filePath
-        : fs.existsSync(plan.placeholderPath)
-          ? plan.placeholderPath
-          : null;
-      return file
-        ? fileResponse(file, 'image/png')
-        : new Response('not found', { status: 404 });
+      // Always through the fetcher: it serves cached tiles immediately,
+      // retries tiles whose earlier download failed (so they recover once
+      // connectivity returns) and falls back to the placeholder.
+      const file = await tileFetcher.ensure(plan.style, plan.tile);
+      return fileResponse(file, 'image/png');
     }
     case 'export':
       if (fs.existsSync(plan.filePath)) return fileResponse(plan.filePath, plan.mime);
@@ -147,6 +145,7 @@ app.whenReady().then(async () => {
     await requireTools();
     const resolved = resolveConfig({});
     config = resolved.config;
+    tileFetcher = createTileFetcher(config.tileCache);
     session = createAppSession({ config, pickFile: pickRecording, log });
 
     ipcMain.handle('neo2flightpath:pick', (event) => {
@@ -156,6 +155,10 @@ app.whenReady().then(async () => {
     ipcMain.handle('neo2flightpath:session', (event) => {
       assertTrusted(event);
       return session.getSession();
+    });
+    ipcMain.handle('neo2flightpath:settings', (event) => {
+      assertTrusted(event);
+      return config;
     });
     protocol.handle(SCHEME, (request) =>
       handleRequest(request).catch((e) => {

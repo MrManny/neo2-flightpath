@@ -1,12 +1,8 @@
-// Precedence: CLI flags > config file > built-in defaults. The config file is
-// discovered upward from the working directory unless --config names one.
-//
-// This module is the vocabulary home for the option types (Style, View,
-// Capture, Preset, HudSpec); feature modules import them from here.
-
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+// The option vocabulary: the option types (Style, View, Capture, Preset,
+// HudSpec), their defaults and the parsing/normalizing rules. Feature modules
+// import them from here, and this module stays free of I/O so the app UI can
+// share the vocabulary in its browser bundle. File discovery and the
+// precedence of the config layers live in src/configfile.ts.
 
 export type Style = 'satellite' | 'topo';
 export type View = 'follow' | 'overview';
@@ -36,6 +32,7 @@ export interface RenderConfig {
   workers: number;
   capture: Capture;
   preset: Preset;
+  /** Empty = the per-user cache directory; resolveConfig fills it in. */
   tileCache: string;
   browser: string | null;
   skipExisting: boolean;
@@ -46,15 +43,45 @@ export interface RenderConfig {
 
 export type ConfigOverrides = Partial<RenderConfig>;
 
-export const CONFIG_FILE_NAME = '.neo2flightpath.json';
-
-// NEO2_FLIGHTPATH_TILE_CACHE overrides the per-user cache directory.
-export function defaultTileCache(): string {
-  const override = process.env['NEO2_FLIGHTPATH_TILE_CACHE'];
-  if (override) return path.resolve(override);
-  const base = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), '.cache');
-  return path.join(base, 'neo2-flightpath', 'tiles');
+// Named bundles of panel knobs ("presets sit on top of the advanced knobs"):
+// each one sets every look control so switching presets never leaves stale
+// values behind. Export-side options are untouched.
+export interface PanelPreset {
+  id: string;
+  label: string;
+  overrides: ConfigOverrides;
 }
+
+export const PANEL_PRESETS: readonly PanelPreset[] = [
+  {
+    id: 'quick-render',
+    label: 'Quick render',
+    overrides: {
+      style: 'satellite',
+      view: 'follow',
+      zoom: 0,
+      zoomOut: 1,
+      introSec: 0,
+      outroSec: 0,
+      hud: { heading: true, alt: false, speed: false },
+    },
+  },
+  {
+    id: 'topo-full-hud',
+    label: 'Topo + full HUD',
+    overrides: {
+      style: 'topo',
+      view: 'follow',
+      zoom: 0,
+      zoomOut: 1,
+      introSec: 2,
+      outroSec: 2,
+      hud: { heading: true, alt: true, speed: true },
+    },
+  },
+];
+
+export const CONFIG_FILE_NAME = '.neo2flightpath.json';
 
 export const DEFAULT_CONFIG: RenderConfig = {
   outDir: 'out',
@@ -71,7 +98,7 @@ export const DEFAULT_CONFIG: RenderConfig = {
   workers: 4,
   capture: 'jpeg',
   preset: 'medium',
-  tileCache: defaultTileCache(),
+  tileCache: '',
   browser: null,
   skipExisting: false,
   recurse: false,
@@ -79,8 +106,8 @@ export const DEFAULT_CONFIG: RenderConfig = {
   quiet: false,
 };
 
-const STYLE_VALUES: Style[] = ['satellite', 'topo'];
-const VIEW_VALUES: View[] = ['follow', 'overview'];
+export const STYLE_VALUES: readonly Style[] = ['satellite', 'topo'];
+export const VIEW_VALUES: readonly View[] = ['follow', 'overview'];
 const CAPTURE_VALUES: Capture[] = ['jpeg', 'png'];
 const PRESET_VALUES: Preset[] = ['medium', 'veryfast'];
 
@@ -100,6 +127,17 @@ export function parseHud(list: string): HudSpec {
       );
   }
   return hud;
+}
+
+// The "alt hides when unavailable" rule, one home for the pipeline and the UI.
+export function resolveHudSpec(hud: HudSpec, hasAlt: boolean): HudSpec {
+  return hud.alt && !hasAlt ? { ...hud, alt: false } : hud;
+}
+
+// What "unavailable" means for the rule above: no altitude sample at all in
+// the telemetry.
+export function hasAltitude(alt: readonly (number | null)[]): boolean {
+  return alt.some((a) => a !== null);
 }
 
 function asNumber(value: unknown, name: string): number {
@@ -127,7 +165,7 @@ function asBool(value: unknown, name: string): boolean {
 function asEnum<T extends string>(
   value: unknown,
   name: string,
-  allowed: T[],
+  allowed: readonly T[],
 ): T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) {
     throw new Error(`invalid value for ${name}: ${String(value)} (use ${allowed.join(' | ')})`);
@@ -184,61 +222,8 @@ export function normalizeOverrides(
   return out;
 }
 
-export function discoverConfigFile(startDir: string): string | null {
-  let dir = path.resolve(startDir);
-  for (;;) {
-    const candidate = path.join(dir, CONFIG_FILE_NAME);
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
-
-export function loadConfigFile(file: string): ConfigOverrides {
-  let text: string;
-  try {
-    text = fs.readFileSync(file, 'utf8');
-  } catch (e) {
-    throw new Error(`cannot read config file ${file}: ${(e as Error).message}`, {
-      cause: e,
-    });
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (e) {
-    throw new Error(
-      `config file is not valid JSON: ${file}: ${(e as Error).message}`,
-      { cause: e },
-    );
-  }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error(`config file must contain a JSON object: ${file}`);
-  }
-  return normalizeOverrides(raw as Record<string, unknown>, file);
-}
-
-export interface ResolvedConfig {
-  config: RenderConfig;
-  configPath: string | null;
-}
-
-function mergeConfigLayers(
-  fileCfg: ConfigOverrides,
-  cli: ConfigOverrides,
-): RenderConfig {
-  return {
-    ...DEFAULT_CONFIG,
-    ...fileCfg,
-    ...cli,
-    // hud is an object; Partial spread replaces it wholesale, which is what we want.
-    hud: cli.hud ?? fileCfg.hud ?? DEFAULT_CONFIG.hud,
-  };
-}
-
 // The negated comparisons are NaN-safe: they also reject NaN sneak-ins.
-function validateRenderConfig(config: RenderConfig): void {
+export function validateRenderConfig(config: RenderConfig): void {
   if (!(config.width >= 64) || !(config.height >= 64)) {
     throw new Error('width and height must be at least 64');
   }
@@ -251,28 +236,4 @@ function validateRenderConfig(config: RenderConfig): void {
     throw new Error('intro-sec and outro-sec must be >= 0');
   }
   if (!config.outSuffix) throw new Error('out-suffix must not be empty');
-}
-
-function resolveConfigPaths(config: RenderConfig, cwd: string): void {
-  config.tileCache = path.resolve(cwd, config.tileCache);
-  if (config.outDir) config.outDir = path.resolve(cwd, config.outDir);
-}
-
-export function resolveConfig(opts: {
-  cli?: ConfigOverrides;
-  configPath?: string | null;
-  cwd?: string;
-}): ResolvedConfig {
-  const cwd = opts.cwd ?? process.cwd();
-  const configPath =
-    opts.configPath != null
-      ? path.resolve(cwd, opts.configPath)
-      : discoverConfigFile(cwd);
-  const fileCfg = configPath ? loadConfigFile(configPath) : {};
-  const merged = mergeConfigLayers(fileCfg, opts.cli ?? {});
-
-  validateRenderConfig(merged);
-  resolveConfigPaths(merged, cwd);
-
-  return { config: merged, configPath };
 }

@@ -42,6 +42,7 @@ export interface MapHandle {
 
 export interface LayerHandle {
   addTo(map: MapHandle): void;
+  remove(): void;
 }
 
 export interface TileLayerOptions {
@@ -51,6 +52,7 @@ export interface TileLayerOptions {
 
 export interface TileLayerHandle extends LayerHandle {
   on(event: 'load' | 'tileerror', handler: () => void): void;
+  setUrl(url: string): void;
 }
 
 export interface PolylineOptions {

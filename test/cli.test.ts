@@ -5,7 +5,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { main, parseCliArgs } from '../src/cli.js';
-import { DEFAULT_CONFIG, resolveConfig } from '../src/config.js';
+import { DEFAULT_CONFIG } from '../src/config.js';
+import { defaultTileCache, resolveConfig } from '../src/configfile.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(cleanupTmpDirs);
@@ -61,7 +62,7 @@ describe('parseCliArgs', () => {
   it('does not clobber defaults with absent optional flags', () => {
     const { cli } = parseCliArgs(['clip.mp4']);
     const { config } = resolveConfig({ cli, configPath: null, cwd: os.tmpdir() });
-    expect(config.tileCache).toBe(DEFAULT_CONFIG.tileCache);
+    expect(config.tileCache).toBe(defaultTileCache());
     // default outDir is 'out', resolved against the working directory
     expect(config.outDir).toBe(path.resolve(os.tmpdir(), 'out'));
     expect(config.browser).toBeNull();

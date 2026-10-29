@@ -2,152 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 
-import { project } from './geo.js';
-import type { Bbox, Pixel } from './geo.js';
+import type { TileCoord } from './plan.js';
 import type { Style } from './config.js';
 import { TILE_SOURCES } from './renderer/tilesources.js';
 import { VERSION } from './version.js';
-
-export interface TileCoord {
-  z: number;
-  x: number;
-  y: number;
-}
-
-export interface OverviewOptions {
-  bbox: Bbox;
-  width: number;
-  height: number;
-  maxZoom?: number;
-  zoomOut?: number;
-  follow?: boolean;
-  maxNativeZoom?: number | null;
-  zoomOverride?: number;
-}
-
-export interface Overview {
-  centerPx: Pixel;
-  zoom: number;
-  tiles: TileCoord[];
-}
-
-const MIN_ZOOM = 2;
-const HOVER_ZOOM_FLOOR = 16;
-const MIN_TRACK_SPAN_PX = 80; // tiny/hovering tracks stay a useful close-up
-const TILE_SIZE_PX = 256;
-
-function fitZoomToTrack(
-  bbox: Bbox,
-  availW: number,
-  availH: number,
-  maxZoom: number,
-): number {
-  for (let zoom = maxZoom; zoom >= MIN_ZOOM; zoom--) {
-    const northWest = project(bbox.minLon, bbox.maxLat, zoom);
-    const southEast = project(bbox.maxLon, bbox.minLat, zoom);
-    const fits =
-      southEast.x - northWest.x <= availW &&
-      southEast.y - northWest.y <= availH;
-    if (fits) return zoom;
-  }
-  return MIN_ZOOM;
-}
-
-// Never zoom a tiny (hovering) track past a useful overview.
-function pullBackTinyTracks(zoom: number, bbox: Bbox): number {
-  while (zoom > HOVER_ZOOM_FLOOR) {
-    const northWest = project(bbox.minLon, bbox.maxLat, zoom);
-    const southEast = project(bbox.maxLon, bbox.minLat, zoom);
-    const spansEnough =
-      southEast.x - northWest.x >= MIN_TRACK_SPAN_PX ||
-      southEast.y - northWest.y >= MIN_TRACK_SPAN_PX;
-    if (spansEnough) break;
-    zoom--;
-  }
-  return zoom;
-}
-
-// The map element is 2x the frame (intro/outro zoom-out shows up to 2x the
-// area) and in follow mode it also slides across the track extent. With a
-// native-zoom limit the tiles live one or more levels below the view zoom.
-function tilesCovering(
-  centerPx: Pixel,
-  trackSpanPx: Pixel,
-  zoom: number,
-  width: number,
-  height: number,
-  follow: boolean,
-  maxNativeZoom: number | null,
-): TileCoord[] {
-  const tileZoom = maxNativeZoom
-    ? Math.min(zoom, maxNativeZoom)
-    : zoom;
-  const scale = 2 ** (tileZoom - zoom);
-  const halfW = (width + TILE_SIZE_PX + (follow ? trackSpanPx.x / 2 : 0)) * scale;
-  const halfH = (height + TILE_SIZE_PX + (follow ? trackSpanPx.y / 2 : 0)) * scale;
-
-  const maxTileIndex = 2 ** tileZoom - 1;
-  const xMin = Math.max(0, Math.floor((centerPx.x * scale - halfW) / TILE_SIZE_PX));
-  const xMax = Math.min(maxTileIndex, Math.floor((centerPx.x * scale + halfW) / TILE_SIZE_PX));
-  const yMin = Math.max(0, Math.floor((centerPx.y * scale - halfH) / TILE_SIZE_PX));
-  const yMax = Math.min(maxTileIndex, Math.floor((centerPx.y * scale + halfH) / TILE_SIZE_PX));
-
-  const tiles: TileCoord[] = [];
-  for (let x = xMin; x <= xMax; x++) {
-    for (let y = yMin; y <= yMax; y++) tiles.push({ z: tileZoom, x, y });
-  }
-  return tiles;
-}
-
-// zoomOut adds surroundings context; follow mode slides the map under a
-// centered marker. When the source has a maxNativeZoom below the view zoom,
-// tiles are fetched at the native level (Leaflet scales them).
-export function computeOverview({
-  bbox,
-  width,
-  height,
-  maxZoom = 19,
-  zoomOut = 0,
-  follow = false,
-  maxNativeZoom = null,
-  zoomOverride = 0,
-}: OverviewOptions): Overview {
-  const padX = Math.round(width * 0.08);
-  const padY = Math.round(height * 0.08);
-  const availW = Math.max(64, width - 2 * padX);
-  const availH = Math.max(64, height - 2 * padY);
-
-  let zoom: number;
-  if (zoomOverride > 0) {
-    zoom = Math.max(MIN_ZOOM, Math.min(maxZoom, Math.round(zoomOverride)));
-  } else {
-    zoom = pullBackTinyTracks(
-      fitZoomToTrack(bbox, availW, availH, maxZoom),
-      bbox,
-    );
-    zoom = Math.max(MIN_ZOOM, zoom - Math.max(0, Math.floor(zoomOut)));
-  }
-
-  // Degenerate (hovering) track: show a close-up around the single point.
-  const northWest = project(bbox.minLon, bbox.maxLat, zoom);
-  const southEast = project(bbox.maxLon, bbox.minLat, zoom);
-  const centerPx: Pixel = {
-    x: (northWest.x + southEast.x) / 2,
-    y: (northWest.y + southEast.y) / 2,
-  };
-  const trackSpanPx: Pixel = {
-    x: southEast.x - northWest.x,
-    y: southEast.y - northWest.y,
-  };
-
-  return {
-    centerPx,
-    zoom,
-    tiles: tilesCovering(
-      centerPx, trackSpanPx, zoom, width, height, follow, maxNativeZoom,
-    ),
-  };
-}
 
 const CRC_TABLE = (() => {
   const table = new Int32Array(256);
@@ -206,9 +64,25 @@ const sleep = (ms: number): Promise<void> =>
 const USER_AGENT = `neo2-flightpath/${VERSION} (flight-path map renderer; https://github.com/MrManny/neo2-flightpath)`;
 
 const DOWNLOAD_ATTEMPTS = 2;
-const REQUEST_INTERVAL_MS = 400; // <= ~2.5 requests/s across both workers
+const DOWNLOAD_WORKERS = 2;
+const REQUEST_INTERVAL_MS = 500;
 const RETRY_DELAY_MS = 500;
 const FETCH_TIMEOUT_MS = 20000;
+
+// Politeness for the tile servers: every request start in one queue is spaced
+// REQUEST_INTERVAL_MS apart (2.0 req/s), retries included, whichever queue
+// drives them.
+type RequestGate = () => Promise<void>;
+
+function createRequestGate(): RequestGate {
+  let nextSlotAt = 0;
+  return async () => {
+    const now = Date.now();
+    const startAt = Math.max(now, nextSlotAt);
+    nextSlotAt = startAt + REQUEST_INTERVAL_MS;
+    if (startAt > now) await sleep(startAt - now);
+  };
+}
 
 function cacheKeyFor(style: Style): string {
   return TILE_SOURCES[style].cacheKey || style;
@@ -250,8 +124,13 @@ function tileUrl(style: Style, tile: TileCoord): string {
     .replace('{y}', String(tile.y));
 }
 
-async function downloadTile(url: string, cachePath: string): Promise<boolean> {
+async function downloadTile(
+  url: string,
+  cachePath: string,
+  acquire: RequestGate,
+): Promise<boolean> {
   for (let attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt++) {
+    await acquire();
     try {
       const res = await fetch(url, {
         headers: { 'User-Agent': USER_AGENT },
@@ -269,15 +148,50 @@ async function downloadTile(url: string, cachePath: string): Promise<boolean> {
   return false;
 }
 
+const placeholderPngs = new Map<Style, Buffer>();
+
+function placeholderPng(style: Style): Buffer {
+  let png = placeholderPngs.get(style);
+  if (!png) {
+    png = solidPng(TILE_SOURCES[style].placeholderBg);
+    placeholderPngs.set(style, png);
+  }
+  return png;
+}
+
+export interface TileFetchResult {
+  /** The file to serve: the real tile, or its placeholder after a failure. */
+  file: string;
+  status: 'cached' | 'downloaded' | 'failed';
+}
+
+// The full cache dance for one tile: hit, download, or placeholder. The
+// placeholder is served as a fallback so a missing tile is retried on a later
+// run instead of being cached as missing.
+async function fetchTileToCache(
+  cacheDir: string,
+  style: Style,
+  tile: TileCoord,
+  acquire: RequestGate,
+): Promise<TileFetchResult> {
+  const cachePath = tileCachePath(cacheDir, style, tile);
+  if (fs.existsSync(cachePath)) return { file: cachePath, status: 'cached' };
+  if (await downloadTile(tileUrl(style, tile), cachePath, acquire)) {
+    return { file: cachePath, status: 'downloaded' };
+  }
+  const placeholderPath = tilePlaceholderPath(cacheDir, style, tile);
+  fs.mkdirSync(path.dirname(placeholderPath), { recursive: true });
+  fs.writeFileSync(placeholderPath, placeholderPng(style));
+  return { file: placeholderPath, status: 'failed' };
+}
+
 export interface PrefetchStats {
   downloaded: number;
   failed: number;
   total: number;
 }
 
-// Polite fetching: 2 concurrent workers, ~2.5 req/s. Failed tiles get a
-// `<y>.placeholder.png` sibling (served as fallback) so the real tile is
-// retried on the next run instead of being cached as missing.
+// Polite bulk fetching: 2 concurrent workers, 2.0 req/s.
 export async function prefetchTiles({
   style,
   tiles,
@@ -297,28 +211,80 @@ export async function prefetchTiles({
   }
   log(`tiles: ${tiles.length} needed, ${missing.length} to download (${style})`);
 
-  const placeholder = solidPng(TILE_SOURCES[style].placeholderBg);
+  const gate = createRequestGate();
   let downloaded = 0;
   let failed = 0;
   let cursor = 0;
 
   async function worker(): Promise<void> {
     while (cursor < missing.length) {
-      const { tile, cachePath } = missing[cursor++];
-      if (await downloadTile(tileUrl(style, tile), cachePath)) {
-        downloaded++;
-      } else {
-        failed++;
-        fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-        fs.writeFileSync(
-          tilePlaceholderPath(cacheDir, style, tile),
-          placeholder,
-        );
-      }
-      await sleep(REQUEST_INTERVAL_MS);
+      const { tile } = missing[cursor++];
+      const result = await fetchTileToCache(cacheDir, style, tile, gate);
+      if (result.status === 'downloaded') downloaded++;
+      else if (result.status === 'failed') failed++;
     }
   }
 
-  await Promise.all([worker(), worker()]);
+  await Promise.all(Array.from({ length: DOWNLOAD_WORKERS }, worker));
   return { downloaded, failed, total: tiles.length };
+}
+
+export interface TileFetcher {
+  /** Fetches one tile into the cache (or its placeholder); returns the file to serve. */
+  ensure(style: Style, tile: TileCoord): Promise<string>;
+}
+
+// On-demand fetching for the app's live restyle. The queue keeps the polite
+// 2.0 req/s even when Leaflet bursts in with a whole viewport of tiles, and
+// concurrent requests for the same tile share one download.
+export function createTileFetcher(cacheDir: string): TileFetcher {
+  const gate = createRequestGate();
+  const inFlight = new Map<string, Promise<string>>();
+  const queue: Array<{
+    style: Style;
+    tile: TileCoord;
+    settle: (file: string) => void;
+    fail: (error: unknown) => void;
+  }> = [];
+  let active = 0;
+
+  function pump(): void {
+    while (active < DOWNLOAD_WORKERS && queue.length > 0) {
+      const job = queue.shift() as (typeof queue)[number];
+      active++;
+      void (async () => {
+        try {
+          const result = await fetchTileToCache(cacheDir, job.style, job.tile, gate);
+          job.settle(result.file);
+        } catch (e) {
+          job.fail(e);
+        } finally {
+          active--;
+          pump();
+        }
+      })();
+    }
+  }
+
+  return {
+    ensure(style, tile): Promise<string> {
+      const key = `${cacheKeyFor(style)}/${tile.z}/${tile.x}/${tile.y}`;
+      let task = inFlight.get(key);
+      if (!task) {
+        task = new Promise<string>((resolve, reject) => {
+          // Newest requests first: a style flip or zoom change makes the
+          // previous viewport stale, and those tiles can wait behind what
+          // the user is looking at now.
+          queue.unshift({ style, tile, settle: resolve, fail: reject });
+          pump();
+        });
+        void task.then(
+          () => inFlight.delete(key),
+          () => inFlight.delete(key),
+        );
+        inFlight.set(key, task);
+      }
+      return task;
+    },
+  };
 }

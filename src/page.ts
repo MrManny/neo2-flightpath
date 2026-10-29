@@ -10,9 +10,13 @@
 //              it (all tiles are loaded once up-front; the per-frame move is a
 //              pure CSS transform, so no tile loads happen mid-render)
 
-import type { HudSpec, Style, View } from './config.js';
+import { hasAltitude, resolveHudSpec } from './config.js';
+import type { HudSpec, RenderConfig, Style, View } from './config.js';
+import { decimateTrack } from './decimate.js';
 import type { DecimatedTrack } from './decimate.js';
-import type { LatLon } from './geo.js';
+import { unproject } from './geo.js';
+import type { Bbox, LatLon } from './geo.js';
+import { planIntroOutroFrames, planView } from './plan.js';
 import type { SceneData } from './renderer/scene.js';
 import { TILE_SOURCES } from './renderer/tilesources.js';
 
@@ -35,11 +39,58 @@ export interface PageOpts {
   outroN?: number;
 }
 
+// The one settings + telemetry -> page mapping. The pipeline's recording
+// mapping and the app's live restyle both plan through here, so a preview and
+// an export from the same settings agree frame for frame. The bbox must be
+// the telemetry's fix bbox (what the tile prefetch warms), never the smaller
+// frame-sample bbox.
+export function planPageOpts(opts: {
+  bbox: Bbox;
+  width: number;
+  height: number;
+  config: Pick<
+    RenderConfig,
+    'style' | 'view' | 'zoom' | 'zoomOut' | 'introSec' | 'outroSec' | 'hud'
+  >;
+  source: { fps: number; frames: number };
+  frames: Pick<PageOpts, 'lat' | 'lon' | 'alt' | 'speed' | 'headingDeg'>;
+  /** Reuse the previous decimated track when the planned zoom matches it. */
+  previous?: { zoom: number; decimated: DecimatedTrack };
+}): PageOpts {
+  const { bbox, width, height, config, source, frames, previous } = opts;
+  const overview = planView(bbox, width, height, config);
+  const introOutro = planIntroOutroFrames(config, source, () => {});
+  // Decimation depends only on the track and the working zoom, so an
+  // unchanged zoom keeps the identical arrays and consumers can tell that no
+  // trail work is needed.
+  const decimated =
+    previous && previous.zoom === overview.zoom
+      ? previous.decimated
+      : decimateTrack(frames.lat, frames.lon, overview.zoom);
+  return {
+    width,
+    height,
+    style: config.style,
+    view: config.view,
+    center: unproject(overview.centerPx.x, overview.centerPx.y, overview.zoom),
+    zoom: overview.zoom,
+    attribution: TILE_SOURCES[config.style].attribution,
+    introN: introOutro.introN,
+    outroN: introOutro.outroN,
+    lat: frames.lat,
+    lon: frames.lon,
+    alt: frames.alt,
+    speed: frames.speed,
+    headingDeg: frames.headingDeg,
+    hud: resolveHudSpec(config.hud, hasAltitude(frames.alt)),
+    decimated,
+  };
+}
+
 // The scene data both consumers drive: the generated page inlines it as
 // window.__DATA, the app delivers it as the session payload. Tile URLs are
 // rooted at the consumer's serving base ("/tiles" or "app://bundle/tiles").
-export function buildSceneData(opts: PageOpts, tileBase: string): SceneData {
-  const {
+export function buildSceneData(opts: PageOpts, tileBase: string): SceneData {  const {
     width, height, style, view, center, zoom, attribution,
     lat, lon, alt, speed, headingDeg, hud, decimated,
     introN = 0, outroN = 0,

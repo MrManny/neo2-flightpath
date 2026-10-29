@@ -3,10 +3,12 @@
 // native dialog or the pipeline.
 
 import type { PickResult, UiSession } from '../../src/appsession.js';
+import type { RenderConfig } from '../../src/config.js';
 
 export interface AppBridge {
   pickRecording(): Promise<PickResult>;
   getSession(): Promise<UiSession | null>;
+  getSettings(): Promise<RenderConfig>;
 }
 
 declare global {

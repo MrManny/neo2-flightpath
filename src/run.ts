@@ -10,13 +10,15 @@ import { outputMatchesSource, probeVideo, verifyOutput } from './ff.js';
 import type { VideoProbe } from './ff.js';
 import { loadTelemetry } from './telemetry.js';
 import type { Telemetry } from './telemetry.js';
-import { computeOverview, prefetchTiles } from './tiles.js';
-import type { Overview, PrefetchStats } from './tiles.js';
-import { TILE_SOURCES } from './renderer/tilesources.js';
-import { buildPageHtml } from './page.js';
+import { prefetchTiles } from './tiles.js';
+import type { PrefetchStats } from './tiles.js';
+import { planIntroOutroFrames, planView } from './plan.js';
+import type { IntroOutroFrames, Overview } from './plan.js';
+import { buildPageHtml, planPageOpts } from './page.js';
 import type { PageOpts } from './page.js';
 import { renderVideo } from './render.js';
 import type { HudSpec, RenderConfig } from './config.js';
+import { hasAltitude, resolveHudSpec } from './config.js';
 import { NOOP_TRACER, stage } from './tracing.js';
 import type { TraceContext } from './tracing.js';
 
@@ -96,35 +98,10 @@ export function planOutputs(videos: string[], config: RenderConfig): PlannedOutp
   });
 }
 
-export interface IntroOutroFrames {
-  introN: number;
-  outroN: number;
-}
-
-// Intro/outro zoom timing (frames); clamp for very short clips.
-function planIntroOutroFrames(
-  config: RenderConfig,
-  probe: VideoProbe,
-  log: LogFn,
-): IntroOutroFrames {
-  let introN = Math.max(0, Math.round(config.introSec * probe.fps.value));
-  let outroN = Math.max(0, Math.round(config.outroSec * probe.fps.value));
-  const budget = Math.max(2, Math.floor(probe.frames / 2));
-  if (introN + outroN > budget) {
-    const scale = budget / (introN + outroN);
-    introN = Math.floor(introN * scale);
-    outroN = Math.floor(outroN * scale);
-    log(`intro/outro shortened to ${introN}/${outroN} frames for this clip`);
-  }
-  return { introN, outroN };
-}
-
 // HUD sanity: drop chips whose data does not exist for this source.
 function resolveHud(config: RenderConfig, tel: Telemetry, log: LogFn): HudSpec {
-  const hud: HudSpec = { ...config.hud };
-  const hasAltitude = tel.frames.some((f) => f.alt !== null);
-  if (hud.alt && !hasAltitude) {
-    hud.alt = false;
+  const hud = resolveHudSpec(config.hud, hasAltitude(tel.frames.map((f) => f.alt)));
+  if (config.hud.alt && !hud.alt) {
     log('hud: altitude unavailable in this telemetry source (chip disabled)');
   }
   return hud;
@@ -259,7 +236,11 @@ export async function prepareSession(
   log(
     `source: ${path.basename(videoPath)}  ${probe.width}x${probe.height} @ ${probe.fps.str} fps, ${probe.frames} frames`,
   );
-  const introOutro = planIntroOutroFrames(config, probe, log);
+  const introOutro = planIntroOutroFrames(
+    config,
+    { fps: probe.fps.value, frames: probe.frames },
+    log,
+  );
 
   const tel = await stage(tracer, 'telemetry.load', parent, {}, async (span) => {
     const loaded = await deps.loadTelemetry(videoPath, {
@@ -281,18 +262,8 @@ export async function prepareSession(
   );
   const hud = resolveHud(config, tel, log);
 
-  const tileSource = TILE_SOURCES[config.style];
   const overview = await stage(tracer, 'plan', parent, { 'plan.view': config.view }, async (span) => {
-    const computed = computeOverview({
-      bbox: tel.bbox,
-      width,
-      height,
-      maxZoom: tileSource.maxZoom || 19,
-      maxNativeZoom: tileSource.maxNativeZoom || null,
-      zoomOut: config.zoomOut,
-      zoomOverride: config.zoom,
-      follow: config.view === 'follow',
-    });
+    const computed = planView(tel.bbox, width, height, config);
     span.setAttributes({
       'plan.zoom': computed.zoom,
       'plan.zoomOut': config.zoom > 0 ? 0 : config.zoomOut,
@@ -340,26 +311,21 @@ export async function prepareSession(
   };
 }
 
-// Maps a prepared recording onto the shared renderer page's inputs; callers
-// add the video option when they drive the interactive variant.
+// Maps a prepared recording onto the shared renderer page's inputs through
+// the same planning the app's live restyle uses; callers add the video option
+// when they drive the interactive variant.
 export function recordingPageOpts(
   prep: PreparedRecording,
   config: RenderConfig,
 ): PageOpts {
-  return {
+  return planPageOpts({
+    bbox: prep.tel.bbox,
     width: prep.width,
     height: prep.height,
-    style: config.style,
-    view: config.view,
-    center: prep.center,
-    zoom: prep.overview.zoom,
-    attribution: TILE_SOURCES[config.style].attribution,
-    introN: prep.introOutro.introN,
-    outroN: prep.introOutro.outroN,
-    ...prep.frames,
-    hud: prep.hud,
-    decimated: prep.decimated,
-  };
+    config,
+    source: { fps: prep.probe.fps.value, frames: prep.probe.frames },
+    frames: prep.frames,
+  });
 }
 
 interface RenderContext extends PreparedRecording {
