@@ -10,7 +10,7 @@ import type { Writable } from 'node:stream';
 import type { Browser } from 'playwright-core';
 
 import { errorMessage } from './errors.js';
-import { MIME, serveAsset } from './serve.js';
+import { MIME, RENDERER_DIR, serveAsset } from './serve.js';
 import type { Capture, Preset, Style } from './config.js';
 import { NOOP_TRACER, stage } from './tracing.js';
 import type { Span, Tracer, TraceContext } from './tracing.js';
@@ -49,7 +49,7 @@ export function startServer({
       res.end(html);
       return;
     }
-    if (serveAsset(url, res, { style, tileCache })) return;
+    if (serveAsset(url, res, { style, tileCache, rendererDir: RENDERER_DIR })) return;
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('not found');
   });

@@ -5,6 +5,7 @@ directories:
 files:
   - dist/**
   - app/**
+  - ui/out/**
   # The app never renders headless video; the CLI keeps using playwright-core.
   - "!node_modules/playwright-core/**"
 win:

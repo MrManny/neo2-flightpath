@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { createTrailController } from '../src/trail.js';
-import type { TrailLayer } from '../src/trail.js';
+import { createTrailController } from '../../src/renderer/trail.js';
+import type { TrailLayer } from '../../src/renderer/trail.js';
 
 interface Call {
   kind: 'add' | 'set';
@@ -126,18 +126,5 @@ describe('createTrailController', () => {
     a.calls.length = 0;
     ctl.setFrame(-1);
     expect(a.calls).toEqual([{ kind: 'set', points: [] }]);
-  });
-
-  // The page embeds the function source verbatim; this guards the
-  // self-containment contract that toString() embedding depends on.
-  it('evaluates standalone from its toString() source', () => {
-    const src = createTrailController.toString();
-    const revived = new Function(`return (${src})`)() as typeof createTrailController;
-    const t = track(30);
-    const a = spyLayer();
-    const ctl = revived(t.lat, t.lon, t.frame, [a.layer]);
-    ctl.setFrame(20);
-    ctl.setFrame(0);
-    expect(a.calls.map((c) => c.kind)).toEqual(['set', 'set']);
   });
 });

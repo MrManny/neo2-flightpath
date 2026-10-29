@@ -1,8 +1,6 @@
 // Trail growth state machine shared by the headless renderer and the app:
 // forward playback appends decimated points in place (no per-frame array
 // copies), any jump rebuilds the trail prefix with one setLatLngs per layer.
-// The body must stay self-contained: buildPageHtml embeds it into the page
-// via createTrailController.toString().
 
 export interface TrailLayer {
   /** Leaflet's addLatLng takes one <LatLng> ([lat, lon]) argument. */

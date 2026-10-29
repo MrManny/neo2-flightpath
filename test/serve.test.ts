@@ -17,11 +17,12 @@ async function startHost(
   tileCache: string,
   videoPath: string | null,
   style: Style = 'satellite',
+  rendererDir: string = tmpDir(),
 ): Promise<Host> {
   const streams: Array<Promise<void>> = [];
   const server = http.createServer((req, res) => {
     const url = decodeURIComponent((req.url || '/').split('?')[0]);
-    if (serveAsset(url, res, { style, tileCache })) return;
+    if (serveAsset(url, res, { style, tileCache, rendererDir })) return;
     if (url === '/video' && videoPath) {
       streams.push(serveFileWithRange(req, res, videoPath));
       return;
@@ -117,6 +118,36 @@ describe('serveAsset', () => {
     const host = await startHost(tmpDir(), null);
     try {
       const res = await fetch(`${host.url}/other`);
+      expect(res.status).toBe(404);
+    } finally {
+      await host.close();
+    }
+  });
+
+  it('serves compiled renderer modules as JavaScript', async () => {
+    const rendererDir = tmpDir();
+    fs.writeFileSync(path.join(rendererDir, 'scene.js'), 'export const x = 1;');
+    const host = await startHost(tmpDir(), null, 'satellite', rendererDir);
+    try {
+      const res = await fetch(`${host.url}/renderer/scene.js`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/javascript');
+      expect(await res.text()).toBe('export const x = 1;');
+    } finally {
+      await host.close();
+    }
+  });
+
+  it.for([
+    { name: 'a missing module', url: '/renderer/gone.js' },
+    { name: 'a path traversal', url: '/renderer/..%2Fsecret.js' },
+    { name: 'a non-JavaScript file', url: '/renderer/scene.ts' },
+  ])('refuses $name in /renderer/', async ({ url }) => {
+    const rendererDir = tmpDir();
+    fs.writeFileSync(path.join(rendererDir, 'scene.js'), 'export const x = 1;');
+    const host = await startHost(tmpDir(), null, 'satellite', rendererDir);
+    try {
+      const res = await fetch(`${host.url}${url}`);
       expect(res.status).toBe(404);
     } finally {
       await host.close();

@@ -6,17 +6,26 @@ import http from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pipeline } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 
-import { TILE_SOURCES } from './tiles.js';
+import { TILE_SOURCES } from './renderer/tilesources.js';
 import type { Style } from './config.js';
+import { parseRange } from './range.js';
 
 const require_ = createRequire(import.meta.url);
 const LEAFLET_DIR = path.dirname(require_.resolve('leaflet/dist/leaflet.js'));
+
+/** Compiled shared renderer modules, served to generated pages as ESM. */
+export const RENDERER_DIR = fileURLToPath(new URL('./renderer/', import.meta.url));
 
 export const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
   '.png': 'image/png',
   '.mp4': 'video/mp4',
 };
@@ -24,11 +33,13 @@ export const MIME: Record<string, string> = {
 export interface AssetRoutes {
   style: Style;
   tileCache: string;
+  rendererDir: string;
 }
 
-// Serves /leaflet/* and /tiles/* from disk (missing tiles fall back to their
-// placeholder). Writes the response and returns true when the URL belongs to
-// one of those routes; callers route everything else themselves.
+// Serves /leaflet/*, /tiles/* and /renderer/* from disk (missing tiles fall
+// back to their placeholder). Writes the response and returns true when the
+// URL belongs to one of those routes; callers route everything else
+// themselves.
 export function serveAsset(
   url: string,
   res: http.ServerResponse,
@@ -51,6 +62,11 @@ export function serveAsset(
         if (fs.existsSync(alt)) file = alt;
       }
     }
+  } else if (url.startsWith('/renderer/')) {
+    const rel = url.slice('/renderer/'.length);
+    if (/^[a-z0-9_-]+\.js$/.test(rel)) {
+      file = path.join(routes.rendererDir, rel);
+    }
   } else {
     return false;
   }
@@ -64,40 +80,6 @@ export function serveAsset(
     res.end('not found');
   }
   return true;
-}
-
-interface ByteRange {
-  start: number;
-  end: number;
-}
-
-// RFC 7233: malformed range headers are ignored (full response), only
-// syntactically valid but unsatisfiable ranges earn a 416.
-function parseRange(
-  header: string | string[] | undefined,
-  size: number,
-): ByteRange | null | 'unsatisfiable' {
-  if (header === undefined) return null;
-  const text = Array.isArray(header) ? header[0] : header;
-  const m = /^bytes=(\d*)-(\d*)$/.exec(text.trim());
-  if (!m) return null;
-  const from = m[1];
-  const to = m[2];
-  if (from === '' && to === '') return null;
-  let start: number;
-  let end: number;
-  if (from === '') {
-    const suffix = Number(to);
-    if (!Number.isFinite(suffix) || suffix <= 0) return 'unsatisfiable';
-    start = Math.max(0, size - suffix);
-    end = size - 1;
-  } else {
-    start = Number(from);
-    end = to === '' ? size - 1 : Number(to);
-    if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  }
-  if (start > end || start >= size) return 'unsatisfiable';
-  return { start, end: Math.min(end, size - 1) };
 }
 
 // Streams a file with HTTP Range support so the <video> element can seek.

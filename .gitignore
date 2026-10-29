@@ -4,6 +4,8 @@ node_modules/
 # build output
 dist/
 dist-electron/
+ui/.next/
+ui/next-env.d.ts
 *.tsbuildinfo
 
 # configuration, caches and renderings
