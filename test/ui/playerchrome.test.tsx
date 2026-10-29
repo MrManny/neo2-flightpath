@@ -186,4 +186,14 @@ describe('PlayerChrome', () => {
     expect(mapPane.className).toContain('pane-main');
     expect(mapPane.style.zIndex).toBe('');
   });
+
+  it('does not swap views when the map pane is clicked', () => {
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
+    const mapPane = screen.getByTestId('map-island').parentElement as HTMLElement;
+    fireEvent.click(mapPane);
+    expect(mapPane.className).toContain('pane-pip');
+    fireEvent.click(screen.getByRole('button', { name: 'Swap view' }));
+    fireEvent.click(mapPane);
+    expect(mapPane.className).toContain('pane-main');
+  });
 });
