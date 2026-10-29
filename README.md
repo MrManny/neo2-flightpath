@@ -78,6 +78,15 @@ scrubber. Play, pause and scrub keep the video frame, trail, drone position
 and HUD chips on the same frame; the map fills its pane at any window size,
 while the export framing follows `--width` / `--height` as usual.
 
+The **Settings** panel (cog button in the control bar) mirrors the CLI option
+vocabulary &mdash; map style, view, zoom/zoom-out, intro/outro seconds, HUD
+chips &mdash; and every change restyles the preview instantly, without
+reloading the recording. Presets ("Quick render", "Topo + full HUD") apply a
+complete look in one click and stay tweakable afterwards; the `alt` chip hides
+itself automatically when the telemetry has no altitude. A look change fetches
+any missing map tiles on demand (politely, at two requests per second) into the
+same cache the CLI uses.
+
 - The app embeds Chromium and needs no system browser, but it does need
   **ffmpeg + ffprobe** on `PATH` like the CLI; map tiles need internet on the
   first run and are cached like CLI tiles.
