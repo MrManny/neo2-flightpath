@@ -20,6 +20,7 @@
   },
   "scripts": {
     "app": "electron app/main.mjs",
+    "app:dev": "concurrently -k \"next dev ui --webpack -p 3210\" \"wait-on http://127.0.0.1:3210 && electron app/main.mjs --dev-url http://localhost:3210\"",
     "build": "npm run build:cli && npm run build:ui",
     "build:cli": "tsc -p tsconfig.json",
     "build:ui": "next build ui --webpack",

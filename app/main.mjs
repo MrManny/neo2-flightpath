@@ -20,7 +20,10 @@ import { parseRange } from '../dist/range.js';
 
 const SCHEME = 'app';
 const ORIGIN = 'app://bundle';
-const DEV_URL = process.env.NEO2_UI_DEV_URL || 'http://localhost:3210';
+// --dev-url points the window at `next dev` (hot reload) instead of the
+// built export; kept an argv flag so no cross-platform env helper is needed.
+const devUrlIndex = process.argv.indexOf('--dev-url');
+const DEV_URL = devUrlIndex >= 0 ? process.argv[devUrlIndex + 1] : null;
 const log = (msg) => process.stderr.write(`[neo2-flightpath] ${msg}\n`);
 
 // Must run before app ready so the scheme gets standard/secure semantics.
@@ -134,7 +137,8 @@ async function handleRequest(request) {
 // Only this app's window may drive the session state machine.
 function assertTrusted(event) {
   const url = (event.senderFrame && event.senderFrame.url) || '';
-  if (!url.startsWith(ORIGIN + '/') && !url.startsWith(DEV_URL)) {
+  const devOk = DEV_URL !== null && url.startsWith(DEV_URL);
+  if (!url.startsWith(ORIGIN + '/') && !devOk) {
     throw new Error('untrusted ipc sender');
   }
 }
@@ -161,7 +165,7 @@ app.whenReady().then(async () => {
       }),
     );
 
-    const devMode = Boolean(process.env.NEO2_UI_DEV_URL);
+    const devMode = DEV_URL !== null;
     if (!devMode && !fs.existsSync(path.join(exportRoot, 'index.html'))) {
       throw new Error('ui export missing; run "npm run build" first');
     }

@@ -70,7 +70,7 @@ All frames below are from the same recording:
 
 For reviewing flights without the terminal, grab the packaged Windows app from
 [GitHub Releases](https://github.com/MrManny/neo2-flightpath/releases), or run
-`npm run app` from a checkout. Launching it opens a window where
+`npm run build && npm run app` from a checkout. Launching it opens a window where
 **Open recording&hellip;** picks a video through the native file dialog; the
 screen then shows the footage and the map overlay (trail, heading arrow, HUD
 chips) in a swappable picture-in-picture layout on one shared timeline

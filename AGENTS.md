@@ -5,8 +5,12 @@ Development instructions; [README.md](README.md) is the user manual.
 ## Setup & commands
 
 - Node.js 24 or 26, npm. Use `npm ci` to install dependencies.
-- `npm run app` starts the Electron desktop app (rebuild `dist/` with
-  `npm run build` after changing `src/`; packaging uses `electron-builder`).
+- `npm run build` compiles the CLI (`dist/`) and builds the UI export
+  (`ui/out/`); `npm run app` starts the Electron desktop app against it
+  (packaging uses `electron-builder`).
+- `npm run app:dev` runs the UI with hot reload (`next dev`) inside Electron.
+  The UI builds with webpack (`--webpack`): Turbopack cannot resolve the
+  shared renderer's NodeNext `.js` specifiers.
 - When adding a new dependency, pin it to a patch-level range (i.e. `~1.2.3`);
   new dependencies **must not** have high or critical security issues on
   Snyk. Check `https://security.snyk.io/package/npm/<package_name>`.
