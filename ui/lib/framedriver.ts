@@ -10,6 +10,12 @@ export function frameFromMediaTime(mediaTime: number, fps: number, frames: numbe
   return Math.max(0, Math.min(frames - 1, Math.floor(mediaTime * fps + 1e-6)));
 }
 
+// Jumps stay frame-quantized: one second is round(fps) frames even for
+// fractional rates like 29.97 fps.
+export function framesForSeconds(fps: number, seconds: number): number {
+  return Math.round(fps * seconds);
+}
+
 export function formatTime(sec: number): string {
   const total = Math.max(0, Math.round(sec));
   return Math.floor(total / 60) + ':' + ('0' + (total % 60)).slice(-2);
@@ -26,9 +32,18 @@ export interface FrameDriverOpts {
   onFps: (fps: number) => void;
 }
 
+export interface LoopPoints {
+  /** First frame of the loop region, inclusive. */
+  in: number;
+  /** Last frame of the loop region, inclusive; playback wraps past it. */
+  out: number;
+}
+
 export interface FrameDriver {
   /** Queues a scrub target; the loop applies it (coalesced) and seeks i / fps. */
   scrub(i: number): void;
+  /** Engages a loop region (both ends set, in < out) or clears it with null. */
+  setLoop(loop: LoopPoints | null): void;
   start(): void;
   stop(): void;
 }
@@ -38,6 +53,7 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
   const { fps, frames } = meta;
   let shownIdx = -1;
   let pendingScrub: number | null = null;
+  let loop: LoopPoints | null = null;
   let lastFpsT = 0;
   let fpsAcc = 0;
   let fpsCount = 0;
@@ -53,11 +69,35 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
     opts.onIndex(i);
   }
 
+  // A region engages only with both ends set and ordered; out-of-order pairs
+  // stay dormant until the second point lands inside the region.
+  function activeLoop(): LoopPoints | null {
+    return loop !== null && loop.in < loop.out ? loop : null;
+  }
+
+  // The wrap seeks and commits immediately so no out-of-region frame flashes
+  // on screen while the seek settles.
+  function wrapTo(active: LoopPoints): void {
+    video.currentTime = active.in / fps;
+    commit(active.in);
+  }
+
+  // Played-back frames are confined to the region, but explicit scrub targets
+  // stay verbatim: stepping and Home/End are never yanked back mid-gesture.
+  function commitPlayed(i: number): void {
+    const active = activeLoop();
+    if (active !== null && i > active.out) {
+      wrapTo(active);
+      return;
+    }
+    commit(i);
+  }
+
   // The frame the browser actually presents is the truth: its mediaTime maps
   // to the frame index via floor (round would make the map lead the footage
   // by half a frame). One callback per presented frame, chained.
   function onPresentedFrame(_now: number, meta_: { mediaTime: number }): void {
-    commit(frameFromMediaTime(meta_.mediaTime, fps, frames));
+    commitPlayed(frameFromMediaTime(meta_.mediaTime, fps, frames));
     video.requestVideoFrameCallback(onPresentedFrame);
   }
   const usePresented = typeof video.requestVideoFrameCallback === 'function';
@@ -65,16 +105,22 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
   function tick(now: number): void {
     if (!running) return;
     rafId = requestAnimationFrame(tick);
+    const active = activeLoop();
     if (pendingScrub !== null) {
       const seekTo = pendingScrub;
       pendingScrub = null;
       video.currentTime = seekTo / fps;
       commit(seekTo);
+    } else if (active !== null && video.ended) {
+      // The end of the file is a loop boundary too: a region ending on the
+      // last frame would otherwise stop instead of repeating.
+      wrapTo(active);
+      void video.play();
     } else if (!usePresented && !video.paused && !video.ended) {
       // Fallback clock when requestVideoFrameCallback is unavailable; only
       // while playing, so a paused scrub target is never re-derived into a
       // neighboring frame.
-      commit(frameFromMediaTime(video.currentTime, fps, frames));
+      commitPlayed(frameFromMediaTime(video.currentTime, fps, frames));
     }
     if (lastFpsT > 0) {
       fpsAcc += now - lastFpsT;
@@ -92,6 +138,9 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
   return {
     scrub(i: number): void {
       pendingScrub = Math.max(0, Math.min(frames - 1, i));
+    },
+    setLoop(points: LoopPoints | null): void {
+      loop = points;
     },
     start(): void {
       if (running) return;
