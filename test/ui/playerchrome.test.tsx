@@ -3,12 +3,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { UiSession } from '../../src/appsession.js';
+import { DEFAULT_CONFIG } from '../../src/config.js';
+import type { RenderConfig } from '../../src/config.js';
 import type { Scene } from '../../src/renderer/scene.js';
 import { PlayerChrome } from '../../ui/components/PlayerChrome.js';
 
 const fakeScene = vi.hoisted((): Scene => ({
   setFrame: vi.fn(() => Promise.resolve()),
   relayout: vi.fn(),
+  update: vi.fn(() => Promise.resolve()),
   ready: Promise.resolve(),
 }));
 
@@ -50,7 +53,10 @@ const SESSION: UiSession = {
     trailFrame: [0, 2],
   },
   video: { src: '/video', fps: 30, frames: 90, width: 1512, height: 2688 },
+  tileBase: '/tiles',
 };
+
+const SETTINGS: RenderConfig = { ...DEFAULT_CONFIG };
 
 const rafQueue: Array<(now: number) => void> = [];
 let rafNow = 0;
@@ -80,7 +86,7 @@ afterEach(() => {
 
 describe('PlayerChrome', () => {
   it('loads the recording and gates playback on tile warm-up', async () => {
-    render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
     const warmup = screen.getByRole('button', { name: 'Warming tiles…' }) as HTMLButtonElement;
     expect(warmup.disabled).toBe(true);
     await waitFor(() => {
@@ -90,19 +96,19 @@ describe('PlayerChrome', () => {
   });
 
   it('renders the video and the swap control', () => {
-    render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
     expect(screen.getByRole('button', { name: 'Swap view' })).toBeTruthy();
     const video = document.querySelector('video');
     expect(video?.getAttribute('src')).toBe('/video');
   });
 
   it('applies the frame the driver already reached when the scene arrives', async () => {
-    render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
     await waitFor(() => expect(fakeScene.setFrame).toHaveBeenCalledWith(0));
   });
 
   it('seeks the video to i / fps and repaints the scene when scrubbing', async () => {
-    render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
     const video = document.querySelector('video') as HTMLVideoElement;
     // jsdom's media element ignores currentTime writes; track them instead.
     let currentTime = 0;
@@ -121,15 +127,24 @@ describe('PlayerChrome', () => {
   });
 
   it('swaps the picture-in-picture layout', () => {
-    render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
     const mapPane = screen.getByTestId('map-island').parentElement as HTMLElement;
     expect(mapPane.className).toContain('pane-pip');
     fireEvent.click(screen.getByRole('button', { name: 'Swap view' }));
     expect(mapPane.className).toContain('pane-main');
   });
 
+  it('opens the settings panel from the cog button', () => {
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull();
+  });
+
   it('pins only the picture-in-picture pane to a sized box', () => {
-    render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
     const mapPane = screen.getByTestId('map-island').parentElement as HTMLElement;
     const videoPane = (document.querySelector('video') as HTMLElement).parentElement as HTMLElement;
 

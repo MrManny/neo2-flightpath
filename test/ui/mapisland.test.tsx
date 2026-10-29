@@ -7,7 +7,7 @@ import type { LeafletApi } from '../../src/renderer/leaflet.js';
 import { MapIsland } from '../../ui/components/MapIsland.js';
 
 const fakeL = vi.hoisted((): LeafletApi => {
-  const layer = { addTo: () => {} };
+  const layer = { addTo: () => {}, remove: () => {} };
   return {
     map: () => ({
       setView: () => {},
@@ -18,7 +18,7 @@ const fakeL = vi.hoisted((): LeafletApi => {
       }),
       invalidateSize: () => {},
     }),
-    tileLayer: () => ({ ...layer, on: () => {} }),
+    tileLayer: () => ({ ...layer, on: () => {}, setUrl: () => {} }),
     latLngBounds: () => ({
       getCenter: () => ({ lat: 46.61, lng: 14.26 }),
       getNorthWest: () => ({ lat: 46.62, lng: 14.25 }),
@@ -130,5 +130,21 @@ describe('MapIsland', () => {
     await waitFor(() => expect(onScene).toHaveBeenCalledTimes(1));
     unmount();
     expect(observers[0]?.disconnected).toBe(true);
+  });
+
+  it('restyles the scene in place when the data changes', async () => {
+    const onScene = vi.fn();
+    const { rerender } = render(<MapIsland data={DATA} onScene={onScene} />);
+    await waitFor(() => expect(onScene).toHaveBeenCalledTimes(1));
+    const scene = onScene.mock.calls[0]![0] as Scene;
+    const update = vi
+      .spyOn(scene, 'update')
+      .mockImplementation(() => Promise.resolve());
+
+    const changed = { ...DATA, style: 'topo' as const };
+    rerender(<MapIsland data={changed} onScene={onScene} />);
+
+    expect(update).toHaveBeenCalledWith(changed);
+    expect(onScene).toHaveBeenCalledTimes(1); // no new scene, no remount
   });
 });

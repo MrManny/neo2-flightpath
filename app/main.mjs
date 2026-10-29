@@ -161,6 +161,10 @@ app.whenReady().then(async () => {
       assertTrusted(event);
       return session.getSession();
     });
+    ipcMain.handle('neo2flightpath:settings', (event) => {
+      assertTrusted(event);
+      return config;
+    });
     protocol.handle(SCHEME, (request) =>
       handleRequest(request).catch((e) => {
         log(`scheme error: ${errorMessage(e)}`);

@@ -106,8 +106,8 @@ export const DEFAULT_CONFIG: RenderConfig = {
   quiet: false,
 };
 
-const STYLE_VALUES: Style[] = ['satellite', 'topo'];
-const VIEW_VALUES: View[] = ['follow', 'overview'];
+export const STYLE_VALUES: readonly Style[] = ['satellite', 'topo'];
+export const VIEW_VALUES: readonly View[] = ['follow', 'overview'];
 const CAPTURE_VALUES: Capture[] = ['jpeg', 'png'];
 const PRESET_VALUES: Preset[] = ['medium', 'veryfast'];
 
@@ -130,8 +130,14 @@ export function parseHud(list: string): HudSpec {
 }
 
 // The "alt hides when unavailable" rule, one home for the pipeline and the UI.
-export function resolveHudSpec(hud: HudSpec, hasAltitude: boolean): HudSpec {
-  return hud.alt && !hasAltitude ? { ...hud, alt: false } : hud;
+export function resolveHudSpec(hud: HudSpec, hasAlt: boolean): HudSpec {
+  return hud.alt && !hasAlt ? { ...hud, alt: false } : hud;
+}
+
+// What "unavailable" means for the rule above: no altitude sample at all in
+// the telemetry.
+export function hasAltitude(alt: readonly (number | null)[]): boolean {
+  return alt.some((a) => a !== null);
 }
 
 function asNumber(value: unknown, name: string): number {
@@ -159,7 +165,7 @@ function asBool(value: unknown, name: string): boolean {
 function asEnum<T extends string>(
   value: unknown,
   name: string,
-  allowed: T[],
+  allowed: readonly T[],
 ): T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) {
     throw new Error(`invalid value for ${name}: ${String(value)} (use ${allowed.join(' | ')})`);
