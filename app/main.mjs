@@ -14,10 +14,11 @@ import { app, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron';
 import { resolveAppAsset } from '../dist/appassets.js';
 import { APP_ORIGIN, uiExportRoot } from '../dist/apppaths.js';
 import { createAppSession } from '../dist/appsession.js';
-import { resolveConfig } from '../dist/config.js';
+import { resolveConfig } from '../dist/configfile.js';
 import { ERROR_PREFIX, errorMessage } from '../dist/errors.js';
 import { requireTools } from '../dist/ff.js';
 import { parseRange } from '../dist/range.js';
+import { createTileFetcher } from '../dist/tiles.js';
 
 const SCHEME = 'app';
 // --dev-url points the window at `next dev` (hot reload) instead of the
@@ -42,6 +43,7 @@ const exportRoot = uiExportRoot(import.meta.dirname);
 let win = null;
 let session = null;
 let config = null;
+let tileFetcher = null;
 
 async function pickRecording() {
   const options = {
@@ -109,7 +111,6 @@ async function handleRequest(request) {
   const plan = resolveAppAsset(pathname, {
     exportRoot,
     tileCache: config.tileCache,
-    style: config.style,
     videoPath: session ? session.videoPath() : null,
   });
   switch (plan.kind) {
@@ -121,9 +122,11 @@ async function handleRequest(request) {
         : fs.existsSync(plan.placeholderPath)
           ? plan.placeholderPath
           : null;
-      return file
-        ? fileResponse(file, 'image/png')
-        : new Response('not found', { status: 404 });
+      if (file) return fileResponse(file, 'image/png');
+      // Cache miss (live restyle changed style or zoom): fetch politely into
+      // the shared cache and serve whatever came back.
+      const fetched = await tileFetcher.ensure(plan.style, plan.tile);
+      return fileResponse(fetched, 'image/png');
     }
     case 'export':
       if (fs.existsSync(plan.filePath)) return fileResponse(plan.filePath, plan.mime);
@@ -147,6 +150,7 @@ app.whenReady().then(async () => {
     await requireTools();
     const resolved = resolveConfig({});
     config = resolved.config;
+    tileFetcher = createTileFetcher(config.tileCache);
     session = createAppSession({ config, pickFile: pickRecording, log });
 
     ipcMain.handle('neo2flightpath:pick', (event) => {

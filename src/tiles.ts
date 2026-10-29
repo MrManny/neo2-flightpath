@@ -64,9 +64,22 @@ const sleep = (ms: number): Promise<void> =>
 const USER_AGENT = `neo2-flightpath/${VERSION} (flight-path map renderer; https://github.com/MrManny/neo2-flightpath)`;
 
 const DOWNLOAD_ATTEMPTS = 2;
-const REQUEST_INTERVAL_MS = 400; // <= ~2.5 requests/s across both workers
+const DOWNLOAD_WORKERS = 2;
+const REQUEST_INTERVAL_MS = 500;
 const RETRY_DELAY_MS = 500;
 const FETCH_TIMEOUT_MS = 20000;
+
+// Politeness for the tile servers: request starts in one queue are spaced
+// REQUEST_INTERVAL_MS apart (2.0 req/s), whichever queue drives them.
+function createRequestGate(): () => Promise<void> {
+  let nextSlotAt = 0;
+  return async () => {
+    const now = Date.now();
+    const startAt = Math.max(now, nextSlotAt);
+    nextSlotAt = startAt + REQUEST_INTERVAL_MS;
+    if (startAt > now) await sleep(startAt - now);
+  };
+}
 
 function cacheKeyFor(style: Style): string {
   return TILE_SOURCES[style].cacheKey || style;
@@ -127,15 +140,49 @@ async function downloadTile(url: string, cachePath: string): Promise<boolean> {
   return false;
 }
 
+const placeholderPngs = new Map<Style, Buffer>();
+
+function placeholderPng(style: Style): Buffer {
+  let png = placeholderPngs.get(style);
+  if (!png) {
+    png = solidPng(TILE_SOURCES[style].placeholderBg);
+    placeholderPngs.set(style, png);
+  }
+  return png;
+}
+
+export interface TileFetchResult {
+  /** The file to serve: the real tile, or its placeholder after a failure. */
+  file: string;
+  status: 'cached' | 'downloaded' | 'failed';
+}
+
+// The full cache dance for one tile: hit, download, or placeholder. The
+// placeholder is served as a fallback so a missing tile is retried on a later
+// run instead of being cached as missing.
+async function fetchTileToCache(
+  cacheDir: string,
+  style: Style,
+  tile: TileCoord,
+): Promise<TileFetchResult> {
+  const cachePath = tileCachePath(cacheDir, style, tile);
+  if (fs.existsSync(cachePath)) return { file: cachePath, status: 'cached' };
+  if (await downloadTile(tileUrl(style, tile), cachePath)) {
+    return { file: cachePath, status: 'downloaded' };
+  }
+  const placeholderPath = tilePlaceholderPath(cacheDir, style, tile);
+  fs.mkdirSync(path.dirname(placeholderPath), { recursive: true });
+  fs.writeFileSync(placeholderPath, placeholderPng(style));
+  return { file: placeholderPath, status: 'failed' };
+}
+
 export interface PrefetchStats {
   downloaded: number;
   failed: number;
   total: number;
 }
 
-// Polite fetching: 2 concurrent workers, ~2.5 req/s. Failed tiles get a
-// `<y>.placeholder.png` sibling (served as fallback) so the real tile is
-// retried on the next run instead of being cached as missing.
+// Polite bulk fetching: 2 concurrent workers, 2.0 req/s.
 export async function prefetchTiles({
   style,
   tiles,
@@ -155,28 +202,79 @@ export async function prefetchTiles({
   }
   log(`tiles: ${tiles.length} needed, ${missing.length} to download (${style})`);
 
-  const placeholder = solidPng(TILE_SOURCES[style].placeholderBg);
+  const gate = createRequestGate();
   let downloaded = 0;
   let failed = 0;
   let cursor = 0;
 
   async function worker(): Promise<void> {
     while (cursor < missing.length) {
-      const { tile, cachePath } = missing[cursor++];
-      if (await downloadTile(tileUrl(style, tile), cachePath)) {
-        downloaded++;
-      } else {
-        failed++;
-        fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-        fs.writeFileSync(
-          tilePlaceholderPath(cacheDir, style, tile),
-          placeholder,
-        );
-      }
-      await sleep(REQUEST_INTERVAL_MS);
+      const { tile } = missing[cursor++];
+      await gate();
+      const result = await fetchTileToCache(cacheDir, style, tile);
+      if (result.status === 'downloaded') downloaded++;
+      else if (result.status === 'failed') failed++;
     }
   }
 
-  await Promise.all([worker(), worker()]);
+  await Promise.all(Array.from({ length: DOWNLOAD_WORKERS }, worker));
   return { downloaded, failed, total: tiles.length };
+}
+
+export interface TileFetcher {
+  /** Fetches one tile into the cache (or its placeholder); returns the file to serve. */
+  ensure(style: Style, tile: TileCoord): Promise<string>;
+}
+
+// On-demand fetching for the app's live restyle. The queue keeps the polite
+// 2.0 req/s even when Leaflet bursts in with a whole viewport of tiles, and
+// concurrent requests for the same tile share one download.
+export function createTileFetcher(cacheDir: string): TileFetcher {
+  const gate = createRequestGate();
+  const inFlight = new Map<string, Promise<string>>();
+  const queue: Array<{
+    style: Style;
+    tile: TileCoord;
+    settle: (file: string) => void;
+    fail: (error: unknown) => void;
+  }> = [];
+  let active = 0;
+
+  function pump(): void {
+    while (active < DOWNLOAD_WORKERS && queue.length > 0) {
+      const job = queue.shift() as (typeof queue)[number];
+      active++;
+      void (async () => {
+        try {
+          await gate();
+          const result = await fetchTileToCache(cacheDir, job.style, job.tile);
+          job.settle(result.file);
+        } catch (e) {
+          job.fail(e);
+        } finally {
+          active--;
+          pump();
+        }
+      })();
+    }
+  }
+
+  return {
+    ensure(style, tile): Promise<string> {
+      const key = `${cacheKeyFor(style)}/${tile.z}/${tile.x}/${tile.y}`;
+      let task = inFlight.get(key);
+      if (!task) {
+        task = new Promise<string>((resolve, reject) => {
+          queue.push({ style, tile, settle: resolve, fail: reject });
+          pump();
+        });
+        void task.then(
+          () => inFlight.delete(key),
+          () => inFlight.delete(key),
+        );
+        inFlight.set(key, task);
+      }
+      return task;
+    },
+  };
 }

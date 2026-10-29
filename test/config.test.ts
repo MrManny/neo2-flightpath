@@ -1,21 +1,14 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
-  discoverConfigFile,
-  loadConfigFile,
+  DEFAULT_CONFIG,
+  normalizeOverrides,
   PANEL_PRESETS,
   parseHud,
-  resolveConfig,
   resolveHudSpec,
+  validateRenderConfig,
 } from '../src/config.js';
 import type { RenderConfig } from '../src/config.js';
-import { cleanupTmpDirs, tmpDir } from './fixtures.js';
-
-afterEach(cleanupTmpDirs);
 
 describe('parseHud', () => {
   it('parses comma lists', () => {
@@ -39,68 +32,49 @@ describe('parseHud', () => {
   });
 });
 
-describe('discoverConfigFile', () => {
-  it('walks up to the config file', () => {
-    const root = tmpDir();
-    const nested = path.join(root, 'a', 'b');
-    fs.mkdirSync(nested, { recursive: true });
-    const file = path.join(root, '.neo2flightpath.json');
-    fs.writeFileSync(file, '{}');
-    expect(discoverConfigFile(nested)).toBe(file);
-    expect(discoverConfigFile(os.tmpdir())).toBeNull();
-  });
-});
-
-describe('loadConfigFile', () => {
-  it('rejects unknown keys', () => {
-    const file = path.join(tmpDir(), 'c.json');
-    fs.writeFileSync(file, '{"bogus": 1}');
-    expect(() => loadConfigFile(file)).toThrow(/unknown config key/);
-  });
-
-  it('rejects the removed trail key', () => {
-    const file = path.join(tmpDir(), 'c.json');
-    fs.writeFileSync(file, '{"trail": "incr"}');
-    expect(() => loadConfigFile(file)).toThrow(/unknown config key/);
-  });
-
-  it('rejects invalid JSON', () => {
-    const file = path.join(tmpDir(), 'c.json');
-    fs.writeFileSync(file, '{oops');
-    expect(() => loadConfigFile(file)).toThrow(/not valid JSON/);
-  });
-});
-
-describe('resolveConfig', () => {
-  it('applies precedence CLI > file > defaults and resolves paths', () => {
-    const root = tmpDir();
-    const file = path.join(root, '.neo2flightpath.json');
-    fs.writeFileSync(
-      file,
-      JSON.stringify({ width: 320, style: 'topo', outDir: 'out' }),
-    );
-    const { config, configPath } = resolveConfig({
-      cli: { width: 640 },
-      configPath: file,
-      cwd: root,
+describe('normalizeOverrides', () => {
+  it('converts and validates known keys', () => {
+    expect(
+      normalizeOverrides(
+        { zoom: '5', hud: 'heading,alt', skipExisting: true },
+        'test',
+      ),
+    ).toEqual({
+      zoom: 5,
+      hud: { heading: true, alt: true, speed: false },
+      skipExisting: true,
     });
-    expect(configPath).toBe(file);
-    expect(config.width).toBe(640);
-    expect(config.style).toBe('topo');
-    expect(config.height).toBe(768); // default survives
-    expect(config.outDir).toBe(path.join(root, 'out')); // resolved against the working directory
   });
 
-  it('validates ranges', () => {
-    expect(() => resolveConfig({ cli: { workers: 0 }, configPath: null, cwd: tmpDir() })).toThrow(
-      /workers/,
+  it('rejects unknown keys', () => {
+    expect(() => normalizeOverrides({ bogus: 1 }, 'test')).toThrow(
+      /unknown config key/,
     );
-    expect(() => resolveConfig({ cli: { width: 10 }, configPath: null, cwd: tmpDir() })).toThrow(
-      /at least 64/,
-    );
+  });
+
+  it('skips null and undefined values', () => {
+    expect(normalizeOverrides({ outDir: null, zoom: undefined }, 'test')).toEqual({});
+  });
+});
+
+describe('validateRenderConfig', () => {
+  it('accepts the built-in defaults', () => {
+    expect(() => validateRenderConfig({ ...DEFAULT_CONFIG })).not.toThrow();
+  });
+
+  it.for([
+    { name: 'zero workers', patch: { workers: 0 } },
+    { name: 'tiny width', patch: { width: 10 } },
+    { name: 'negative zoom', patch: { zoom: -1 } },
+    { name: 'negative zoom-out', patch: { zoomOut: -1 } },
+    { name: 'negative intro', patch: { introSec: -1 } },
+    { name: 'negative outro', patch: { outroSec: -1 } },
+    { name: 'empty out-suffix', patch: { outSuffix: '' } },
+    { name: 'NaN zoom', patch: { zoom: NaN } },
+  ])('rejects $name', ({ patch }) => {
     expect(() =>
-      resolveConfig({ cli: { outSuffix: '' }, configPath: null, cwd: tmpDir() }),
-    ).toThrow(/out-suffix/);
+      validateRenderConfig({ ...DEFAULT_CONFIG, ...patch }),
+    ).toThrow();
   });
 });
 
@@ -155,14 +129,12 @@ describe('PANEL_PRESETS', () => {
 
   it('resolves each bundle to a valid config', () => {
     for (const preset of PANEL_PRESETS) {
-      const { config } = resolveConfig({
-        cli: preset.overrides,
-        configPath: null,
-        cwd: tmpDir(),
-      });
-      expect(config.zoom).toBeGreaterThanOrEqual(0);
-      expect(config.introSec).toBeGreaterThanOrEqual(0);
-      expect(config.outroSec).toBeGreaterThanOrEqual(0);
+      const config = {
+        ...DEFAULT_CONFIG,
+        ...preset.overrides,
+        hud: preset.overrides.hud ?? DEFAULT_CONFIG.hud,
+      };
+      expect(() => validateRenderConfig(config)).not.toThrow();
     }
   });
 });

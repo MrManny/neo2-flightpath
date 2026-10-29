@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { MEDIA_PATH } from './apppaths.js';
 import type { Style } from './config.js';
+import type { TileCoord } from './plan.js';
 import { MIME } from './serve.js';
 import { TILE_SOURCES } from './renderer/tilesources.js';
 
@@ -13,7 +14,6 @@ export interface AppRoutes {
   /** Next.js static export root (ui/out), possibly inside app.asar. */
   exportRoot: string;
   tileCache: string;
-  style: Style;
   /** Absolute path of the loaded recording, or null when none is loaded. */
   videoPath: string | null;
 }
@@ -21,7 +21,13 @@ export interface AppRoutes {
 export type AppAsset =
   | { kind: 'export'; filePath: string; mime: string }
   | { kind: 'video'; filePath: string }
-  | { kind: 'tile'; filePath: string; placeholderPath: string }
+  | {
+      kind: 'tile';
+      filePath: string;
+      placeholderPath: string;
+      style: Style;
+      tile: TileCoord;
+    }
   | { kind: 'not-found' };
 
 /** Resolves an already-decoded URL pathname (e.g. "/index.html"). */
@@ -32,15 +38,20 @@ export function resolveAppAsset(pathname: string, routes: AppRoutes): AppAsset {
       : { kind: 'not-found' };
   }
 
+  // Every known style routes into the shared cache: live restyle switches
+  // styles without a reload, so no single style owns the tile route.
   const tile = /^\/tiles\/([a-z0-9_-]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(pathname);
   if (tile) {
-    const src = TILE_SOURCES[tile[1] as Style];
-    if (!src || tile[1] !== routes.style) return { kind: 'not-found' };
+    const style = tile[1] as Style;
+    const src = TILE_SOURCES[style];
+    if (!src) return { kind: 'not-found' };
     const dir = path.join(routes.tileCache, src.cacheKey, tile[2], tile[3]);
     return {
       kind: 'tile',
       filePath: path.join(dir, `${tile[4]}.png`),
       placeholderPath: path.join(dir, `${tile[4]}.placeholder.png`),
+      style,
+      tile: { z: Number(tile[2]), x: Number(tile[3]), y: Number(tile[4]) },
     };
   }
 
