@@ -13,7 +13,7 @@
 
 import type { HudSpec, Style, View } from '../config.js';
 import type { LatLon } from '../geo.js';
-import { TILE_SOURCES } from '../tilesources.js';
+import { TILE_SOURCES } from './tilesources.js';
 import { el, mapMarkup, sceneCss } from './dom.js';
 import type { LatLngTuple, LeafletApi, MapHandle, MarkerHandle, Point, PolylineHandle } from './leaflet.js';
 import { computeScale, introOutroScale, metersPerPixel, scaleBarMeters } from './framemath.js';

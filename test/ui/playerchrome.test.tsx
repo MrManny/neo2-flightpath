@@ -106,12 +106,11 @@ describe('PlayerChrome', () => {
     expect(fakeScene.setFrame).toHaveBeenCalledWith(30);
   });
 
-  it('swaps the picture-in-picture layout and re-lays out the map', async () => {
+  it('swaps the picture-in-picture layout', () => {
     render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
     const mapPane = screen.getByTestId('map-island').parentElement as HTMLElement;
     expect(mapPane.className).toContain('pane-pip');
     fireEvent.click(screen.getByRole('button', { name: 'Swap view' }));
     expect(mapPane.className).toContain('pane-main');
-    await waitFor(() => expect(fakeScene.relayout).toHaveBeenCalled());
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { TILE_SOURCES } from '../src/tilesources.js';
+import { TILE_SOURCES } from '../../src/renderer/tilesources.js';
 
 describe('TILE_SOURCES', () => {
   it.for(['satellite', 'topo'] as const)('%s source is complete and usable', (style) => {

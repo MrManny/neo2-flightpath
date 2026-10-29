@@ -12,7 +12,7 @@ import { loadTelemetry } from './telemetry.js';
 import type { Telemetry } from './telemetry.js';
 import { computeOverview, prefetchTiles } from './tiles.js';
 import type { Overview, PrefetchStats } from './tiles.js';
-import { TILE_SOURCES } from './tilesources.js';
+import { TILE_SOURCES } from './renderer/tilesources.js';
 import { buildPageHtml } from './page.js';
 import type { PageOpts } from './page.js';
 import { renderVideo } from './render.js';

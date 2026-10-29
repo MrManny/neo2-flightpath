@@ -3,7 +3,7 @@
 // renderer's DOM contract.
 
 import type { HudSpec } from '../config.js';
-import type { TileSource } from '../tilesources.js';
+import type { TileSource } from './tilesources.js';
 import type { Theme } from './theme.js';
 
 export function sceneCss(

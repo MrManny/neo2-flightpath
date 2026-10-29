@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
-import { TILE_SOURCES } from './tilesources.js';
+import { TILE_SOURCES } from './renderer/tilesources.js';
 import type { Style } from './config.js';
 import { parseRange } from './range.js';
 

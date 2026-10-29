@@ -14,7 +14,7 @@ import type { HudSpec, Style, View } from './config.js';
 import type { DecimatedTrack } from './decimate.js';
 import type { LatLon } from './geo.js';
 import type { SceneData } from './renderer/scene.js';
-import { TILE_SOURCES } from './tilesources.js';
+import { TILE_SOURCES } from './renderer/tilesources.js';
 
 export interface PageOpts {
   width: number;

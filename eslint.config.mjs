@@ -33,4 +33,14 @@ export default tseslint.config(
       },
     },
   },
+  {
+    files: ['app/**/*.cjs'],
+    languageOptions: {
+      globals: { require: 'readonly' },
+    },
+    rules: {
+      // Sandboxed preload scripts cannot use ESM.
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 );

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { MEDIA_URL, TILE_BASE } from './apppaths.js';
 import type { RenderConfig } from './config.js';
 import { errorMessage } from './errors.js';
 import { buildSceneData } from './page.js';
@@ -43,9 +44,9 @@ export type PrepareUiSession = (
 export const prepareUiSession: PrepareUiSession = async (videoPath, config, log) => {
   const prep = await prepareSession(videoPath, config, log);
   return {
-    scene: buildSceneData(recordingPageOpts(prep, config), 'app://bundle/tiles'),
+    scene: buildSceneData(recordingPageOpts(prep, config), TILE_BASE),
     video: {
-      src: 'app://bundle/media/video',
+      src: MEDIA_URL,
       fps: prep.probe.fps.value,
       frames: prep.probe.frames,
       width: prep.probe.width,

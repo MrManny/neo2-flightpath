@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { el, mapMarkup, sceneCss } from '../../src/renderer/dom.js';
 import { themeFor } from '../../src/renderer/theme.js';
 import type { Style } from '../../src/config.js';
-import { TILE_SOURCES } from '../../src/tilesources.js';
+import { TILE_SOURCES } from '../../src/renderer/tilesources.js';
 
 describe('sceneCss', () => {
   it.for([

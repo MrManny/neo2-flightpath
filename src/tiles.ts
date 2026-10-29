@@ -5,7 +5,7 @@ import zlib from 'node:zlib';
 import { project } from './geo.js';
 import type { Bbox, Pixel } from './geo.js';
 import type { Style } from './config.js';
-import { TILE_SOURCES } from './tilesources.js';
+import { TILE_SOURCES } from './renderer/tilesources.js';
 import { VERSION } from './version.js';
 
 export interface TileCoord {

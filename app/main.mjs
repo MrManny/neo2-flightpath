@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron';
 
 import { resolveAppAsset } from '../dist/appassets.js';
+import { APP_ORIGIN, uiExportRoot } from '../dist/apppaths.js';
 import { createAppSession } from '../dist/appsession.js';
 import { resolveConfig } from '../dist/config.js';
 import { ERROR_PREFIX, errorMessage } from '../dist/errors.js';
@@ -19,7 +20,6 @@ import { requireTools } from '../dist/ff.js';
 import { parseRange } from '../dist/range.js';
 
 const SCHEME = 'app';
-const ORIGIN = 'app://bundle';
 // --dev-url points the window at `next dev` (hot reload) instead of the
 // built export; kept an argv flag so no cross-platform env helper is needed.
 const devUrlIndex = process.argv.indexOf('--dev-url');
@@ -34,7 +34,10 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-const exportRoot = path.join(app.getAppPath(), 'ui', 'out');
+// Resolved against this script's directory (works in a checkout and in
+// app.asar); app.getAppPath() does not point at the repo root when Electron
+// is started with a script path.
+const exportRoot = uiExportRoot(import.meta.dirname);
 
 let win = null;
 let session = null;
@@ -82,10 +85,18 @@ function videoResponse(request, filePath) {
   });
 }
 
-function fileResponse(filePath, mime) {
-  return net.fetch(pathToFileURL(filePath).toString(), {
-    headers: { 'Content-Type': mime },
-  });
+// net.fetch only sets request headers; wrapping the body gives the client
+// the intended MIME and status.
+async function fileResponse(filePath, mime, status = 200) {
+  const fetched = await net.fetch(pathToFileURL(filePath).toString());
+  return new Response(fetched.body, { status, headers: { 'Content-Type': mime } });
+}
+
+function notFound() {
+  const fallback = path.join(exportRoot, '404.html');
+  return fs.existsSync(fallback)
+    ? fileResponse(fallback, 'text/html; charset=utf-8', 404)
+    : new Response('not found', { status: 404 });
 }
 
 async function handleRequest(request) {
@@ -114,23 +125,11 @@ async function handleRequest(request) {
         ? fileResponse(file, 'image/png')
         : new Response('not found', { status: 404 });
     }
-    case 'export': {
+    case 'export':
       if (fs.existsSync(plan.filePath)) return fileResponse(plan.filePath, plan.mime);
-      const fallback = path.join(exportRoot, '404.html');
-      return fs.existsSync(fallback)
-        ? new Response(await fileResponse(fallback, 'text/html; charset=utf-8'), {
-            status: 404,
-          })
-        : new Response('not found', { status: 404 });
-    }
-    case 'not-found': {
-      const fallback = path.join(exportRoot, '404.html');
-      return fs.existsSync(fallback)
-        ? new Response(await fileResponse(fallback, 'text/html; charset=utf-8'), {
-            status: 404,
-          })
-        : new Response('not found', { status: 404 });
-    }
+      return notFound();
+    case 'not-found':
+      return notFound();
   }
 }
 
@@ -138,7 +137,7 @@ async function handleRequest(request) {
 function assertTrusted(event) {
   const url = (event.senderFrame && event.senderFrame.url) || '';
   const devOk = DEV_URL !== null && url.startsWith(DEV_URL);
-  if (!url.startsWith(ORIGIN + '/') && !devOk) {
+  if (!url.startsWith(APP_ORIGIN + '/') && !devOk) {
     throw new Error('untrusted ipc sender');
   }
 }
@@ -177,7 +176,7 @@ app.whenReady().then(async () => {
       autoHideMenuBar: true,
       title: 'neo2-flightpath',
       webPreferences: {
-        preload: path.join(import.meta.dirname, 'preload.mjs'),
+        preload: path.join(import.meta.dirname, 'preload.cjs'),
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,
@@ -186,7 +185,7 @@ app.whenReady().then(async () => {
     win.on('closed', () => {
       win = null;
     });
-    await win.loadURL(devMode ? DEV_URL : `${ORIGIN}/`);
+    await win.loadURL(devMode ? DEV_URL : `${APP_ORIGIN}/`);
   } catch (e) {
     fail(e);
   }

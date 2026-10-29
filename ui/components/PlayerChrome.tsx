@@ -5,30 +5,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UiSession } from '../../src/appsession.js';
 import type { Scene } from '../../src/renderer/scene.js';
 import { createFrameDriver, formatTime } from '../lib/framedriver.js';
+import { pipStyle } from '../lib/pipstyle.js';
 import { MapIsland } from './MapIsland.js';
 
 export interface PlayerChromeProps {
   session: UiSession;
   onOpen: () => void;
-}
-
-// Picture-in-picture box sizing: it adopts the video's aspect so footage
-// shows without bars and without cropping; the map fills whatever box holds
-// it. Portrait (9:16) footage binds the box by height so it stays compact.
-function pipStyle(
-  pipHoldsVideo: boolean,
-  width: number,
-  height: number,
-): React.CSSProperties {
-  if (pipHoldsVideo && width > 0 && height > 0) {
-    const portrait = height > width;
-    return {
-      aspectRatio: `${width} / ${height}`,
-      width: portrait ? 'auto' : '30%',
-      height: portrait ? '45%' : 'auto',
-    };
-  }
-  return { aspectRatio: '16 / 9', width: '30%', height: 'auto' };
 }
 
 export function PlayerChrome({ session, onOpen }: PlayerChromeProps) {
@@ -73,16 +55,6 @@ export function PlayerChrome({ session, onOpen }: PlayerChromeProps) {
     };
   }, [video]);
 
-  useEffect(() => {
-    const onResize = () => sceneRef.current?.relayout();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  useEffect(() => {
-    sceneRef.current?.relayout();
-  }, [mapIsMain]);
-
   const togglePlay = () => {
     const videoEl = videoRef.current;
     if (!videoEl) return;
@@ -108,7 +80,7 @@ export function PlayerChrome({ session, onOpen }: PlayerChromeProps) {
         </div>
         <div
           className={`pane ${mapIsMain ? 'pane-main' : 'pane-pip'}`}
-          style={pipStyle(!mapIsMain, video.width, video.height)}
+          style={pipStyle(mapIsMain, video.width, video.height)}
           title="Click to swap"
           onClick={swap}
         >

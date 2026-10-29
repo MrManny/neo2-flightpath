@@ -4,9 +4,10 @@
 
 import path from 'node:path';
 
+import { MEDIA_PATH } from './apppaths.js';
 import type { Style } from './config.js';
 import { MIME } from './serve.js';
-import { TILE_SOURCES } from './tilesources.js';
+import { TILE_SOURCES } from './renderer/tilesources.js';
 
 export interface AppRoutes {
   /** Next.js static export root (ui/out), possibly inside app.asar. */
@@ -25,7 +26,7 @@ export type AppAsset =
 
 /** Resolves an already-decoded URL pathname (e.g. "/index.html"). */
 export function resolveAppAsset(pathname: string, routes: AppRoutes): AppAsset {
-  if (pathname === '/media/video') {
+  if (pathname === MEDIA_PATH) {
     return routes.videoPath
       ? { kind: 'video', filePath: routes.videoPath }
       : { kind: 'not-found' };
