@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PageVideo } from '../../src/page.js';
+import type { PageVideo } from '../../src/appsession.js';
 import { createFrameDriver, formatTime, frameFromMediaTime } from '../../ui/lib/framedriver.js';
 
 const META: PageVideo = { src: '/video', fps: 30, frames: 300, width: 1920, height: 1080 };

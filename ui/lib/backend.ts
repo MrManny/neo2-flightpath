@@ -2,13 +2,7 @@
 // bridge (contextBridge + validated IPC); without it the UI cannot drive the
 // native dialog or the pipeline.
 
-import type { UiSession } from '../../src/appsession.js';
-
-export interface PickResult {
-  ok: boolean;
-  canceled?: boolean;
-  error?: string;
-}
+import type { PickResult, UiSession } from '../../src/appsession.js';
 
 export interface AppBridge {
   pickRecording(): Promise<PickResult>;

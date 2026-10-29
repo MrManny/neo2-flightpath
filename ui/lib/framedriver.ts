@@ -4,7 +4,7 @@
 // the frame the video actually presents (never clocked separately), so video
 // and map cannot drift apart.
 
-import type { PageVideo } from '../../src/page.js';
+import type { PageVideo } from '../../src/appsession.js';
 
 export function frameFromMediaTime(mediaTime: number, fps: number, frames: number): number {
   return Math.max(0, Math.min(frames - 1, Math.floor(mediaTime * fps + 1e-6)));
