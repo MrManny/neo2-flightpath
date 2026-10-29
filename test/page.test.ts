@@ -38,7 +38,7 @@ describe('buildPageHtml (headless)', () => {
     expect(html).toContain('<title>flight map</title>');
     expect(html).not.toContain('<video');
     expect(html).not.toContain('id="controls"');
-    expect(html).not.toContain('id="map-frame"');
+    expect(html).toContain('id="map-frame"');
     expect(html).not.toContain('pickRecording');
   });
 
@@ -55,6 +55,15 @@ describe('buildPageHtml (headless)', () => {
     expect(html).toContain('smoothFactor: 0');
     expect(html).toContain('function createTrailController');
     expect(html).toContain('trailCtl.setFrame(i)');
+  });
+
+  it('captures the marker elements only after the map has a view', () => {
+    const html = buildPageHtml(baseOpts());
+    // Leaflet defers marker DOM creation until setView; capturing the arrow
+    // earlier leaves it null and the heading rotation never applies.
+    expect(html.indexOf('\n  layoutMap();')).toBeLessThan(
+      html.indexOf("getElementById('drone-arrow')"),
+    );
   });
 
   it('passes the decimated trail arrays through to the page', () => {
@@ -74,7 +83,7 @@ describe('buildPageHtml (headless)', () => {
 describe('buildPageHtml (interactive)', () => {
   it('adds video, scrubber and the swappable picture-in-picture layout', () => {
     const html = buildPageHtml(
-      baseOpts({ video: { src: '/video', fpsValue: 29.97, frames: 3 } }),
+      baseOpts({ video: { src: '/video', fps: 29.97, frames: 3, width: 1920, height: 1080 } }),
     );
     expect(html).toContain('<title>neo2-flightpath</title>');
     expect(html).toContain('<video id="video" src="/video"');
@@ -91,7 +100,7 @@ describe('buildPageHtml (interactive)', () => {
 
   it('derives the frame index from the presented frame and seeks to i / fps', () => {
     const html = buildPageHtml(
-      baseOpts({ video: { src: '/video', fpsValue: 30, frames: 3 } }),
+      baseOpts({ video: { src: '/video', fps: 30, frames: 3, width: 1920, height: 1080 } }),
     );
     expect(html).toContain('requestVideoFrameCallback');
     expect(html).toContain('Math.floor(meta.mediaTime * V.fps + 1e-6)');
@@ -103,10 +112,26 @@ describe('buildPageHtml (interactive)', () => {
 
   it('carries the video parameters in the page data', () => {
     const html = buildPageHtml(
-      baseOpts({ video: { src: '/video', fpsValue: 29.97, frames: 3 } }),
+      baseOpts({ video: { src: '/video', fps: 29.97, frames: 3, width: 1920, height: 1080 } }),
     );
     const data = dataOf(html);
-    expect(data['video']).toEqual({ src: '/video', fpsValue: 29.97, frames: 3 });
+    expect(data['video']).toEqual({
+      src: '/video',
+      fps: 29.97,
+      frames: 3,
+      width: 1920,
+      height: 1080,
+    });
+  });
+
+  it('sizes the picture-in-picture box by the video aspect, height-bound for portrait', () => {
+    const html = buildPageHtml(
+      baseOpts({ video: { src: '/video', fps: 30, frames: 3, width: 1512, height: 2688 } }),
+    );
+    expect(html).toContain("slotPip.style.aspectRatio = V.width + ' / ' + V.height");
+    expect(html).toContain('var portrait = V.height > V.width');
+    expect(html).toContain("slotPip.style.width = portrait ? 'auto' : '30%'");
+    expect(html).toContain("slotPip.style.height = portrait ? '45%' : 'auto'");
   });
 });
 

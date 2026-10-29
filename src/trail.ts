@@ -5,7 +5,8 @@
 // via createTrailController.toString().
 
 export interface TrailLayer {
-  addLatLng(lat: number, lon: number): void;
+  /** Leaflet's addLatLng takes one <LatLng> ([lat, lon]) argument. */
+  addLatLng(latlng: [number, number]): void;
   setLatLngs(points: Array<[number, number]>): void;
 }
 
@@ -52,7 +53,7 @@ export function createTrailController(
         if (k - cursor <= APPEND_LIMIT) {
           for (let j = cursor + 1; j <= k; j++) {
             for (const layer of layers) {
-              layer.addLatLng(trailLat[j], trailLon[j]);
+              layer.addLatLng([trailLat[j], trailLon[j]]);
             }
           }
           cursor = k;

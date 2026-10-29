@@ -13,8 +13,8 @@ function spyLayer(): { calls: Call[]; layer: TrailLayer } {
   return {
     calls,
     layer: {
-      addLatLng(lat: number, lon: number): void {
-        calls.push({ kind: 'add', points: [[lat, lon]] });
+      addLatLng(latlng: [number, number]): void {
+        calls.push({ kind: 'add', points: [[latlng[0], latlng[1]]] });
       },
       setLatLngs(points: Array<[number, number]>): void {
         calls.push({

@@ -120,4 +120,39 @@ describe('loadTelemetry (heading)', () => {
     const last = tel.frames[70].headingDeg;
     expect(Math.abs(last - 90)).toBeLessThan(30);
   });
+
+  // A slow eastbound crawl (~1 m/s): a fixed 0.7 s course baseline never
+  // clears the jitter floor here, so earlier versions held one stale heading
+  // for the whole flight. The baseline must widen instead.
+  it('tracks course over ground on slow flights instead of holding one value', async () => {
+    const cues: string[] = [];
+    for (let i = 0; i <= 124; i++) {
+      const ms = i * 40;
+      const lon = 14.262 + i * 0.00000052;
+      cues.push(
+        `${i + 1}`,
+        `00:00:${String(Math.floor(ms / 1000)).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')} --> ` +
+          `00:00:${String(Math.floor((ms + 40) / 1000)).padStart(2, '0')},${String((ms + 40) % 1000).padStart(3, '0')}`,
+        '2026-05-25 09:18:11.708',
+        `[latitude: 46.613000] [longitude: ${lon.toFixed(7)}]`,
+        '[rel_alt: 3.300 abs_alt: 313.227]',
+        '',
+      );
+    }
+    const dir = tmpDir();
+    const video = path.join(dir, 'slow.mp4');
+    fs.writeFileSync(video, '');
+    fs.writeFileSync(path.join(dir, 'slow.srt'), cues.join('\n'));
+
+    const tel = await loadTelemetry(video, {
+      frames: 125,
+      fpsValue: 25,
+      durationSec: 5,
+    });
+
+    expect(tel.headingMode).toBe('cog');
+    for (const frame of [30, 60, 90, 120]) {
+      expect(Math.abs(tel.frames[frame].headingDeg - 90)).toBeLessThan(25);
+    }
+  });
 });

@@ -23,8 +23,12 @@ import type { LatLon } from './geo.js';
 export interface PageVideo {
   /** Media URL the <video> element loads, e.g. "/video". */
   src: string;
-  fpsValue: number;
+  /** Frames per second as a number; seeks snap to i / fps. */
+  fps: number;
   frames: number;
+  /** Source dimensions; the picture-in-picture box matches this aspect. */
+  width: number;
+  height: number;
 }
 
 export interface PageOpts {
@@ -91,6 +95,9 @@ function pageCss(
   return `
   html, body { margin: 0; padding: 0; overflow: hidden; background: ${src.bg}; }
   * { animation: none !important; transition: none !important; }
+  #map-frame {
+    position: absolute; inset: 0; overflow: hidden; background: ${src.bg};
+  }
   #map { position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px; }
   .leaflet-tile-pane { filter: ${src.tileFilter || 'none'}; }
   #vignette {
@@ -166,23 +173,20 @@ function pageCss(
   }`;
 }
 
-// App chrome around the renderer: stage with a main and a picture-in-picture
-// slot (the map frame is export-sized and CSS-scaled into its slot, so the
-// preview stays export-faithful) plus a control bar.
-function uiCss(src: TileSource, width: number, height: number): string {
+// App chrome around the renderer: a stage with a main and a picture-in-picture
+// slot (the map fills whichever slot holds it; the PiP box adopts the video's
+// aspect so footage shows without borders) plus a control bar.
+function uiCss(): string {
   return `
   body.ui { background: #0e131c; }
   #stage { position: absolute; left: 0; top: 0; right: 0; bottom: 64px; overflow: hidden; }
   #slot-main { position: absolute; inset: 0; }
   #slot-pip {
-    position: absolute; right: 12px; bottom: 12px; width: 28%; height: 28%;
+    position: absolute; right: 12px; bottom: 12px; width: 30%;
+    aspect-ratio: 16 / 9;
     overflow: hidden; border-radius: 10px; background: #000; cursor: pointer;
     border: 1px solid rgba(255,255,255,0.30);
     box-shadow: 0 8px 28px rgba(0,0,0,0.55);
-  }
-  #map-frame {
-    position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px;
-    overflow: hidden; transform-origin: top left; background: ${src.bg};
   }
   #video {
     position: absolute; inset: 0; width: 100%; height: 100%;
@@ -223,13 +227,15 @@ function hudMarkup(hud: HudSpec): string {
 }
 
 function mapMarkup(hud: HudSpec, attribution: string): string {
-  return `<div id="map"></div>
+  return `<div id="map-frame">
+<div id="map"></div>
 <div id="vignette"></div>
 <div id="hud">
 ${hudMarkup(hud)}
 </div>
 <div id="attr">${attribution}</div>
-<div id="scalebar"><span id="scaletext"></span><div id="scaleline"></div></div>`;
+<div id="scalebar"><span id="scaletext"></span><div id="scaleline"></div></div>
+</div>`;
 }
 
 function pageScript(dataJson: string, scale: number): string {
@@ -261,39 +267,56 @@ function pageScript(dataJson: string, scale: number): string {
 
   var latlngs = D.lat.map(function (la, i) { return [la, D.lon[i]]; });
   var bb = L.latLngBounds(latlngs);
+  var frameEl = document.getElementById('map-frame');
+  var scalelineEl = document.getElementById('scaleline');
 
   // The element is larger than the frame:
   // in follow mode it slides under the centered drone marker, and the intro/
   // outro zoom-out shows up to 2x the frame area (scale 0.5 = one level out).
-  var bigW;
-  var bigH;
-  if (D.view === 'follow') {
-    var pb1 = map.project(bb.getNorthWest(), D.zoom);
-    var pb2 = map.project(bb.getSouthEast(), D.zoom);
-    bigW = Math.max(2 * D.width, Math.ceil(Math.abs(pb2.x - pb1.x) + 2 * D.width));
-    bigH = Math.max(2 * D.height, Math.ceil(Math.abs(pb2.y - pb1.y) + 2 * D.height));
-  } else {
-    bigW = 2 * D.width;
-    bigH = 2 * D.height;
-  }
-  mapEl.style.width = bigW + 'px';
-  mapEl.style.height = bigH + 'px';
-  map.invalidateSize();
-  map.setView(D.view === 'follow' ? bb.getCenter() : [D.center.lat, D.center.lon], D.zoom);
-  var c0 = map.project(map.getCenter(), D.zoom);
+  var vw = D.width;
+  var vh = D.height;
+  var bigW = 0;
+  var bigH = 0;
+  var c0 = null;
+  var bestM = 0;
+  var mPerPx = 0;
+  var curIdx = 0;
 
-  // Static scale bar (the map never zooms during a render).
-  var latC = (D.view === 'follow' ? bb.getCenter().lat : D.center.lat);
-  var mPerPx = 156543.033928 * Math.cos(latC * Math.PI / 180) / Math.pow(2, D.zoom);
-  var steps = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000];
-  var bestM = steps[0];
-  for (var s = 0; s < steps.length; s++) {
-    if (steps[s] / mPerPx <= 110 * S) bestM = steps[s];
+  // The map fills its frame at any size (headless: the export canvas; app:
+  // the pane currently holding it), so every frame size change re-lays out.
+  function layoutMap() {
+    vw = frameEl.clientWidth || D.width;
+    vh = frameEl.clientHeight || D.height;
+    if (D.view === 'follow') {
+      var pb1 = map.project(bb.getNorthWest(), D.zoom);
+      var pb2 = map.project(bb.getSouthEast(), D.zoom);
+      bigW = Math.max(2 * vw, Math.ceil(Math.abs(pb2.x - pb1.x) + 2 * vw));
+      bigH = Math.max(2 * vh, Math.ceil(Math.abs(pb2.y - pb1.y) + 2 * vh));
+    } else {
+      bigW = 2 * vw;
+      bigH = 2 * vh;
+    }
+    mapEl.style.width = bigW + 'px';
+    mapEl.style.height = bigH + 'px';
+    map.invalidateSize();
+    map.setView(D.view === 'follow' ? bb.getCenter() : [D.center.lat, D.center.lon], D.zoom);
+    c0 = map.project(map.getCenter(), D.zoom);
+
+    // Static scale bar (the map never zooms during a render).
+    var latC = (D.view === 'follow' ? bb.getCenter().lat : D.center.lat);
+    mPerPx = 156543.033928 * Math.cos(latC * Math.PI / 180) / Math.pow(2, D.zoom);
+    var steps = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000];
+    bestM = steps[0];
+    for (var s = 0; s < steps.length; s++) {
+      if (steps[s] / mPerPx <= 110 * S) bestM = steps[s];
+    }
+    scalelineEl.style.width = Math.round(bestM / mPerPx) + 'px';
+    document.getElementById('scaletext').textContent =
+      bestM >= 1000 ? (bestM / 1000) + ' km' : bestM + ' m';
   }
-  var scalelineEl = document.getElementById('scaleline');
-  scalelineEl.style.width = Math.round(bestM / mPerPx) + 'px';
-  document.getElementById('scaletext').textContent =
-    bestM >= 1000 ? (bestM / 1000) + ' km' : bestM + ' m';
+  // Before the layers below: Leaflet defers marker DOM creation until the map
+  // has a view, so the arrow/wrap elements only exist after this first call.
+  layoutMap();
 
   // Layered trail: ghost (whole route, optional casing) -> glow -> casing ->
   // core. All geometry is pre-decimated (smoothFactor 0 skips Leaflet's own
@@ -379,6 +402,7 @@ function pageScript(dataJson: string, scale: number): string {
   var trailCtl = (${createTrailController.toString()})(D.trailLat, D.trailLon, D.trailFrame, [trail, trailGlow, trailCasing]);
 
   window.__setFrame = function (i) {
+    curIdx = i;
     trailCtl.setFrame(i);
     drone.setLatLng(latlngs[i]);
     var kIn = 1;
@@ -398,8 +422,8 @@ function pageScript(dataJson: string, scale: number): string {
       dy = p.y - c0.y;
     }
     mapEl.style.transform =
-      'translate(' + (D.width / 2 - bigW / 2 - k * dx) + 'px,' +
-      (D.height / 2 - bigH / 2 - k * dy) + 'px) scale(' + k + ')';
+      'translate(' + (vw / 2 - bigW / 2 - k * dx) + 'px,' +
+      (vh / 2 - bigH / 2 - k * dy) + 'px) scale(' + k + ')';
     if (wrapEl) {
       wrapEl.style.transform = k === 1 ? '' : 'scale(' + (1 / k) + ')';
     }
@@ -419,6 +443,10 @@ function pageScript(dataJson: string, scale: number): string {
     return new Promise(function (resolve) {
       requestAnimationFrame(function () { requestAnimationFrame(resolve); });
     });
+  };
+  window.__relayout = function () {
+    layoutMap();
+    window.__setFrame(curIdx);
   };
   window.__setFrame(0);
 
@@ -483,18 +511,9 @@ function videoDriverScript(): string {
 
   scrub.max = String(Math.max(0, V.frames - 1));
 
-  function fitMap() {
-    var slot = mapFrame.parentElement;
-    var w = slot.clientWidth;
-    var h = slot.clientHeight;
-    var s = Math.min(w / D.width, h / D.height);
-    mapFrame.style.transform =
-      'translate(' + ((w - D.width * s) / 2) + 'px,' +
-      ((h - D.height * s) / 2) + 'px) scale(' + s + ')';
-  }
-
   function setLayout(mainIsMap) {
     mapIsMain = mainIsMap;
+    var pipHoldsVideo = mapIsMain;
     if (mapIsMain) {
       slotMain.appendChild(mapFrame);
       slotPip.appendChild(videoEl);
@@ -502,7 +521,20 @@ function videoDriverScript(): string {
       slotMain.appendChild(videoEl);
       slotPip.appendChild(mapFrame);
     }
-    fitMap();
+    // The PiP box adopts the video's aspect so footage shows without bars
+    // and without cropping; the map fills whatever box holds it. Portrait
+    // (9:16) footage binds the box by height so it stays compact.
+    if (pipHoldsVideo && V.width > 0 && V.height > 0) {
+      var portrait = V.height > V.width;
+      slotPip.style.aspectRatio = V.width + ' / ' + V.height;
+      slotPip.style.width = portrait ? 'auto' : '30%';
+      slotPip.style.height = portrait ? '45%' : 'auto';
+    } else {
+      slotPip.style.aspectRatio = '16 / 9';
+      slotPip.style.width = '30%';
+      slotPip.style.height = 'auto';
+    }
+    window.__relayout();
   }
 
   function fmt(sec) {
@@ -545,7 +577,7 @@ function videoDriverScript(): string {
     setLayout(!mapIsMain);
   });
 ${pickFlowScript('btn-open', null)}
-  window.addEventListener('resize', fitMap);
+  window.addEventListener('resize', function () { window.__relayout(); });
 
   function loop(now) {
     requestAnimationFrame(loop);
@@ -628,7 +660,7 @@ export function buildPageHtml(opts: PageOpts): string {
 <link rel="stylesheet" href="/leaflet/leaflet.css">
 <style>${pageCss(src, theme, width, height, scale)}
 </style>${video ? `
-<style>${uiCss(src, width, height)}
+<style>${uiCss()}
 </style>` : ''}
 </head>`;
 
@@ -654,9 +686,7 @@ ${scripts}
 <div id="stage">
   <div id="slot-main"><video id="video" src="${video.src}" preload="auto" playsinline></video></div>
   <div id="slot-pip" title="Click to swap">
-    <div id="map-frame">
 ${mapMarkup(hud, attribution)}
-    </div>
   </div>
 </div>
 <div id="controls">

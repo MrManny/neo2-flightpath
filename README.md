@@ -75,8 +75,8 @@ For reviewing flights without the terminal, grab the packaged Windows app from
 screen then shows the footage and the map overlay (trail, heading arrow, HUD
 chips) in a swappable picture-in-picture layout on one shared timeline
 scrubber. Play, pause and scrub keep the video frame, trail, drone position
-and HUD chips on the same frame — the preview renders exactly what an export
-renders.
+and HUD chips on the same frame; the map fills its pane at any window size,
+while the export framing follows `--width` / `--height` as usual.
 
 - The app embeds Chromium and needs no system browser, but it does need
   **ffmpeg + ffprobe** on `PATH` like the CLI; map tiles need internet on the

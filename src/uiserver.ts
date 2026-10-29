@@ -38,8 +38,10 @@ export const prepareUiRecording: PrepareUiRecording = async (
       ...recordingPageOpts(prep, config),
       video: {
         src: '/video',
-        fpsValue: prep.probe.fps.value,
+        fps: prep.probe.fps.value,
         frames: prep.probe.frames,
+        width: prep.probe.width,
+        height: prep.probe.height,
       },
     }),
     videoPath,
