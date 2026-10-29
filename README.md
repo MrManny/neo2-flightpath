@@ -1,13 +1,23 @@
 # neo2-flightpath
 
-Render **flight-path map overlay videos** from DJI drone recordings (DJI Neo 2
-and similar): a growing trail, a heading arrow and a live map, rendered at
-**exactly the source frame rate and frame count** so the result drops 1:1 onto
-the original footage in any video editor.
+This handy little tool allows you to render flight-path map videos
+from DJI drone recordings (DJI Neo 2 and similar).
 
-Telemetry comes from the recording's **`.SRT` sidecar** (DJI SubRip, one cue per
-frame) or, when there is none, from the **embedded `CAM meta` stream** (DJI's
-internal DVTM protobuf telemetry inside the MP4).
+I wanted a tool to render the actual flight-path on a 2d map,
+so that I can overlay it in the actual footage of my drone flight
+videos.
+
+Currently, it supports two main ways to acquire the geo-coordinates from
+DJI's telemetry:
+
+- if an `.SRT` sidecar is available, that will be used,
+- otherwise it tries to parse the embedded `CAM` meta stream (DJI's protobuf format).
+
+It is a CLI tool, since I plan to support agentic use cases.
+Meaning, if an agent wants to use it to help you create flight-path videos,
+that's all cool with me.
+
+I will tack on a UI version later on for us humans though.
 
 ## Quick start
 
@@ -56,6 +66,8 @@ All frames below are from the same recording:
 
 ## Usage
 
+If you are stuck, `npx neo2-flightpath --help` can help.
+
 ```
 neo2-flightpath <inputs...> [options]
 ```
@@ -86,7 +98,7 @@ optionally with `--recurse`). Every recording is processed independently.
 | `--config <path>` | auto | config file (see below) |
 | `-q, --quiet` | off | suppress progress output |
 
-The heading arrow shows **drone yaw** when the `CAM meta` stream provides it
+The heading arrow shows drone yaw when the `CAM meta` stream provides it
 (valid even while hovering), otherwise the yaw is computed from the track.
 
 ## Examples
@@ -106,73 +118,8 @@ Options can live in a `.neo2flightpath.json` discovered upward from the working
 directory (or named explicitly with `--config`). A complete example lives in
 [.neo2flightpath.example.json](.neo2flightpath.example.json).
 
-All keys are optiona. Anything omitted falls back to the default in the
-option table above.
-
-## Telemetry sources
-
-- **`.SRT` sidecar** (preferred): same basename as the video, one cue per frame.
-- **`CAM meta` / DVTM** (fallback): DJI's per-frame protobuf telemetry embedded
-  in the MP4 `data` stream (`djmd` sample entry). Decoded field map:
-  `GpsBasic{lat, lon, gps_altitude_mm}`, `RelativeAltitude` (mm),
-  `AbsoluteAltitude` (m), `EulerAngle{pitch, roll, yaw}` (deci-degrees).
-
-Recordings without any telemetry source are rejected with a clear message.
-
-## Observability
-
-Rendering can export **OpenTelemetry traces** over OTLP/HTTP protobuf, so you
-can see where the time goes — ffprobe, telemetry decoding, tile prefetch,
-browser capture, ffmpeg encoding — and compare recordings or runs.
-
-Enable it with the standard OpenTelemetry environment variables; there is no
-flag and no config key:
-
-```sh
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 neo2-flightpath "flight.mp4"
-```
-
-Tracing is active iff `OTEL_EXPORTER_OTLP_ENDPOINT` (or
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is set and `OTEL_SDK_DISABLED` is not
-`true`. With nothing set, no OpenTelemetry code is loaded, nothing is sent, and
-the output is identical to untraced runs. `OTEL_EXPORTER_OTLP_HEADERS` adds
-collector headers (auth); `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`
-override the service identity (default `neo2-flightpath`, with the app version
-as `service.version` on every span). Any other effective
-`OTEL_EXPORTER_OTLP_PROTOCOL` fails fast instead of exporting into the wrong
-port — `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` takes precedence over it, as the
-signal-specific variable.
-
-Every processed recording yields one trace (skipped recordings yield none):
-
-```
-recording.process
-├─ probe                             ffprobe
-├─ telemetry.load                   source, fix/no-lock counts
-├─ plan                             view, zoom, tile-set size
-├─ tiles.prefetch                   downloaded / cached / failed
-├─ render
-│  ├─ render.capture
-│  │  └─ render.capture.batch        every 100 frames; min/avg/max frame time
-│  └─ render.encode                  ffmpeg; overlaps capture by design
-└─ output.verify                     frame count and rate vs. the source
-```
-
-Attributes carry counts and distances only — **never coordinates**, so traces
-cannot leak where a flight took place. A failed recording records the exception
-and marks its spans `ERROR`; the batch continues and the remaining recordings
-still export.
-
-Minimal collector — Jaeger all-in-one, in-memory storage:
-
-```sh
-docker run --rm -p 4318:4318 -p 16686:16686 jaegertracing/all-in-one:latest
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 neo2-flightpath "flight.mp4"
-```
-
-Then open the Jaeger UI at `http://localhost:16686`. Grafana Tempo or an
-OpenTelemetry Collector work the same way — point the endpoint at their OTLP
-HTTP port.
+All keys are optional.
+Anything omitted falls back to the default in the option table above.
 
 ## Tiles & attribution
 
@@ -185,6 +132,13 @@ Attribution is rendered into every frame. Tiles are fetched at a polite rate
 (~2.5 requests/s, custom `User-Agent`), cached permanently, and failed tiles
 are retried on the next run.
 Do not mass-produce tiles against the public endpoints.
+
+## Feature requests
+
+If you want or need specific features, feel free to open an issue in this
+repository's issue tracker.
+I plan to maintain this project for a good bit, and hopefully making it more
+useful for people in the long run.
 
 ## License
 
