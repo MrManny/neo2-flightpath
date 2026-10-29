@@ -62,8 +62,6 @@ const SESSION: UiSession = {
     fixes: 1234,
     noLock: 8,
     trackDistanceM: 123,
-    frames: 90,
-    fps: '30',
     durationSec: 3,
   },
 };
@@ -210,7 +208,7 @@ describe('PlayerChrome', () => {
 });
 
 interface FakePlayback {
-  state: { paused: boolean; currentTime: number; playbackRate: number };
+  state: { paused: boolean; ended: boolean; currentTime: number; playbackRate: number };
   play: ReturnType<typeof vi.fn>;
   pause: ReturnType<typeof vi.fn>;
 }
@@ -219,9 +217,10 @@ interface FakePlayback {
 // so keyboard behavior stays observable.
 function stubPlayback(): FakePlayback {
   const video = document.querySelector('video') as HTMLVideoElement;
-  const state = { paused: true, currentTime: 0, playbackRate: 1 };
+  const state = { paused: true, ended: false, currentTime: 0, playbackRate: 1 };
   const play = vi.fn(() => {
     state.paused = false;
+    state.ended = false;
     return Promise.resolve();
   });
   const pause = vi.fn(() => {
@@ -230,6 +229,7 @@ function stubPlayback(): FakePlayback {
   vi.spyOn(video, 'play').mockImplementation(play);
   vi.spyOn(video, 'pause').mockImplementation(pause);
   Object.defineProperty(video, 'paused', { get: () => state.paused, configurable: true });
+  Object.defineProperty(video, 'ended', { get: () => state.ended, configurable: true });
   Object.defineProperty(video, 'currentTime', {
     get: () => state.currentTime,
     set: (v: number) => {
@@ -431,6 +431,17 @@ describe('PlayerChrome loop region', () => {
     expect(screen.getByText('loop 0:02–0:01')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Clear loop' }) as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it('resumes an end-of-file loop at the loop start, not the file start', async () => {
+    const fake = await renderPlayer();
+    setLoopRegion(30, 60);
+    fake.state.ended = true;
+    fake.state.paused = true;
+    key(window, { key: ' ' });
+    expect(fake.play).toHaveBeenCalledTimes(1);
+    act(() => flushRaf());
+    expect(fake.state.currentTime).toBeCloseTo(1);
+  });
 });
 
 describe('PlayerChrome shortcut guard rails', () => {
@@ -498,5 +509,11 @@ describe('PlayerChrome flight stats strip', () => {
     );
     expect(screen.getByText('1234 fixes')).toBeTruthy();
     expect(screen.queryByText(/no-lock/)).toBeNull();
+  });
+
+  it('shows the same duration in the readout and the stats strip', () => {
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
+    expect(screen.getByText('Duration 0:03')).toBeTruthy();
+    expect(screen.getByText('0:00 / 0:03')).toBeTruthy();
   });
 });

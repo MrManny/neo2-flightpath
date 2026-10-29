@@ -7,8 +7,13 @@ import { hasAltitude } from '../../src/config.js';
 import type { RenderConfig } from '../../src/config.js';
 import type { Scene } from '../../src/renderer/scene.js';
 import { restyleSceneData } from '../../src/restyle.js';
-import type { LoopPoints } from '../lib/framedriver.js';
-import { createFrameDriver, formatTime, framesForSeconds } from '../lib/framedriver.js';
+import type { LoopState } from '../lib/framedriver.js';
+import {
+  createFrameDriver,
+  engagedLoop,
+  formatTime,
+  framesForSeconds,
+} from '../lib/framedriver.js';
 import { formatStats } from '../lib/flightstats.js';
 import type { HotkeyAction } from '../lib/hotkeys.js';
 import { mapKey } from '../lib/hotkeys.js';
@@ -23,20 +28,7 @@ export interface PlayerChromeProps {
   onOpen: () => void;
 }
 
-interface LoopState {
-  in: number | null;
-  out: number | null;
-}
-
 const NO_LOOP: LoopState = { in: null, out: null };
-
-// A region engages only with both ends set and ordered; out-of-order pairs
-// stay dormant until the second point lands inside the region.
-function activeLoopOf(loop: LoopState): LoopPoints | null {
-  return loop.in !== null && loop.out !== null && loop.in < loop.out
-    ? { in: loop.in, out: loop.out }
-    : null;
-}
 
 function CogIcon() {
   return (
@@ -58,6 +50,7 @@ export function PlayerChrome({
   const { scene: preparedScene, video, tileBase, bbox, stats } = session;
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubRef = useRef<HTMLInputElement>(null);
+  const timeRef = useRef<HTMLSpanElement>(null);
   const sceneRef = useRef<Scene | null>(null);
   // The head frame: committed or queued, so rapid steps never stack onto a
   // stale index before the driver's next tick.
@@ -69,8 +62,10 @@ export function PlayerChrome({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [speed, setSpeed] = useState<1 | 2 | 3 | 4>(1);
   const [loop, setLoop] = useState<LoopState>(NO_LOOP);
-  const [timeText, setTimeText] = useState(() => `0:00 / ${formatTime((video.frames - 1) / video.fps)}`);
   const [fpsText, setFpsText] = useState('');
+
+  // The one duration definition: the stats chip and the time readout agree.
+  const totalText = formatTime(stats.durationSec);
 
   // One settings -> scene mapping for the preview and the later export: the
   // same pure planners the pipeline runs.
@@ -87,7 +82,7 @@ export function PlayerChrome({
 
   const statsChips = useMemo(() => formatStats(stats), [stats]);
 
-  const loopPoints = activeLoopOf(loop);
+  const loopPoints = engagedLoop(loop);
 
   const handleScene = useCallback((scene: Scene) => {
     sceneRef.current = scene;
@@ -109,9 +104,11 @@ export function PlayerChrome({
       onIndex: (i) => {
         latestIndexRef.current = i;
         if (scrubRef.current) scrubRef.current.value = String(i);
-        setTimeText(
-          `${formatTime(i / video.fps)} / ${formatTime((video.frames - 1) / video.fps)}`,
-        );
+        // Imperative like the scrubber: the time text changes every presented
+        // frame and must not re-render the component tree at playback rate.
+        if (timeRef.current) {
+          timeRef.current.textContent = `${formatTime(i / video.fps)} / ${totalText}`;
+        }
       },
       onFps: (fps) => setFpsText(`${fps.toFixed(0)} fps`),
     });
@@ -121,24 +118,17 @@ export function PlayerChrome({
       driver.stop();
       driverRef.current = null;
     };
-  }, [video]);
+  }, [video, totalText]);
 
   // The loop state lives here; the driver owns the wrap mechanics.
   useEffect(() => {
-    driverRef.current?.setLoop(activeLoopOf(loop));
+    driverRef.current?.setLoop(loop);
   }, [video, loop]);
 
   useEffect(() => {
     const videoEl = videoRef.current;
     if (videoEl) videoEl.playbackRate = speed;
   }, [speed, video]);
-
-  const togglePlay = useCallback(() => {
-    const videoEl = videoRef.current;
-    if (!videoEl || !ready) return;
-    if (videoEl.paused) void videoEl.play();
-    else videoEl.pause();
-  }, [ready]);
 
   const scrubTo = useCallback(
     (i: number) => {
@@ -148,6 +138,20 @@ export function PlayerChrome({
     },
     [video.frames],
   );
+
+  const togglePlay = useCallback(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl || !ready) return;
+    if (videoEl.paused) {
+      // play() on ended media restarts from the file start; a loop must
+      // resume at its own start.
+      const active = engagedLoop(loop);
+      if (videoEl.ended && active) scrubTo(active.in);
+      videoEl.play().catch(() => {});
+    } else {
+      videoEl.pause();
+    }
+  }, [ready, loop, scrubTo]);
 
   const stepBy = useCallback(
     (deltaFrames: number) => {
@@ -249,11 +253,7 @@ export function PlayerChrome({
             playsInline
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
-            onEnded={() => {
-              // A loop ending on the last frame repeats via the driver's wrap;
-              // the ended event must not flip it back to Play.
-              if (loopPoints === null) setPlaying(false);
-            }}
+            onEnded={() => setPlaying(false)}
           />
         </div>
         <div
@@ -322,7 +322,9 @@ export function PlayerChrome({
             onChange={(e) => scrubTo(Number(e.target.value))}
           />
         </div>
-        <span className="readout">{timeText}</span>
+        <span className="readout" ref={timeRef}>
+          0:00 / {totalText}
+        </span>
         <span className="readout">{fpsText}</span>
         {loopReadout ? <span className="readout">{loopReadout}</span> : null}
         {([1, 2, 3, 4] as const).map((rate) => (

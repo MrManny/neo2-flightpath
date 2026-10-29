@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PageVideo } from '../../src/appsession.js';
 import {
   createFrameDriver,
+  engagedLoop,
   formatTime,
   frameFromMediaTime,
   framesForSeconds,
@@ -53,6 +54,7 @@ interface FakeVideo {
   ended: boolean;
   play: ReturnType<typeof vi.fn>;
   requestVideoFrameCallback?: (cb: FrameCallback) => number;
+  cancelVideoFrameCallback?: (id: number) => void;
 }
 
 type FrameCallback = (now: number, meta: { mediaTime: number }) => void;
@@ -75,6 +77,7 @@ function fakeVideo(): FakeVideo {
     play: vi.fn(() => {
       video.paused = false;
       video.ended = false;
+      return Promise.resolve();
     }),
   };
   return video;
@@ -82,20 +85,34 @@ function fakeVideo(): FakeVideo {
 
 // A fake that drives the requestVideoFrameCallback path, the one Electron
 // actually runs: tests present frames explicitly instead of relying on time.
-function fakeVideoRvfc(): { video: FakeVideo; present: (mediaTime: number) => void } {
-  const callbacks: FrameCallback[] = [];
+function fakeVideoRvfc(): {
+  video: FakeVideo;
+  present: (mediaTime: number) => void;
+  pendingFrames: () => number;
+} {
+  let nextId = 1;
+  const callbacks = new Map<number, FrameCallback>();
   const video: FakeVideo = {
     ...fakeVideo(),
     requestVideoFrameCallback: (cb: FrameCallback): number => {
-      callbacks.push(cb);
-      return callbacks.length;
+      const id = nextId++;
+      callbacks.set(id, cb);
+      return id;
+    },
+    cancelVideoFrameCallback: (id: number): void => {
+      callbacks.delete(id);
     },
   };
   return {
     video,
     present: (mediaTime: number): void => {
-      callbacks.shift()?.(0, { mediaTime });
+      const first = callbacks.entries().next();
+      if (first.done) return;
+      const [id, cb] = first.value;
+      callbacks.delete(id);
+      cb(0, { mediaTime });
     },
+    pendingFrames: (): number => callbacks.size,
   };
 }
 
@@ -227,17 +244,33 @@ describe('createFrameDriver loop wrap', () => {
     expect(video.currentTime).toBeCloseTo(20 / 30);
   });
 
-  it('wraps on the presented-frame path without flashing the next frame', () => {
+  it('wraps played frames on the presented-frame path without flashing the next frame', () => {
     const { video, present } = fakeVideoRvfc();
     const { applyFrame, driver } = build(video);
     driver.setLoop({ in: 10, out: 20 });
     driver.start();
+    video.paused = false;
     present(20.5 / 30);
     expect(applyFrame).toHaveBeenCalledWith(20);
     present(21 / 30);
     expect(video.currentTime).toBeCloseTo(10 / 30);
     expect(applyFrame).toHaveBeenCalledWith(10);
     expect(applyFrame).not.toHaveBeenCalledWith(21);
+  });
+
+  it('honors paused seek frames outside the region verbatim', () => {
+    const { video, present } = fakeVideoRvfc();
+    const { applyFrame, driver } = build(video);
+    driver.setLoop({ in: 10, out: 20 });
+    driver.start();
+    driver.scrub(25);
+    flushRaf();
+    // Chromium presents the seeked frame even while paused; the loop must
+    // not yank an explicit target back into the region.
+    present(25 / 30);
+    expect(video.currentTime).toBeCloseTo(25 / 30);
+    expect(applyFrame).toHaveBeenCalledWith(25);
+    expect(applyFrame).not.toHaveBeenCalledWith(10);
   });
 
   it('honors explicit scrub targets outside the region verbatim', () => {
@@ -310,5 +343,66 @@ describe('createFrameDriver loop wrap', () => {
     flushRaf();
     expect(video.play).not.toHaveBeenCalled();
     expect(video.currentTime).toBe(0);
+  });
+});
+
+describe('createFrameDriver presented-frame chain', () => {
+  it('tears the chain down on stop()', () => {
+    const { video, present, pendingFrames } = fakeVideoRvfc();
+    const { applyFrame, driver } = build(video);
+    driver.start();
+    present(1 / 30);
+    expect(applyFrame).toHaveBeenCalledWith(1);
+    driver.stop();
+    expect(pendingFrames()).toBe(0);
+    present(2 / 30);
+    expect(applyFrame).toHaveBeenCalledTimes(1);
+    expect(video.currentTime).toBe(0);
+  });
+
+  it('re-hooks the chain on restart', () => {
+    const { video, present } = fakeVideoRvfc();
+    const { applyFrame, driver } = build(video);
+    driver.start();
+    driver.stop();
+    driver.start();
+    present(5 / 30);
+    expect(applyFrame).toHaveBeenCalledWith(5);
+  });
+
+  it('ignores a presented frame that was already in flight when stop() ran', () => {
+    const callbacks: FrameCallback[] = [];
+    const video: FakeVideo = {
+      ...fakeVideo(),
+      requestVideoFrameCallback: (cb: FrameCallback): number => {
+        callbacks.push(cb);
+        return callbacks.length;
+      },
+      cancelVideoFrameCallback: (): void => {},
+    };
+    const { applyFrame, driver } = build(video);
+    driver.start();
+    const inFlight = callbacks[0];
+    driver.stop();
+    inFlight(0, { mediaTime: 3 / 30 });
+    expect(applyFrame).not.toHaveBeenCalled();
+    expect(video.currentTime).toBe(0);
+  });
+});
+
+describe('engagedLoop', () => {
+  it.for([
+    {
+      name: 'both points set and ordered engages',
+      state: { in: 10, out: 20 },
+      want: { in: 10, out: 20 },
+    },
+    { name: 'missing in point stays dormant', state: { in: null, out: 20 }, want: null },
+    { name: 'missing out point stays dormant', state: { in: 10, out: null }, want: null },
+    { name: 'inverted points stay dormant', state: { in: 20, out: 10 }, want: null },
+    { name: 'equal points stay dormant', state: { in: 15, out: 15 }, want: null },
+    { name: 'no points at all stays dormant', state: { in: null, out: null }, want: null },
+  ])('$name', ({ state, want }) => {
+    expect(engagedLoop(state)).toEqual(want);
   });
 });

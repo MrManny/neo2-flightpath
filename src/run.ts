@@ -19,6 +19,12 @@ import type { PageOpts } from './page.js';
 import { renderVideo } from './render.js';
 import type { HudSpec, RenderConfig } from './config.js';
 import { hasAltitude, resolveHudSpec } from './config.js';
+import {
+  fixesLabel,
+  noLockCuesLabel,
+  telemetrySummary,
+  trackDistanceLabel,
+} from './summary.js';
 import { NOOP_TRACER, stage } from './tracing.js';
 import type { TraceContext } from './tracing.js';
 
@@ -256,9 +262,11 @@ export async function prepareSession(
     });
     return loaded;
   });
+  const summary = telemetrySummary(tel);
   log(
-    `telemetry: ${tel.source} (${tel.method}), ${tel.fixCount} fixes, heading=${tel.headingMode}, ` +
-      `track ${Math.round(tel.trackDistanceM)} m${tel.noLock ? `, ${tel.noLock} no-lock cues` : ''}`,
+    `telemetry: ${summary.source} (${summary.method}), ${fixesLabel(summary.fixes)}, ` +
+      `heading=${summary.headingMode}, track ${trackDistanceLabel(summary.trackDistanceM)}` +
+      (summary.noLock ? `, ${noLockCuesLabel(summary.noLock)}` : ''),
   );
   const hud = resolveHud(config, tel, log);
 
@@ -348,14 +356,9 @@ function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummar
     introFrames: introOutro.introN,
     outroFrames: introOutro.outroN,
     hud,
-    source: tel.source,
-    method: tel.method,
-    headingMode: tel.headingMode,
-    fixes: tel.fixCount,
-    noLock: tel.noLock,
+    ...telemetrySummary(tel),
     frames: probe.frames,
     fps: probe.fps.str,
-    trackDistanceM: Math.round(tel.trackDistanceM),
     bbox: tel.bbox,
     zoom: overview.zoom,
     zoomFixed: config.zoom > 0,

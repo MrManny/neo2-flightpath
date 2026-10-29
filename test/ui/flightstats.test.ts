@@ -10,8 +10,6 @@ const STATS: FlightStats = {
   fixes: 1234,
   noLock: 8,
   trackDistanceM: 567,
-  frames: 90,
-  fps: '30',
   durationSec: 3,
 };
 

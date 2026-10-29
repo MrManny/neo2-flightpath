@@ -13,6 +13,8 @@ import { buildSceneData } from './page.js';
 import type { SceneData } from './renderer/scene.js';
 import { prepareSession, recordingPageOpts } from './run.js';
 import type { LogFn } from './run.js';
+import { telemetrySummary } from './summary.js';
+import type { TelemetrySummary } from './summary.js';
 import type { Telemetry } from './telemetry.js';
 
 export interface PageVideo {
@@ -27,31 +29,16 @@ export interface PageVideo {
 }
 
 /** The flight's key numbers, valued exactly like the CLI summary reports them. */
-export interface FlightStats {
-  source: string;
-  method: string;
-  headingMode: string;
-  fixes: number;
-  noLock: number;
-  /** Meters, rounded exactly like the CLI summary's track distance. */
-  trackDistanceM: number;
-  frames: number;
-  fps: string;
+export interface FlightStats extends TelemetrySummary {
+  /** Frame-exact duration derived from the reported frames and rate. */
   durationSec: number;
 }
 
-// Same mapping the batch summary uses, so the stats strip can never drift
-// from what the CLI reports for the same recording.
+// Consumes the same value mapping as the batch summary, so the stats strip
+// cannot drift from what the CLI reports for the same recording.
 export function flightStatsFrom(tel: Telemetry, probe: VideoProbe): FlightStats {
   return {
-    source: tel.source,
-    method: tel.method,
-    headingMode: tel.headingMode,
-    fixes: tel.fixCount,
-    noLock: tel.noLock,
-    trackDistanceM: Math.round(tel.trackDistanceM),
-    frames: probe.frames,
-    fps: probe.fps.str,
+    ...telemetrySummary(tel),
     durationSec: probe.frames / probe.fps.value,
   };
 }

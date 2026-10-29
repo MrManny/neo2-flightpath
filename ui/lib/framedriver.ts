@@ -39,11 +39,27 @@ export interface LoopPoints {
   out: number;
 }
 
+export interface LoopState {
+  /** Loop start frame, or null while unset. */
+  in: number | null;
+  /** Loop end frame, or null while unset. */
+  out: number | null;
+}
+
+// The one engagement rule for loop regions: both ends set and ordered.
+// Out-of-order pairs stay dormant until the second point lands inside the
+// region. Everything (band, readout, wrap) derives from this.
+export function engagedLoop(state: LoopState): LoopPoints | null {
+  return state.in !== null && state.out !== null && state.in < state.out
+    ? { in: state.in, out: state.out }
+    : null;
+}
+
 export interface FrameDriver {
   /** Queues a scrub target; the loop applies it (coalesced) and seeks i / fps. */
   scrub(i: number): void;
-  /** Engages a loop region (both ends set, in < out) or clears it with null. */
-  setLoop(loop: LoopPoints | null): void;
+  /** Sets the loop region points; null clears the loop. */
+  setLoop(state: LoopState | null): void;
   start(): void;
   stop(): void;
 }
@@ -53,14 +69,14 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
   const { fps, frames } = meta;
   let shownIdx = -1;
   let pendingScrub: number | null = null;
-  let loop: LoopPoints | null = null;
+  let loop: LoopState | null = null;
   let lastFpsT = 0;
   let fpsAcc = 0;
   let fpsCount = 0;
   let fpsShownAt = 0;
   let running = false;
   let rafId = 0;
-  let presentedHooked = false;
+  let presentedId = 0;
 
   function commit(i: number): void {
     if (i === shownIdx) return;
@@ -69,10 +85,8 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
     opts.onIndex(i);
   }
 
-  // A region engages only with both ends set and ordered; out-of-order pairs
-  // stay dormant until the second point lands inside the region.
   function activeLoop(): LoopPoints | null {
-    return loop !== null && loop.in < loop.out ? loop : null;
+    return loop === null ? null : engagedLoop(loop);
   }
 
   // The wrap seeks and commits immediately so no out-of-region frame flashes
@@ -82,11 +96,12 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
     commit(active.in);
   }
 
-  // Played-back frames are confined to the region, but explicit scrub targets
-  // stay verbatim: stepping and Home/End are never yanked back mid-gesture.
+  // Played-back frames are confined to the region, but explicit seek targets
+  // stay verbatim: a seek presents a frame (even while paused), and only
+  // frames the video actually plays past the out point wrap.
   function commitPlayed(i: number): void {
     const active = activeLoop();
-    if (active !== null && i > active.out) {
+    if (active !== null && i > active.out && !video.paused && !video.ended) {
       wrapTo(active);
       return;
     }
@@ -97,8 +112,9 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
   // to the frame index via floor (round would make the map lead the footage
   // by half a frame). One callback per presented frame, chained.
   function onPresentedFrame(_now: number, meta_: { mediaTime: number }): void {
+    if (!running) return;
     commitPlayed(frameFromMediaTime(meta_.mediaTime, fps, frames));
-    video.requestVideoFrameCallback(onPresentedFrame);
+    presentedId = video.requestVideoFrameCallback(onPresentedFrame);
   }
   const usePresented = typeof video.requestVideoFrameCallback === 'function';
 
@@ -113,9 +129,10 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
       commit(seekTo);
     } else if (active !== null && video.ended) {
       // The end of the file is a loop boundary too: a region ending on the
-      // last frame would otherwise stop instead of repeating.
+      // last frame would otherwise stop instead of repeating. Resume is
+      // best-effort; play state resyncs from the media events either way.
       wrapTo(active);
-      void video.play();
+      video.play().catch(() => {});
     } else if (!usePresented && !video.paused && !video.ended) {
       // Fallback clock when requestVideoFrameCallback is unavailable; only
       // while playing, so a paused scrub target is never re-derived into a
@@ -139,21 +156,26 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
     scrub(i: number): void {
       pendingScrub = Math.max(0, Math.min(frames - 1, i));
     },
-    setLoop(points: LoopPoints | null): void {
-      loop = points;
+    setLoop(state: LoopState | null): void {
+      loop = state;
     },
     start(): void {
       if (running) return;
       running = true;
-      if (usePresented && !presentedHooked) {
-        presentedHooked = true;
-        video.requestVideoFrameCallback(onPresentedFrame);
+      if (usePresented && presentedId === 0) {
+        presentedId = video.requestVideoFrameCallback(onPresentedFrame);
       }
       rafId = requestAnimationFrame(tick);
     },
     stop(): void {
       running = false;
       cancelAnimationFrame(rafId);
+      // The presented-frame chain must die with the driver: a stale chain
+      // would keep committing (and wrapping) on a detached video element.
+      if (usePresented && presentedId !== 0) {
+        video.cancelVideoFrameCallback(presentedId);
+        presentedId = 0;
+      }
     },
   };
 }

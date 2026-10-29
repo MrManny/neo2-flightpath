@@ -43,27 +43,8 @@ describe('flightStatsFrom', () => {
       fixes: 590,
       noLock: 4,
       trackDistanceM: 567,
-      frames: 300,
-      fps: '30000/1001',
       durationSec: 300 / 29.97,
     });
-  });
-
-  it('rounds the track distance exactly like the batch summary', () => {
-    expect(flightStatsFrom({ ...TELEMETRY, trackDistanceM: 12.5 }, PROBE).trackDistanceM).toBe(13);
-    expect(flightStatsFrom({ ...TELEMETRY, trackDistanceM: 12.4 }, PROBE).trackDistanceM).toBe(12);
-    expect(flightStatsFrom({ ...TELEMETRY, trackDistanceM: 0 }, PROBE).trackDistanceM).toBe(0);
-  });
-
-  it('keeps srt-sourced and cog-derived telemetry verbatim', () => {
-    const stats = flightStatsFrom(
-      { ...TELEMETRY, source: 'srt', method: 'sidecar', headingMode: 'cog', noLock: 0 },
-      PROBE,
-    );
-    expect(stats.source).toBe('srt');
-    expect(stats.method).toBe('sidecar');
-    expect(stats.headingMode).toBe('cog');
-    expect(stats.noLock).toBe(0);
   });
 
   it('takes the duration from the frame-exact count and rate', () => {
@@ -73,8 +54,6 @@ describe('flightStatsFrom', () => {
       frames: 90,
     });
     expect(stats.durationSec).toBe(3);
-    expect(stats.fps).toBe('30');
-    expect(stats.frames).toBe(90);
   });
 });
 
