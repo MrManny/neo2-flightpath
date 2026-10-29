@@ -7,7 +7,11 @@ import { hasAltitude } from '../../src/config.js';
 import type { RenderConfig } from '../../src/config.js';
 import type { Scene } from '../../src/renderer/scene.js';
 import { restyleSceneData } from '../../src/restyle.js';
-import { createFrameDriver, formatTime } from '../lib/framedriver.js';
+import type { LoopPoints } from '../lib/framedriver.js';
+import { createFrameDriver, formatTime, framesForSeconds } from '../lib/framedriver.js';
+import { formatStats } from '../lib/flightstats.js';
+import type { HotkeyAction } from '../lib/hotkeys.js';
+import { mapKey } from '../lib/hotkeys.js';
 import { pipStyle } from '../lib/pipstyle.js';
 import { MapIsland } from './MapIsland.js';
 import { SettingsPanel } from './SettingsPanel.js';
@@ -17,6 +21,21 @@ export interface PlayerChromeProps {
   settings: RenderConfig;
   onSettingsChange: (config: RenderConfig) => void;
   onOpen: () => void;
+}
+
+interface LoopState {
+  in: number | null;
+  out: number | null;
+}
+
+const NO_LOOP: LoopState = { in: null, out: null };
+
+// A region engages only with both ends set and ordered; out-of-order pairs
+// stay dormant until the second point lands inside the region.
+function activeLoopOf(loop: LoopState): LoopPoints | null {
+  return loop.in !== null && loop.out !== null && loop.in < loop.out
+    ? { in: loop.in, out: loop.out }
+    : null;
 }
 
 function CogIcon() {
@@ -36,16 +55,20 @@ export function PlayerChrome({
   onSettingsChange,
   onOpen,
 }: PlayerChromeProps) {
-  const { scene: preparedScene, video, tileBase, bbox } = session;
+  const { scene: preparedScene, video, tileBase, bbox, stats } = session;
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubRef = useRef<HTMLInputElement>(null);
   const sceneRef = useRef<Scene | null>(null);
+  // The head frame: committed or queued, so rapid steps never stack onto a
+  // stale index before the driver's next tick.
   const latestIndexRef = useRef(0);
   const driverRef = useRef<ReturnType<typeof createFrameDriver> | null>(null);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [mapIsMain, setMapIsMain] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [speed, setSpeed] = useState<1 | 2 | 3 | 4>(1);
+  const [loop, setLoop] = useState<LoopState>(NO_LOOP);
   const [timeText, setTimeText] = useState(() => `0:00 / ${formatTime((video.frames - 1) / video.fps)}`);
   const [fpsText, setFpsText] = useState('');
 
@@ -61,6 +84,10 @@ export function PlayerChrome({
       }),
     [preparedScene, settings, video.fps, video.frames, tileBase, bbox],
   );
+
+  const statsChips = useMemo(() => formatStats(stats), [stats]);
+
+  const loopPoints = activeLoopOf(loop);
 
   const handleScene = useCallback((scene: Scene) => {
     sceneRef.current = scene;
@@ -96,14 +123,117 @@ export function PlayerChrome({
     };
   }, [video]);
 
-  const togglePlay = () => {
+  // The loop state lives here; the driver owns the wrap mechanics.
+  useEffect(() => {
+    driverRef.current?.setLoop(activeLoopOf(loop));
+  }, [video, loop]);
+
+  useEffect(() => {
     const videoEl = videoRef.current;
-    if (!videoEl) return;
+    if (videoEl) videoEl.playbackRate = speed;
+  }, [speed, video]);
+
+  const togglePlay = useCallback(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl || !ready) return;
     if (videoEl.paused) void videoEl.play();
     else videoEl.pause();
-  };
+  }, [ready]);
 
-  const swap = () => setMapIsMain((v) => !v);
+  const scrubTo = useCallback(
+    (i: number) => {
+      const clamped = Math.max(0, Math.min(video.frames - 1, i));
+      latestIndexRef.current = clamped;
+      driverRef.current?.scrub(clamped);
+    },
+    [video.frames],
+  );
+
+  const stepBy = useCallback(
+    (deltaFrames: number) => {
+      const videoEl = videoRef.current;
+      // Stepping is for close inspection: it parks playback first.
+      if (videoEl && !videoEl.paused) videoEl.pause();
+      scrubTo(latestIndexRef.current + deltaFrames);
+    },
+    [scrubTo],
+  );
+
+  const setLoopPoint = useCallback((which: 'in' | 'out') => {
+    setLoop((prev) => ({ ...prev, [which]: latestIndexRef.current }));
+  }, []);
+
+  const clearLoop = useCallback(() => setLoop(NO_LOOP), []);
+
+  const swap = useCallback(() => setMapIsMain((v) => !v), []);
+
+  const dispatch = useCallback(
+    (action: HotkeyAction) => {
+      switch (action.type) {
+        case 'togglePlay':
+          togglePlay();
+          return;
+        case 'speed':
+          setSpeed(action.rate);
+          return;
+        case 'step':
+          stepBy(action.frames);
+          return;
+        case 'jump':
+          stepBy(framesForSeconds(video.fps, action.seconds));
+          return;
+        case 'seekStart':
+          scrubTo(0);
+          return;
+        case 'seekEnd':
+          scrubTo(video.frames - 1);
+          return;
+        case 'setLoopIn':
+          setLoopPoint('in');
+          return;
+        case 'setLoopOut':
+          setLoopPoint('out');
+          return;
+        case 'clearLoop':
+          clearLoop();
+          return;
+        case 'swapView':
+          swap();
+          return;
+        case 'openRecording':
+          onOpen();
+          return;
+        case 'closeOverlay':
+          setSettingsOpen(false);
+          return;
+      }
+    },
+    [clearLoop, onOpen, scrubTo, setLoopPoint, stepBy, swap, togglePlay, video.fps, video.frames],
+  );
+
+  // Capture phase so claimed keys win over the map's keyboard pan/zoom; keys
+  // this player does not claim still reach whatever holds focus.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      const action = mapKey(e, { modalOpen: settingsOpen });
+      if (action === null) return;
+      // No page scroll on Space, no double toggle on a focused button.
+      e.preventDefault();
+      e.stopPropagation();
+      dispatch(action);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [dispatch, settingsOpen]);
+
+  const maxFrame = Math.max(0, video.frames - 1);
+  const bandPct = (i: number): number => (maxFrame > 0 ? (i / maxFrame) * 100 : 0);
+  const loopReadout =
+    loop.in !== null || loop.out !== null
+      ? `loop ${loop.in !== null ? formatTime(loop.in / video.fps) : '?'}–${
+          loop.out !== null ? formatTime(loop.out / video.fps) : '?'
+        }`
+      : '';
 
   return (
     <>
@@ -119,7 +249,11 @@ export function PlayerChrome({
             playsInline
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
-            onEnded={() => setPlaying(false)}
+            onEnded={() => {
+              // A loop ending on the last frame repeats via the driver's wrap;
+              // the ended event must not flip it back to Play.
+              if (loopPoints === null) setPlaying(false);
+            }}
           />
         </div>
         <div
@@ -129,6 +263,13 @@ export function PlayerChrome({
           <MapIsland data={sceneData} onScene={handleScene} />
         </div>
       </div>
+      <div className="stats">
+        {statsChips.map((chip) => (
+          <span key={chip} className="stats-chip">
+            {chip}
+          </span>
+        ))}
+      </div>
       <div className="controls">
         <button type="button" onClick={togglePlay} disabled={!ready}>
           {ready ? (playing ? 'Pause' : 'Play') : 'Warming tiles…'}
@@ -136,17 +277,66 @@ export function PlayerChrome({
         <button type="button" onClick={onOpen}>
           Open recording…
         </button>
-        <input
-          ref={scrubRef}
-          type="range"
-          min={0}
-          max={Math.max(0, video.frames - 1)}
-          step={1}
-          defaultValue={0}
-          onChange={(e) => driverRef.current?.scrub(Number(e.target.value))}
-        />
+        <button
+          type="button"
+          aria-label="Set loop in"
+          title="Set loop in (I)"
+          onClick={() => dispatch({ type: 'setLoopIn' })}
+        >
+          In
+        </button>
+        <button
+          type="button"
+          aria-label="Set loop out"
+          title="Set loop out (O)"
+          onClick={() => dispatch({ type: 'setLoopOut' })}
+        >
+          Out
+        </button>
+        <button
+          type="button"
+          aria-label="Clear loop"
+          title="Clear loop (Esc)"
+          disabled={loop.in === null && loop.out === null}
+          onClick={() => dispatch({ type: 'clearLoop' })}
+        >
+          Clear
+        </button>
+        <div className="scrubber">
+          {loopPoints ? (
+            <div
+              className="loop-band"
+              style={{
+                left: `${bandPct(loopPoints.in)}%`,
+                width: `${bandPct(loopPoints.out) - bandPct(loopPoints.in)}%`,
+              }}
+            />
+          ) : null}
+          <input
+            ref={scrubRef}
+            type="range"
+            min={0}
+            max={maxFrame}
+            step={1}
+            defaultValue={0}
+            onChange={(e) => scrubTo(Number(e.target.value))}
+          />
+        </div>
         <span className="readout">{timeText}</span>
         <span className="readout">{fpsText}</span>
+        {loopReadout ? <span className="readout">{loopReadout}</span> : null}
+        {([1, 2, 3, 4] as const).map((rate) => (
+          <button
+            key={rate}
+            type="button"
+            className="speed"
+            aria-pressed={speed === rate}
+            title={`Playback speed ${rate}x (${rate})`}
+            onClick={() => dispatch({ type: 'speed', rate })}
+          >
+            {rate}×
+          </button>
+        ))}
         <span style={{ flex: 1 }} />
         <button type="button" onClick={swap}>
           Swap view

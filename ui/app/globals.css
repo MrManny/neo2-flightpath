@@ -126,6 +126,51 @@ button:disabled {
   justify-content: center;
   padding: 8px 10px;
 }
+.controls button.speed {
+  padding: 8px 10px;
+}
+.controls button.speed[aria-pressed='true'] {
+  background: #41f0ff;
+  color: #071018;
+}
+.controls .scrubber {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+.controls .scrubber input[type='range'] {
+  flex: 1;
+}
+.controls .loop-band {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 10px;
+  background: rgba(65, 240, 255, 0.28);
+  border-left: 1px solid #41f0ff;
+  border-right: 1px solid #41f0ff;
+  pointer-events: none;
+}
+
+.stats {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 64px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 6px 16px;
+  box-sizing: border-box;
+  background: rgba(14, 19, 28, 0.82);
+  color: rgba(255, 255, 255, 0.85);
+}
+.stats .stats-chip {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 .settings-overlay {
   position: fixed;
