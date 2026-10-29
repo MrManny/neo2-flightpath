@@ -72,7 +72,10 @@ export function PlayerChrome({ session, onOpen }: PlayerChromeProps) {
   return (
     <>
       <div className="stage">
-        <div className={`pane ${mapIsMain ? 'pane-pip' : 'pane-main'}`}>
+        <div
+          className={`pane ${mapIsMain ? 'pane-pip' : 'pane-main'}`}
+          style={mapIsMain ? pipStyle(true, video.width, video.height) : undefined}
+        >
           <video
             ref={videoRef}
             src={video.src}
@@ -85,7 +88,6 @@ export function PlayerChrome({ session, onOpen }: PlayerChromeProps) {
         </div>
         <div
           className={`pane ${mapIsMain ? 'pane-main' : 'pane-pip'}`}
-          style={pipStyle(mapIsMain, video.width, video.height)}
           title="Click to swap"
           onClick={swap}
         >

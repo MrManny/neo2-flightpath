@@ -127,4 +127,25 @@ describe('PlayerChrome', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Swap view' }));
     expect(mapPane.className).toContain('pane-main');
   });
+
+  it('pins only the picture-in-picture pane to a sized box', () => {
+    render(<PlayerChrome session={SESSION} onOpen={() => {}} />);
+    const mapPane = screen.getByTestId('map-island').parentElement as HTMLElement;
+    const videoPane = (document.querySelector('video') as HTMLElement).parentElement as HTMLElement;
+
+    // Map in the pip box (CSS-sized); the video pane must fill the stage.
+    expect(mapPane.className).toContain('pane-pip');
+    expect(mapPane.style.width).toBe('');
+    expect(videoPane.className).toContain('pane-main');
+    expect(videoPane.style.width).toBe('');
+
+    // Video in the pip box (aspect-sized, height-bound for portrait);
+    // the map becomes the main pane and must fill the stage, never a pip box.
+    fireEvent.click(screen.getByRole('button', { name: 'Swap view' }));
+    expect(mapPane.className).toContain('pane-main');
+    expect(mapPane.style.width).toBe('');
+    expect(mapPane.style.aspectRatio).toBe('');
+    expect(videoPane.style.width).toBe('auto');
+    expect(videoPane.style.aspectRatio).toBe('1512 / 2688');
+  });
 });
