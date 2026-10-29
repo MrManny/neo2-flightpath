@@ -50,6 +50,12 @@ export function resolveAppAsset(pathname: string, routes: AppRoutes): AppAsset {
 function exportFile(pathname: string, exportRoot: string): AppAsset {
   let rel = pathname.replace(/^\/+/, '');
   if (rel === '' || rel.endsWith('/')) rel += 'index.html';
+  // URL pathnames are POSIX-style; a drive prefix or backslash marks a
+  // Windows-flavored path that POSIX resolution would mistake for a plain
+  // file name. Refuse it outright so the guard behaves the same on every OS.
+  if (rel.split('/').some((s) => s.includes('\\') || /^[a-zA-Z]:/.test(s))) {
+    return { kind: 'not-found' };
+  }
   const filePath = path.resolve(exportRoot, rel);
   const relCheck = path.relative(exportRoot, filePath);
   if (relCheck === '' || relCheck.startsWith('..') || path.isAbsolute(relCheck)) {

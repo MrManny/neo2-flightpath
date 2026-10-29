@@ -46,6 +46,9 @@ describe('resolveAppAsset (export files)', () => {
     { name: 'parent traversal', pathname: '/../secret.txt' },
     { name: 'nested traversal', pathname: '/a/../../secret.txt' },
     { name: 'absolute path escape', pathname: '/C:/secret.txt' },
+    { name: 'backslash traversal', pathname: '/..\\secret.txt' },
+    { name: 'drive prefix mid-path', pathname: '/a/C:/secret.txt' },
+    { name: 'backslash separators', pathname: '/a\\b.js' },
   ])('refuses $name', ({ pathname }) => {
     expect(resolveAppAsset(pathname, routes()).kind).toBe('not-found');
   });
