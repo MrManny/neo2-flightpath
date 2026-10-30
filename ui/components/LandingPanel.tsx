@@ -36,7 +36,7 @@ export function LandingPanel({ state, onPick }: LandingPanelProps) {
         onClick={onPick}
         disabled={state.kind === 'busy'}
       >
-        {state.kind === 'busy' ? 'Preparing…' : 'Open recording…'}
+        {state.kind === 'busy' ? 'Preparing…' : 'Open'}
       </button>
       <p className="status">{statusText(state)}</p>
       <p className="hint">

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { UiSession } from '../../src/appsession.js';
@@ -110,6 +110,38 @@ describe('PlayerChrome', () => {
     expect(screen.getByRole('button', { name: 'Swap view' })).toBeTruthy();
     const video = document.querySelector('video');
     expect(video?.getAttribute('src')).toBe('/video');
+  });
+
+  it('groups the bar into left Open, centered transport, and right view controls', () => {
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
+    const controls = document.querySelector('.controls') as HTMLElement;
+    const left = controls.querySelector('.controls-left') as HTMLElement;
+    const center = controls.querySelector('.controls-center') as HTMLElement;
+    const right = controls.querySelector('.controls-right') as HTMLElement;
+
+    expect(within(left).getAllByRole('button')).toHaveLength(1);
+    expect(within(left).getByRole('button', { name: 'Open' })).toBeTruthy();
+
+    expect(within(center).getByRole('button', { name: /Play|Warming tiles/ })).toBeTruthy();
+    expect(within(center).getByRole('button', { name: 'Set loop in' })).toBeTruthy();
+    expect(within(center).getByRole('button', { name: 'Set loop out' })).toBeTruthy();
+    expect(within(center).getByRole('button', { name: 'Clear loop' })).toBeTruthy();
+    expect(within(center).getByRole('slider')).toBeTruthy();
+    expect(within(center).getByText('0:00 / 0:03')).toBeTruthy();
+    expect(within(center).getByRole('group', { name: 'Playback speed' })).toBeTruthy();
+
+    expect(within(right).getAllByRole('button')).toHaveLength(2);
+    expect(within(right).getByRole('button', { name: 'Swap view' })).toBeTruthy();
+    expect(within(right).getByRole('button', { name: 'Settings' })).toBeTruthy();
+  });
+
+  it('collects the speed buttons in one labeled group', () => {
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
+    const group = screen.getByRole('group', { name: 'Playback speed' });
+    const rates = within(group)
+      .getAllByRole('button')
+      .map((b) => b.textContent);
+    expect(rates).toEqual(['1×', '2×', '3×', '4×']);
   });
 
   it('applies the frame the driver already reached when the scene arrives', async () => {
@@ -394,7 +426,8 @@ describe('PlayerChrome loop region', () => {
   it('sets the loop with I and O, shows the region, and wraps playback into it', async () => {
     const fake = await renderPlayer();
     setLoopRegion(30, 60);
-    expect(screen.getByText('loop 0:01–0:02')).toBeTruthy();
+    const center = document.querySelector('.controls-center') as HTMLElement;
+    expect(within(center).getByText('loop 0:01–0:02')).toBeTruthy();
     const band = document.querySelector('.loop-band') as HTMLElement;
     expect(parseFloat(band.style.left)).toBeCloseTo((30 / 89) * 100);
     expect(parseFloat(band.style.width)).toBeCloseTo((30 / 89) * 100);

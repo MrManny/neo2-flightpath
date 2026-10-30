@@ -18,6 +18,7 @@ import { formatStats } from '../lib/flightstats.js';
 import type { HotkeyAction } from '../lib/hotkeys.js';
 import { mapKey } from '../lib/hotkeys.js';
 import { pipStyle } from '../lib/pipstyle.js';
+import { SettingsIcon } from '../icons/SettingsIcon.js';
 import { MapIsland } from './MapIsland.js';
 import { SettingsPanel } from './SettingsPanel.js';
 
@@ -29,17 +30,6 @@ export interface PlayerChromeProps {
 }
 
 const NO_LOOP: LoopState = { in: null, out: null };
-
-function CogIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M19.14 12.94a7.9 7.9 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.24-1.12.55-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.9 7.9 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.12.2.38.28.6.22l2.39-.96c.5.39 1.05.7 1.63.94l.36 2.54c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.54a7.3 7.3 0 0 0 1.63-.94l2.39.96c.22.06.48-.02.6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"
-      />
-    </svg>
-  );
-}
 
 export function PlayerChrome({
   session,
@@ -62,7 +52,6 @@ export function PlayerChrome({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [speed, setSpeed] = useState<1 | 2 | 3 | 4>(1);
   const [loop, setLoop] = useState<LoopState>(NO_LOOP);
-  const [fpsText, setFpsText] = useState('');
 
   // The one duration definition: the stats chip and the time readout agree.
   const totalText = formatTime(stats.durationSec);
@@ -110,7 +99,6 @@ export function PlayerChrome({
           timeRef.current.textContent = `${formatTime(i / video.fps)} / ${totalText}`;
         }
       },
-      onFps: (fps) => setFpsText(`${fps.toFixed(0)} fps`),
     });
     driverRef.current = driver;
     driver.start();
@@ -271,87 +259,93 @@ export function PlayerChrome({
         ))}
       </div>
       <div className="controls">
-        <button type="button" onClick={togglePlay} disabled={!ready}>
-          {ready ? (playing ? 'Pause' : 'Play') : 'Warming tiles…'}
-        </button>
-        <button type="button" onClick={onOpen}>
-          Open recording…
-        </button>
-        <button
-          type="button"
-          aria-label="Set loop in"
-          title="Set loop in (I)"
-          onClick={() => dispatch({ type: 'setLoopIn' })}
-        >
-          In
-        </button>
-        <button
-          type="button"
-          aria-label="Set loop out"
-          title="Set loop out (O)"
-          onClick={() => dispatch({ type: 'setLoopOut' })}
-        >
-          Out
-        </button>
-        <button
-          type="button"
-          aria-label="Clear loop"
-          title="Clear loop (Esc)"
-          disabled={loop.in === null && loop.out === null}
-          onClick={() => dispatch({ type: 'clearLoop' })}
-        >
-          Clear
-        </button>
-        <div className="scrubber">
-          {loopPoints ? (
-            <div
-              className="loop-band"
-              style={{
-                left: `${bandPct(loopPoints.in)}%`,
-                width: `${bandPct(loopPoints.out) - bandPct(loopPoints.in)}%`,
-              }}
-            />
-          ) : null}
-          <input
-            ref={scrubRef}
-            type="range"
-            min={0}
-            max={maxFrame}
-            step={1}
-            defaultValue={0}
-            onChange={(e) => scrubTo(Number(e.target.value))}
-          />
-        </div>
-        <span className="readout" ref={timeRef}>
-          0:00 / {totalText}
-        </span>
-        <span className="readout">{fpsText}</span>
-        {loopReadout ? <span className="readout">{loopReadout}</span> : null}
-        {([1, 2, 3, 4] as const).map((rate) => (
-          <button
-            key={rate}
-            type="button"
-            className="speed"
-            aria-pressed={speed === rate}
-            title={`Playback speed ${rate}x (${rate})`}
-            onClick={() => dispatch({ type: 'speed', rate })}
-          >
-            {rate}×
+        <div className="controls-left">
+          <button type="button" onClick={onOpen}>
+            Open
           </button>
-        ))}
-        <span style={{ flex: 1 }} />
-        <button type="button" onClick={swap}>
-          Swap view
-        </button>
-        <button
-          type="button"
-          className="cog"
-          title="Settings"
-          aria-label="Settings"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <CogIcon />
-        </button>
+        </div>
+        <div className="controls-center">
+          <button type="button" onClick={togglePlay} disabled={!ready}>
+            {ready ? (playing ? 'Pause' : 'Play') : 'Warming tiles…'}
+          </button>
+          <button
+            type="button"
+            aria-label="Set loop in"
+            title="Set loop in (I)"
+            onClick={() => dispatch({ type: 'setLoopIn' })}
+          >
+            In
+          </button>
+          <button
+            type="button"
+            aria-label="Set loop out"
+            title="Set loop out (O)"
+            onClick={() => dispatch({ type: 'setLoopOut' })}
+          >
+            Out
+          </button>
+          <button
+            type="button"
+            aria-label="Clear loop"
+            title="Clear loop (Esc)"
+            disabled={loop.in === null && loop.out === null}
+            onClick={() => dispatch({ type: 'clearLoop' })}
+          >
+            Clear
+          </button>
+          <div className="scrubber">
+            {loopPoints ? (
+              <div
+                className="loop-band"
+                style={{
+                  left: `${bandPct(loopPoints.in)}%`,
+                  width: `${bandPct(loopPoints.out) - bandPct(loopPoints.in)}%`,
+                }}
+              />
+            ) : null}
+            <input
+              ref={scrubRef}
+              type="range"
+              min={0}
+              max={maxFrame}
+              step={1}
+              defaultValue={0}
+              onChange={(e) => scrubTo(Number(e.target.value))}
+            />
+          </div>
+          <span className="readout" ref={timeRef}>
+            0:00 / {totalText}
+          </span>
+          {loopReadout ? <span className="readout">{loopReadout}</span> : null}
+          <div className="speed-group" role="group" aria-label="Playback speed">
+            {([1, 2, 3, 4] as const).map((rate) => (
+              <button
+                key={rate}
+                type="button"
+                className="speed"
+                aria-pressed={speed === rate}
+                title={`Playback speed ${rate}x (${rate})`}
+                onClick={() => dispatch({ type: 'speed', rate })}
+              >
+                {rate}×
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="controls-right">
+          <button type="button" onClick={swap}>
+            Swap view
+          </button>
+          <button
+            type="button"
+            className="cog"
+            title="Settings"
+            aria-label="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <SettingsIcon />
+          </button>
+        </div>
       </div>
       {settingsOpen ? (
         <SettingsPanel

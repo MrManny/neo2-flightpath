@@ -2,9 +2,10 @@
 
 import { useId, useState } from 'react';
 
-import { PANEL_PRESETS, STYLE_VALUES, VIEW_VALUES } from '../../src/config.js';
+import { STYLE_VALUES, VIEW_VALUES } from '../../src/config.js';
 import type { RenderConfig, Style, View } from '../../src/config.js';
-import { applyPreset, patchConfig, setHudChip } from '../lib/settings.js';
+import { CloseIcon } from '../icons/CloseIcon.js';
+import { patchConfig, setHudChip } from '../lib/settings.js';
 
 export interface SettingsPanelProps {
   config: RenderConfig;
@@ -113,21 +114,9 @@ export function SettingsPanel({
       >
         <div className="settings-header">
           <h2>Settings</h2>
-          <button type="button" onClick={onClose} aria-label="Close">
-            Close
+          <button type="button" onClick={onClose} aria-label="Close" title="Close">
+            <CloseIcon />
           </button>
-        </div>
-
-        <div className="settings-presets">
-          {PANEL_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => onChange(applyPreset(config, preset))}
-            >
-              {preset.label}
-            </button>
-          ))}
         </div>
 
         <SelectField

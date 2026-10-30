@@ -46,28 +46,20 @@ describe('SettingsPanel', () => {
     expect((screen.getByLabelText('Outro (s)') as HTMLInputElement).value).toBe('2');
   });
 
-  it('applies a preset bundle in one click', () => {
-    const onChange = vi.fn();
-    renderPanel(DEFAULT_CONFIG, true, onChange);
-    fireEvent.click(screen.getByRole('button', { name: 'Topo + full HUD' }));
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        style: 'topo',
-        hud: { heading: true, alt: true, speed: true },
-      }),
+  it('closes via the X button with a Close tooltip', () => {
+    const onClose = vi.fn();
+    render(
+      <SettingsPanel
+        config={DEFAULT_CONFIG}
+        hasAltitude
+        onChange={() => {}}
+        onClose={onClose}
+      />,
     );
-  });
-
-  it('keeps manual tweaks working after a preset', () => {
-    const onChange = vi.fn();
-    renderPanel(DEFAULT_CONFIG, true, onChange);
-    fireEvent.click(screen.getByRole('button', { name: 'Quick render' }));
-    fireEvent.change(screen.getByLabelText('Zoom'), {
-      target: { value: '12' },
-    });
-    expect(onChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({ zoom: 12, style: 'satellite' }),
-    );
+    const close = screen.getByRole('button', { name: 'Close' });
+    expect(close.getAttribute('title')).toBe('Close');
+    fireEvent.click(close);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('emits the vocabulary values on control changes', () => {
@@ -120,26 +112,6 @@ describe('SettingsPanel', () => {
 
     fireEvent.change(intro, { target: { value: '1.5' } });
     expect(intro.value).toBe('1.5'); // the committed value stays editable
-  });
-
-  it('shows preset values in the fields after the preset commits', () => {
-    function Harness() {
-      const [current, setCurrent] = useState(DEFAULT_CONFIG);
-      return (
-        <SettingsPanel
-          config={current}
-          hasAltitude
-          onChange={setCurrent}
-          onClose={() => {}}
-        />
-      );
-    }
-    render(<Harness />);
-    fireEvent.click(screen.getByRole('button', { name: 'Quick render' }));
-
-    expect((screen.getByLabelText('Intro (s)') as HTMLInputElement).value).toBe('0');
-    expect((screen.getByLabelText('Zoom') as HTMLInputElement).value).toBe('0');
-    expect((screen.getByLabelText('Map style') as HTMLSelectElement).value).toBe('satellite');
   });
 
   it('shows the effective chip state when the alt chip cannot render', () => {

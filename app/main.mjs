@@ -175,6 +175,10 @@ app.whenReady().then(async () => {
     win = new BrowserWindow({
       width: 1600,
       height: 950,
+      // The control bar needs ~1000px of min-content width; below this the
+      // right-hand buttons would become unreachable.
+      minWidth: 1024,
+      minHeight: 600,
       backgroundColor: '#0e131c',
       autoHideMenuBar: true,
       title: 'neo2-flightpath',

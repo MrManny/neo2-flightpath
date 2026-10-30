@@ -3,12 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CONFIG,
   normalizeOverrides,
-  PANEL_PRESETS,
   parseHud,
   resolveHudSpec,
   validateRenderConfig,
 } from '../src/config.js';
-import type { RenderConfig } from '../src/config.js';
 
 describe('parseHud', () => {
   it('parses comma lists', () => {
@@ -93,48 +91,5 @@ describe('resolveHudSpec', () => {
   it('leaves the other chips untouched when alt is already off', () => {
     const hud = { heading: true, alt: false, speed: true };
     expect(resolveHudSpec(hud, false)).toEqual(hud);
-  });
-});
-
-describe('PANEL_PRESETS', () => {
-  const PANEL_KEYS: Array<keyof RenderConfig> = [
-    'style',
-    'view',
-    'zoom',
-    'zoomOut',
-    'introSec',
-    'outroSec',
-    'hud',
-  ];
-
-  it('names the two documented presets', () => {
-    expect(PANEL_PRESETS.map((p) => p.label)).toEqual([
-      'Quick render',
-      'Topo + full HUD',
-    ]);
-  });
-
-  it('has unique ids', () => {
-    const ids = PANEL_PRESETS.map((p) => p.id);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
-
-  it('bundles every panel knob so no stale values survive a switch', () => {
-    for (const preset of PANEL_PRESETS) {
-      for (const key of PANEL_KEYS) {
-        expect(preset.overrides).toHaveProperty(key);
-      }
-    }
-  });
-
-  it('resolves each bundle to a valid config', () => {
-    for (const preset of PANEL_PRESETS) {
-      const config = {
-        ...DEFAULT_CONFIG,
-        ...preset.overrides,
-        hud: preset.overrides.hud ?? DEFAULT_CONFIG.hud,
-      };
-      expect(() => validateRenderConfig(config)).not.toThrow();
-    }
   });
 });

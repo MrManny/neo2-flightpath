@@ -5,7 +5,6 @@ import { validateRenderConfig } from '../../src/config.js';
 import type {
   ConfigOverrides,
   HudSpec,
-  PanelPreset,
   RenderConfig,
 } from '../../src/config.js';
 
@@ -20,13 +19,6 @@ export function patchConfig(
   } catch {
     return null;
   }
-}
-
-export function applyPreset(
-  config: RenderConfig,
-  preset: PanelPreset,
-): RenderConfig {
-  return patchConfig(config, preset.overrides) ?? config;
 }
 
 export function setHudChip(

@@ -3,6 +3,9 @@ html, body {
   height: 100%;
   background: #0e131c;
   color: #ffffff;
+  /* Dark native widgets (select popups, scrollbars, spinners): Chromium would
+     otherwise paint them white with white option text in dark contexts. */
+  color-scheme: dark;
   font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 * {
@@ -92,13 +95,28 @@ button:disabled {
   right: 0;
   bottom: 0;
   height: 64px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
   padding: 0 16px;
   box-sizing: border-box;
   background: rgba(14, 19, 28, 0.94);
   color: #ffffff;
+}
+.controls-left,
+.controls-center,
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.controls-left {
+  justify-self: start;
+}
+.controls-right {
+  justify-self: end;
 }
 .controls button {
   background: rgba(255, 255, 255, 0.12);
@@ -129,13 +147,29 @@ button:disabled {
 .controls button.speed {
   padding: 8px 10px;
 }
+.controls .speed-group {
+  display: inline-flex;
+}
+.controls .speed-group button.speed {
+  margin-left: -1px;
+  border-radius: 0;
+}
+.controls .speed-group button.speed:first-child {
+  margin-left: 0;
+  border-radius: 8px 0 0 8px;
+}
+.controls .speed-group button.speed:last-child {
+  border-radius: 0 8px 8px 0;
+}
 .controls button.speed[aria-pressed='true'] {
   background: #41f0ff;
   color: #071018;
 }
 .controls .scrubber {
   position: relative;
-  flex: 1;
+  flex: 1 1 auto;
+  width: clamp(120px, 28vw, 420px);
+  min-width: 0;
   display: flex;
   align-items: center;
 }
@@ -203,28 +237,14 @@ button:disabled {
   margin: 0;
 }
 .settings-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.settings-presets {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-.settings-presets button {
-  background: #41f0ff;
-  color: #071018;
-  border: none;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: 6px 8px;
   cursor: pointer;
 }
 .settings-row {
@@ -246,6 +266,10 @@ button:disabled {
   border-radius: 6px;
   padding: 5px 8px;
   font-size: 14px;
+}
+.settings-row select option {
+  background: #16202e;
+  color: #ffffff;
 }
 .settings-row input[type='number'] {
   width: 88px;

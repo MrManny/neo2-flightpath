@@ -10,7 +10,7 @@ afterEach(cleanup);
 describe('LandingPanel', () => {
   it('offers the pick flow when idle', () => {
     render(<LandingPanel state={{ kind: 'idle' }} onPick={() => {}} />);
-    expect(screen.getByRole('button', { name: 'Open recording…' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open' })).toBeTruthy();
     expect(screen.getByText(/SRT sidecar/)).toBeTruthy();
   });
 
@@ -34,7 +34,7 @@ describe('LandingPanel', () => {
   it('invokes onPick on click', async () => {
     const onPick = vi.fn();
     render(<LandingPanel state={{ kind: 'idle' }} onPick={onPick} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Open recording…' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Open' }));
     expect(onPick).toHaveBeenCalledTimes(1);
   });
 });

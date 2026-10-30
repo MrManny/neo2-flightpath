@@ -28,8 +28,6 @@ export interface FrameDriverOpts {
   applyFrame: (i: number) => void;
   /** Reports the committed frame index for the scrubber and time text. */
   onIndex: (i: number) => void;
-  /** Reports the measured playback rate periodically while running. */
-  onFps: (fps: number) => void;
 }
 
 export interface LoopPoints {
@@ -70,10 +68,6 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
   let shownIdx = -1;
   let pendingScrub: number | null = null;
   let loop: LoopState | null = null;
-  let lastFpsT = 0;
-  let fpsAcc = 0;
-  let fpsCount = 0;
-  let fpsShownAt = 0;
   let running = false;
   let rafId = 0;
   let presentedId = 0;
@@ -118,7 +112,7 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
   }
   const usePresented = typeof video.requestVideoFrameCallback === 'function';
 
-  function tick(now: number): void {
+  function tick(_now: number): void {
     if (!running) return;
     rafId = requestAnimationFrame(tick);
     const active = activeLoop();
@@ -138,17 +132,6 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
       // while playing, so a paused scrub target is never re-derived into a
       // neighboring frame.
       commitPlayed(frameFromMediaTime(video.currentTime, fps, frames));
-    }
-    if (lastFpsT > 0) {
-      fpsAcc += now - lastFpsT;
-      fpsCount++;
-    }
-    lastFpsT = now;
-    if (fpsCount >= 20 && now - fpsShownAt > 500) {
-      opts.onFps(1000 / (fpsAcc / fpsCount));
-      fpsAcc = 0;
-      fpsCount = 0;
-      fpsShownAt = now;
     }
   }
 

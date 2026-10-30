@@ -119,20 +119,17 @@ function fakeVideoRvfc(): {
 function build(video: FakeVideo): {
   applyFrame: ReturnType<typeof vi.fn>;
   onIndex: ReturnType<typeof vi.fn>;
-  onFps: ReturnType<typeof vi.fn>;
   driver: ReturnType<typeof createFrameDriver>;
 } {
   const applyFrame = vi.fn();
   const onIndex = vi.fn();
-  const onFps = vi.fn();
   const driver = createFrameDriver({
     video: video as unknown as HTMLVideoElement,
     meta: META,
     applyFrame,
     onIndex,
-    onFps,
   });
-  return { applyFrame, onIndex, onFps, driver };
+  return { applyFrame, onIndex, driver };
 }
 
 beforeEach(() => {
@@ -196,14 +193,6 @@ describe('createFrameDriver', () => {
     flushRaf();
     flushRaf();
     expect(applyFrame).toHaveBeenCalledTimes(1);
-  });
-
-  it('reports fps after sustained sampling', () => {
-    const video = fakeVideo();
-    const { onFps, driver } = build(video);
-    driver.start();
-    for (let i = 0; i < 25; i++) flushRaf();
-    expect(onFps).toHaveBeenCalled();
   });
 
   it('stops applying frames after stop()', () => {
