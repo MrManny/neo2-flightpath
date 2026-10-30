@@ -102,6 +102,16 @@ export function hasAltitude(alt: readonly (number | null)[]): boolean {
   return alt.some((a) => a !== null);
 }
 
+// The CLI-string form of a HUD spec ("none" when no chip is on), the inverse
+// of parseHud.
+export function formatHud(hud: HudSpec): string {
+  const parts: string[] = [];
+  if (hud.heading) parts.push('heading');
+  if (hud.alt) parts.push('alt');
+  if (hud.speed) parts.push('speed');
+  return parts.length ? parts.join(',') : 'none';
+}
+
 function asNumber(value: unknown, name: string): number {
   const n = typeof value === 'string' ? Number(value) : value;
   if (typeof n !== 'number' || !Number.isFinite(n)) {
@@ -184,11 +194,19 @@ export function normalizeOverrides(
   return out;
 }
 
+// The smallest canvas the renderer and the app's dimension fields accept, in
+// one home so the CLI, the pipeline and the export modal cannot disagree.
+export const MIN_DIMENSION = 64;
+
 // The negated comparisons are NaN-safe: they also reject NaN sneak-ins.
-export function validateRenderConfig(config: RenderConfig): void {
-  if (!(config.width >= 64) || !(config.height >= 64)) {
-    throw new Error('width and height must be at least 64');
+export function validateDimensions(width: number, height: number): void {
+  if (!(width >= MIN_DIMENSION) || !(height >= MIN_DIMENSION)) {
+    throw new Error(`width and height must be at least ${MIN_DIMENSION}`);
   }
+}
+
+export function validateRenderConfig(config: RenderConfig): void {
+  validateDimensions(config.width, config.height);
   if (!Number.isInteger(config.workers) || config.workers < 1) {
     throw new Error('workers must be a positive integer');
   }
@@ -198,4 +216,103 @@ export function validateRenderConfig(config: RenderConfig): void {
     throw new Error('intro-sec and outro-sec must be >= 0');
   }
   if (!config.outSuffix) throw new Error('out-suffix must not be empty');
+}
+
+// ---- export vocabulary (the UI's export modal -> the app's export job) ----
+
+/** Inclusive source-frame range, e.g. the loop's In/Out points. */
+export interface FrameRange {
+  start: number;
+  end: number;
+}
+
+export interface ExportRequest {
+  /** Destination path; the .mp4 extension fixes the container. */
+  outPath: string;
+  /** The settings snapshot (panel look + export dimensions), frozen at confirm. */
+  config: RenderConfig;
+  /** Source-frame segment to export, or null for the full recording. */
+  range: FrameRange | null;
+}
+
+export function parseFrameRange(raw: unknown, name = 'frame range'): FrameRange {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`invalid ${name}`);
+  }
+  const r = raw as Record<string, unknown>;
+  for (const key of Object.keys(r)) {
+    if (key !== 'start' && key !== 'end') {
+      throw new Error(`unknown ${name} key ${key}`);
+    }
+  }
+  const start = asNumber(r.start, `${name}: start`);
+  const end = asNumber(r.end, `${name}: end`);
+  if (!Number.isInteger(start) || !Number.isInteger(end)) {
+    throw new Error(`invalid ${name}: start and end must be integer frame indices`);
+  }
+  if (start < 0 || start >= end) {
+    throw new Error(`invalid ${name}: expected 0 <= start < end, got ${start}-${end}`);
+  }
+  return { start, end };
+}
+
+function parseHudObject(value: unknown, name: string): HudSpec {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`invalid value for ${name}`);
+  }
+  const h = value as Record<string, unknown>;
+  for (const key of Object.keys(h)) {
+    if (key !== 'heading' && key !== 'alt' && key !== 'speed') {
+      throw new Error(`unknown key ${key} in ${name}`);
+    }
+  }
+  return {
+    heading: asBool(h.heading, `${name}: heading`),
+    alt: asBool(h.alt, `${name}: alt`),
+    speed: asBool(h.speed, `${name}: speed`),
+  };
+}
+
+// Machine-owned settings the renderer never chooses: the main process's
+// resolved values stay authoritative, so a snapshot cannot redirect the tile
+// cache, the browser, the worker count or the CLI-only switches.
+const MAIN_OWNED_KEYS = [
+  'outDir', 'outSuffix', 'tileCache', 'browser', 'workers', 'capture', 'preset',
+  'skipExisting', 'recurse', 'json', 'quiet',
+] as const;
+
+// The renderer sends the look and the export dimensions; everything else comes
+// from the main process. The HUD spec travels in its CLI string form so the
+// vocabulary's own normalizers stay the single validation home.
+function parseRequestConfig(raw: unknown, base: RenderConfig): RenderConfig {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('invalid export request: config');
+  }
+  const flat = { ...(raw as Record<string, unknown>) };
+  for (const key of MAIN_OWNED_KEYS) delete flat[key];
+  if (flat.hud !== undefined && flat.hud !== null) {
+    flat.hud = formatHud(parseHudObject(flat.hud, 'export request: config: hud'));
+  }
+  const config = { ...base, ...normalizeOverrides(flat, 'export request: config') };
+  validateRenderConfig(config);
+  return config;
+}
+
+export function parseExportRequest(raw: unknown, base: RenderConfig): ExportRequest {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('invalid export request');
+  }
+  const r = raw as Record<string, unknown>;
+  for (const key of Object.keys(r)) {
+    if (key !== 'outPath' && key !== 'config' && key !== 'range') {
+      throw new Error(`unknown export request key ${key}`);
+    }
+  }
+  const outPath = asString(r.outPath, 'export request: outPath');
+  if (!outPath.toLowerCase().endsWith('.mp4')) {
+    throw new Error(`export request: outPath must be an .mp4 file: ${outPath}`);
+  }
+  const range =
+    r.range === undefined || r.range === null ? null : parseFrameRange(r.range);
+  return { outPath, config: parseRequestConfig(r.config, base), range };
 }

@@ -17,7 +17,7 @@ import type { IntroOutroFrames, Overview } from './plan.js';
 import { buildPageHtml, planPageOpts } from './page.js';
 import type { PageOpts } from './page.js';
 import { renderVideo } from './render.js';
-import type { HudSpec, RenderConfig } from './config.js';
+import type { FrameRange, HudSpec, RenderConfig } from './config.js';
 import { hasAltitude, resolveHudSpec } from './config.js';
 import {
   fixesLabel,
@@ -48,6 +48,8 @@ export interface RecordingSummary {
   noLock?: number;
   frames?: number;
   fps?: string;
+  /** Set when the export covered a source-frame segment instead of everything. */
+  frameRange?: FrameRange;
   trackDistanceM?: number;
   bbox?: Bbox;
   zoom?: number;
@@ -203,6 +205,30 @@ const realDeps: PipelineDeps = {
 export interface PipelineOptions {
   deps?: PipelineDeps;
   trace?: TraceContext;
+  /** Source-frame segment to render; omit for the full recording. */
+  range?: FrameRange;
+  /** Aborting stops the render at the next frame and cleans up the output. */
+  signal?: AbortSignal;
+}
+
+// A segment export renders source frames start..end inclusive; the guard
+// keeps the render and the verification honest about what the source has.
+function resolveRange(
+  range: FrameRange | undefined,
+  frames: number,
+): FrameRange | null {
+  if (!range) return null;
+  if (range.start < 0 || range.start >= range.end) {
+    throw new Error(
+      `invalid frame range: expected 0 <= start < end, got ${range.start}-${range.end}`,
+    );
+  }
+  if (range.end >= frames) {
+    throw new Error(
+      `frame range ${range.start}-${range.end} is beyond the recording (${frames} frames)`,
+    );
+  }
+  return range;
 }
 
 // Everything the shared renderer page needs after the I/O shell stages ran.
@@ -341,6 +367,9 @@ interface RenderContext extends PreparedRecording {
   outPath: string;
   config: RenderConfig;
   log: LogFn;
+  /** Frames actually rendered: the source count or the exported range's. */
+  outFrames: number;
+  frameRange: FrameRange | null;
 }
 
 function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummary {
@@ -357,8 +386,9 @@ function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummar
     outroFrames: introOutro.outroN,
     hud,
     ...telemetrySummary(tel),
-    frames: probe.frames,
+    frames: ctx.outFrames,
     fps: probe.fps.str,
+    frameRange: ctx.frameRange ?? undefined,
     bbox: tel.bbox,
     zoom: overview.zoom,
     zoomFixed: config.zoom > 0,
@@ -383,6 +413,7 @@ export async function processRecording(
   const t0 = Date.now();
   const tracer = options.trace?.tracer ?? NOOP_TRACER;
   const deps = options.deps ?? realDeps;
+  if (options.signal?.aborted) throw new Error('render canceled');
 
   return stage(
     tracer,
@@ -406,6 +437,9 @@ export async function processRecording(
         'telemetry.source': prep.tel.source,
       });
 
+      const range = resolveRange(options.range, prep.probe.frames);
+      const outFrames = range ? range.end - range.start + 1 : prep.probe.frames;
+
       const html = buildPageHtml(recordingPageOpts(prep, config));
 
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
@@ -418,19 +452,21 @@ export async function processRecording(
           tileCache: config.tileCache,
           width: prep.width,
           height: prep.height,
-          frames: prep.probe.frames,
+          frames: outFrames,
+          frameStart: range ? range.start : 0,
           fpsStr: prep.probe.fps.str,
           workers: config.workers,
           outPath,
           browserPath: config.browser,
+          signal: options.signal,
           log,
           trace: { tracer, parent: root },
         });
 
         await stage(tracer, 'output.verify', root, {}, async (span) => {
-          const verify = await deps.verifyOutput(outPath, prep.probe.frames, prep.probe.fps.value);
+          const verify = await deps.verifyOutput(outPath, outFrames, prep.probe.fps.value);
           span.setAttributes({
-            'verify.frames.expected': prep.probe.frames,
+            'verify.frames.expected': outFrames,
             'verify.frames.actual': verify.frames,
             'verify.fps.expected': prep.probe.fps.str,
             'verify.fps.actual': verify.fps ?? 'unknown',
@@ -439,11 +475,15 @@ export async function processRecording(
           if (!verify.ok) {
             throw new Error(
               `output verification failed: got ${verify.frames} frames @ ${verify.fps ?? 'unknown'}, ` +
-                `expected ${prep.probe.frames} @ ${prep.probe.fps.str}`,
+                `expected ${outFrames} @ ${prep.probe.fps.str}`,
             );
           }
         });
-        log('verified: frame count and frame rate match the source');
+        log(
+          range
+            ? 'verified: frame count and frame rate are 1:1 within the exported range'
+            : 'verified: frame count and frame rate match the source',
+        );
       });
 
       return buildOkSummary(
@@ -453,6 +493,8 @@ export async function processRecording(
           outPath,
           config,
           log,
+          outFrames,
+          frameRange: range,
         },
         Math.round((Date.now() - t0) / 1000),
       );

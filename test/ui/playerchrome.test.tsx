@@ -130,8 +130,9 @@ describe('PlayerChrome', () => {
     expect(within(center).getByText('0:00 / 0:03')).toBeTruthy();
     expect(within(center).getByRole('group', { name: 'Playback speed' })).toBeTruthy();
 
-    expect(within(right).getAllByRole('button')).toHaveLength(2);
+    expect(within(right).getAllByRole('button')).toHaveLength(3);
     expect(within(right).getByRole('button', { name: 'Swap view' })).toBeTruthy();
+    expect(within(right).getByRole('button', { name: 'Export' })).toBeTruthy();
     expect(within(right).getByRole('button', { name: 'Settings' })).toBeTruthy();
   });
 

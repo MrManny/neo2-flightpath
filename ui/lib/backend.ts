@@ -3,12 +3,32 @@
 // native dialog or the pipeline.
 
 import type { PickResult, UiSession } from '../../src/appsession.js';
-import type { RenderConfig } from '../../src/config.js';
+import type { ExportRequest, RenderConfig } from '../../src/config.js';
+import type { ExportOutcome } from '../../src/exportjob.js';
+
+export interface PickOutputResult {
+  ok: boolean;
+  path?: string;
+  canceled?: boolean;
+  error?: string;
+}
+
+export interface ExportAck {
+  ok: boolean;
+  error?: string;
+}
 
 export interface AppBridge {
   pickRecording(): Promise<PickResult>;
   getSession(): Promise<UiSession | null>;
   getSettings(): Promise<RenderConfig>;
+  pickExportOutput(): Promise<PickOutputResult>;
+  startExport(request: ExportRequest): Promise<ExportAck>;
+  cancelExport(): Promise<ExportAck>;
+  revealExportOutput(out: string): Promise<ExportAck>;
+  openExportOutput(out: string): Promise<ExportAck>;
+  onExportProgress(cb: (message: string) => void): () => void;
+  onExportDone(cb: (outcome: ExportOutcome) => void): () => void;
 }
 
 declare global {

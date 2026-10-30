@@ -19,6 +19,7 @@ import type { HotkeyAction } from '../lib/hotkeys.js';
 import { mapKey } from '../lib/hotkeys.js';
 import { pipStyle } from '../lib/pipstyle.js';
 import { SettingsIcon } from '../icons/SettingsIcon.js';
+import { ExportModal } from './ExportModal.js';
 import { MapIsland } from './MapIsland.js';
 import { SettingsPanel } from './SettingsPanel.js';
 
@@ -50,14 +51,17 @@ export function PlayerChrome({
   const [playing, setPlaying] = useState(false);
   const [mapIsMain, setMapIsMain] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  // A running export must stay visible: Esc and the backdrop cannot hide it.
+  const [exportBusy, setExportBusy] = useState(false);
   const [speed, setSpeed] = useState<1 | 2 | 3 | 4>(1);
   const [loop, setLoop] = useState<LoopState>(NO_LOOP);
 
   // The one duration definition: the stats chip and the time readout agree.
   const totalText = formatTime(stats.durationSec);
 
-  // One settings -> scene mapping for the preview and the later export: the
-  // same pure planners the pipeline runs.
+  // One settings -> scene mapping for the preview and the export: the same
+  // pure planners the pipeline runs.
   const sceneData = useMemo(
     () =>
       restyleSceneData(preparedScene, settings, {
@@ -196,18 +200,22 @@ export function PlayerChrome({
           onOpen();
           return;
         case 'closeOverlay':
+          if (exportOpen) {
+            if (!exportBusy) setExportOpen(false);
+            return;
+          }
           setSettingsOpen(false);
           return;
       }
     },
-    [clearLoop, onOpen, scrubTo, setLoopPoint, stepBy, swap, togglePlay, video.fps, video.frames],
+    [clearLoop, exportBusy, exportOpen, onOpen, scrubTo, setLoopPoint, stepBy, swap, togglePlay, video.fps, video.frames],
   );
 
   // Capture phase so claimed keys win over the map's keyboard pan/zoom; keys
   // this player does not claim still reach whatever holds focus.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      const action = mapKey(e, { modalOpen: settingsOpen });
+      const action = mapKey(e, { modalOpen: settingsOpen || exportOpen });
       if (action === null) return;
       // No page scroll on Space, no double toggle on a focused button.
       e.preventDefault();
@@ -216,7 +224,7 @@ export function PlayerChrome({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [dispatch, settingsOpen]);
+  }, [dispatch, settingsOpen, exportOpen]);
 
   const maxFrame = Math.max(0, video.frames - 1);
   const bandPct = (i: number): number => (maxFrame > 0 ? (i / maxFrame) * 100 : 0);
@@ -336,6 +344,9 @@ export function PlayerChrome({
           <button type="button" onClick={swap}>
             Swap view
           </button>
+          <button type="button" onClick={() => setExportOpen(true)}>
+            Export
+          </button>
           <button
             type="button"
             className="cog"
@@ -353,6 +364,15 @@ export function PlayerChrome({
           hasAltitude={hasAltitude(preparedScene.alt)}
           onChange={onSettingsChange}
           onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+      {exportOpen ? (
+        <ExportModal
+          session={session}
+          settings={settings}
+          loop={loop}
+          onClose={() => setExportOpen(false)}
+          onBusyChange={setExportBusy}
         />
       ) : null}
     </>

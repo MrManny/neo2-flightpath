@@ -194,6 +194,8 @@ export interface RenderOpts {
   width: number;
   height: number;
   frames: number;
+  /** First source frame to capture; a segment export starts mid-recording. */
+  frameStart?: number;
   fpsStr: string;
   workers: number;
   outPath: string;
@@ -201,6 +203,8 @@ export interface RenderOpts {
   browserPath?: string | null;
   capture: Capture;
   preset: Preset;
+  /** Aborting kills the encoder and stops the workers at the next frame. */
+  signal?: AbortSignal;
   trace?: TraceContext;
 }
 
@@ -282,7 +286,7 @@ export async function renderVideo(
   const {
     html, style, tileCache, width, height, frames, fpsStr,
     workers, outPath, log = () => {}, browserPath = null,
-    capture = 'jpeg', preset = 'medium', trace,
+    capture = 'jpeg', preset = 'medium', frameStart = 0, signal, trace,
   } = opts;
 
   const tracer = trace?.tracer ?? NOOP_TRACER;
@@ -297,6 +301,7 @@ export async function renderVideo(
       'render.preset': preset,
     },
     async (renderSpan) => {
+      if (signal?.aborted) throw new Error('render canceled');
       const presetAttributes = { 'render.preset': preset };
       const timing: StageTiming = { evalMs: 0, captureMs: 0, emitMs: 0 };
       const { server, url } = await startServer({ html, style, tileCache });
@@ -306,6 +311,10 @@ export async function renderVideo(
       // show that overlap.
       async function captureAndEncode(active: Browser): Promise<void> {
         const encoder = spawnEncoder(fpsStr, preset, outPath);
+        // A cancel must reach the encoder directly: a worker parked on stdin
+        // backpressure would otherwise never notice the abort.
+        const killOnAbort = (): void => encoder.kill();
+        signal?.addEventListener('abort', killOnAbort, { once: true });
         const stream = new OrderedFrameStream(encoder);
         try {
           await stage(tracer, 'render.encode', renderSpan, { ...presetAttributes }, async (encodeSpan) => {
@@ -328,6 +337,7 @@ export async function renderVideo(
                     // A doomed render stops at the next frame: survivors have
                     // to settle before the spans below are wound down.
                     if (failed) return;
+                    if (signal?.aborted) throw new Error('render canceled');
                     const idx = captureCursor++;
                     if (idx >= frames) break;
                     let t0 = Date.now();
@@ -335,9 +345,9 @@ export async function renderVideo(
                     // drawing is deferred to requestAnimationFrame); awaiting
                     // it keeps every screenshot on the current frame.
                     await page.evaluate(
-                      (i: number) =>
-                        (globalThis as unknown as { __setFrame: (n: number) => Promise<void> }).__setFrame(i),
-                      idx,
+                      (frame: number) =>
+                        (globalThis as unknown as { __setFrame: (n: number) => Promise<void> }).__setFrame(frame),
+                      frameStart + idx,
                     );
                     timing.evalMs += Date.now() - t0;
                     t0 = Date.now();
@@ -389,6 +399,8 @@ export async function renderVideo(
         } catch (e) {
           encoder.kill();
           throw e;
+        } finally {
+          signal?.removeEventListener('abort', killOnAbort);
         }
       }
 

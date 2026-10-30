@@ -284,3 +284,70 @@ button:disabled {
   color: rgba(255, 255, 255, 0.6);
   padding: 0 0 4px;
 }
+.export-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.export-progress {
+  margin: 10px 0 4px;
+}
+.export-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.export-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #41f0ff;
+  transition: width 0.25s ease;
+}
+.export-progress-label {
+  margin-top: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.export-stage {
+  font-size: 14px;
+  color: #ffffff;
+}
+.export-hint {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+/* Secondary modal actions share the player's button look (see .controls button). */
+.settings-row button.modal-button {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.settings-row button.modal-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.settings-row button.export-primary {
+  background: #41f0ff;
+  color: #071018;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.settings-row button.export-primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
