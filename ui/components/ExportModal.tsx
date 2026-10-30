@@ -4,12 +4,15 @@ import { useEffect, useReducer } from 'react';
 
 import type { UiSession } from '../../src/appsession.js';
 import type { ExportRequest, FrameRange, RenderConfig } from '../../src/config.js';
+import { MIN_DIMENSION, validateDimensions } from '../../src/config.js';
 import { appBridge } from '../lib/backend.js';
+import { describeError } from '../lib/errortext.js';
+import { captureFraction, exportReducer, initialExportState } from '../lib/exportstate.js';
+import { formatFrameRate } from '../lib/framerate.js';
 import { engagedLoop, formatTime } from '../lib/framedriver.js';
 import type { LoopState } from '../lib/framedriver.js';
-import { captureFraction, exportReducer, initialExportState } from '../lib/exportstate.js';
-import { MIN_DIMENSION, validateDimensions } from '../../src/config.js';
-import { CloseIcon } from '../icons/CloseIcon.js';
+import { DialogClose } from './DialogClose.js';
+import { Notice } from './Notice.js';
 import { NumberField } from './NumberField.js';
 
 // The modal's dimensions go through the same rule the CLI and pipeline apply.
@@ -30,7 +33,6 @@ export interface ExportModalProps {
   /** Tells the player whether the modal may be dismissed (not while a job runs). */
   onBusyChange: (busy: boolean) => void;
 }
-
 
 export function ExportModal({
   session,
@@ -139,6 +141,7 @@ export function ExportModal({
           ` · ${loopPoints.out - loopPoints.in + 1} frames`,
       }
     : null;
+  const errorText = error === null ? null : describeError(error);
 
   return (
     <div
@@ -155,11 +158,10 @@ export function ExportModal({
       >
         <div className="settings-header">
           <h2>Export</h2>
-          {!busy ? (
-            <button type="button" onClick={onClose} aria-label="Close" title="Close">
-              <CloseIcon />
-            </button>
-          ) : null}
+          <DialogClose
+            onClose={onClose}
+            blockedReason={busy ? 'Export is running. Cancel it to close.' : undefined}
+          />
         </div>
 
         {phase === 'form' ? (
@@ -196,6 +198,7 @@ export function ExportModal({
                 label="Width"
                 value={form.width}
                 min={MIN_DIMENSION}
+                rule={`at least ${MIN_DIMENSION} px`}
                 hint="px"
                 onValue={(width) => {
                   if (!dimensionsValid(width, form.height)) return false;
@@ -207,6 +210,7 @@ export function ExportModal({
                 label="Height"
                 value={form.height}
                 min={MIN_DIMENSION}
+                rule={`at least ${MIN_DIMENSION} px`}
                 hint="px"
                 onValue={(height) => {
                   if (!dimensionsValid(form.width, height)) return false;
@@ -216,17 +220,21 @@ export function ExportModal({
               />
             </fieldset>
 
-            {error ? <p className="hint">{error}</p> : null}
-            <div className="settings-row">
+            {errorText ? (
+              <Notice tone="danger" details={errorText.technical}>
+                {errorText.text}
+              </Notice>
+            ) : null}
+            <div className="dialog-actions">
+              <button type="button" className="modal-button" onClick={onClose}>
+                Cancel
+              </button>
               <button
                 type="button"
                 className="export-primary"
                 onClick={() => void chooseAndExport()}
               >
-                Export…
-              </button>
-              <button type="button" className="modal-button" onClick={onClose}>
-                Cancel
+                Start export
               </button>
             </div>
           </>
@@ -256,8 +264,13 @@ export function ExportModal({
                     : `Rendering ${Math.round(fraction * 100)}%`}
               </div>
             </div>
-            <div className="settings-row">
-              <button type="button" className="modal-button" onClick={cancelExport} disabled={canceling}>
+            <div className="dialog-actions">
+              <button
+                type="button"
+                className="modal-button"
+                onClick={cancelExport}
+                disabled={canceling}
+              >
                 Cancel export
               </button>
             </div>
@@ -266,23 +279,24 @@ export function ExportModal({
 
         {phase === 'done' && result ? (
           <>
-            <div className="settings-row">
-              <span>
-                {result.frames} frames @ {result.fps} · {result.elapsedSec} s ·{' '}
-                {result.width}×{result.height}
-              </span>
-            </div>
-            <div className="settings-row">
-              <span className="export-path">{result.out}</span>
-            </div>
-            <div className="settings-row">
-              <button type="button" className="modal-button" onClick={() => runOnBridge((b) => b.revealExportOutput(result.out))}
+            <Notice tone="info">
+              {`${result.frames} frames @ ${formatFrameRate(result.fps ?? '')} · ${result.elapsedSec} s · ${result.width}×${result.height}`}
+            </Notice>
+            <p className="export-path">{result.out}</p>
+            <div className="dialog-actions">
+              <button
+                type="button"
+                className="modal-button"
+                onClick={() => runOnBridge((b) => b.revealExportOutput(result.out))}
               >
                 Reveal in folder
               </button>
-              <button type="button" className="modal-button" onClick={() => runOnBridge((b) => b.openExportOutput(result.out))}
+              <button
+                type="button"
+                className="modal-button"
+                onClick={() => runOnBridge((b) => b.openExportOutput(result.out))}
               >
-                Open
+                Open video
               </button>
               <button type="button" className="modal-button" onClick={onClose}>
                 Close
@@ -292,19 +306,22 @@ export function ExportModal({
         ) : null}
 
         {phase === 'canceled' ? (
-          <div className="settings-row">
-            <span>Export canceled; its working file was removed.</span>
-            <button type="button" className="modal-button" onClick={onClose}>
-              Close
-            </button>
-          </div>
+          <>
+            <Notice tone="info">Export canceled; its working file was removed.</Notice>
+            <div className="dialog-actions">
+              <button type="button" className="modal-button" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </>
         ) : null}
 
-        {phase === 'error' ? (
+        {phase === 'error' && errorText ? (
           <>
-            <p className="hint">{error}</p>
-            <p className="hint">The destination file was left untouched.</p>
-            <div className="settings-row">
+            <Notice tone="danger" details={errorText.technical}>
+              {`${errorText.text} The destination file was left untouched.`}
+            </Notice>
+            <div className="dialog-actions">
               <button type="button" className="modal-button" onClick={onClose}>
                 Close
               </button>
