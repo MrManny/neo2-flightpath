@@ -7,6 +7,7 @@ import { DEFAULT_CONFIG } from '../../src/config.js';
 import type { RenderConfig } from '../../src/config.js';
 import type { Scene } from '../../src/renderer/scene.js';
 import { PlayerChrome } from '../../ui/components/PlayerChrome.js';
+import type { PickState } from '../../ui/lib/pickstate.js';
 
 const fakeScene = vi.hoisted((): Scene => ({
   setFrame: vi.fn(() => Promise.resolve()),
@@ -120,7 +121,7 @@ describe('PlayerChrome', () => {
     const right = controls.querySelector('.controls-right') as HTMLElement;
 
     expect(within(left).getAllByRole('button')).toHaveLength(1);
-    expect(within(left).getByRole('button', { name: 'Open' })).toBeTruthy();
+    expect(within(left).getByRole('button', { name: 'Open…' })).toBeTruthy();
 
     expect(within(center).getByRole('button', { name: /Play|Warming tiles/ })).toBeTruthy();
     expect(within(center).getByRole('button', { name: 'Set loop in' })).toBeTruthy();
@@ -132,7 +133,7 @@ describe('PlayerChrome', () => {
 
     expect(within(right).getAllByRole('button')).toHaveLength(3);
     expect(within(right).getByRole('button', { name: 'Swap view' })).toBeTruthy();
-    expect(within(right).getByRole('button', { name: 'Export' })).toBeTruthy();
+    expect(within(right).getByRole('button', { name: 'Export…' })).toBeTruthy();
     expect(within(right).getByRole('button', { name: 'Settings' })).toBeTruthy();
   });
 
@@ -551,3 +552,57 @@ describe('PlayerChrome flight stats strip', () => {
     expect(screen.getByText('0:00 / 0:03')).toBeTruthy();
   });
 });
+
+describe('PlayerChrome open notice', () => {
+  it('reports a failed Open inside the player and keeps the recording on screen', () => {
+    const onDismiss = vi.fn();
+    render(
+      <PlayerChrome
+        session={SESSION}
+        settings={SETTINGS}
+        onSettingsChange={() => {}}
+        onOpen={() => {}}
+        openState={{ kind: 'error', message: 'not a readable .mp4 file: C:\\Windows\\win.ini' }}
+        onDismissOpenState={onDismiss}
+      />,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('"win.ini" is not a readable .mp4 recording.');
+    expect(document.querySelector('.controls')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the preparing status over the player and holds Open until the file is ready', () => {
+    render(
+      <PlayerChrome
+        session={SESSION}
+        settings={SETTINGS}
+        onSettingsChange={() => {}}
+        onOpen={() => {}}
+        openState={{ kind: 'preparing' }}
+      />,
+    );
+    expect(screen.getByText('Preparing the recording (telemetry and map tiles)…')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Open…' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe.each<PickState>([{ kind: 'idle' }, { kind: 'picking' }, { kind: 'canceled' }, { kind: 'ready' }])(
+  'PlayerChrome with the $kind open state',
+  (openState) => {
+    it('shows no notice and keeps Open available', () => {
+      render(
+        <PlayerChrome
+          session={SESSION}
+          settings={SETTINGS}
+          onSettingsChange={() => {}}
+          onOpen={() => {}}
+          openState={openState}
+        />,
+      );
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.queryByRole('status')).toBeNull();
+      expect((screen.getByRole('button', { name: 'Open…' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+  },
+);
