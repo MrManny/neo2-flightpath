@@ -18,10 +18,10 @@ describe('formatStats', () => {
     expect(formatStats(STATS)).toEqual([
       'Duration 0:03',
       'Track 567 m',
-      'cammeta (ffprobe)',
+      'Camera metadata (ffprobe)',
       '1234 fixes',
       '8 no-lock cues',
-      'heading: yaw',
+      'Heading: drone yaw',
     ]);
   });
 
@@ -29,9 +29,9 @@ describe('formatStats', () => {
     expect(formatStats({ ...STATS, noLock: 0 })).toEqual([
       'Duration 0:03',
       'Track 567 m',
-      'cammeta (ffprobe)',
+      'Camera metadata (ffprobe)',
       '1234 fixes',
-      'heading: yaw',
+      'Heading: drone yaw',
     ]);
   });
 
@@ -45,10 +45,10 @@ describe('formatStats', () => {
   });
 
   it('shows the cog heading mode', () => {
-    expect(formatStats({ ...STATS, headingMode: 'cog' })).toContain('heading: cog');
+    expect(formatStats({ ...STATS, headingMode: 'cog' })).toContain('Heading: course over ground');
   });
 
   it('keeps srt-sourced telemetry readable', () => {
-    expect(formatStats({ ...STATS, source: 'srt', method: 'sidecar' })).toContain('srt (sidecar)');
+    expect(formatStats({ ...STATS, source: 'srt', method: 'sidecar' })).toContain('SRT (sidecar)');
   });
 });

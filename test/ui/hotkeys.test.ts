@@ -24,7 +24,10 @@ describe('mapKey', () => {
     { name: 'legacy Spacebar toggles play', event: { key: 'Spacebar' }, want: { type: 'togglePlay' } },
     { name: 'K toggles play', event: { key: 'k' }, want: { type: 'togglePlay' } },
     { name: 'shift+K toggles play', event: { key: 'K', shiftKey: true }, want: { type: 'togglePlay' } },
-    { name: 'Space on a button claims the key', event: { key: ' ', target: button }, want: { type: 'togglePlay' } },
+    { name: 'Space yields to a focused button', event: { key: ' ', target: button }, want: null },
+    { name: 'Space yields to a focused link', event: { key: ' ', target: { tagName: 'A' } }, want: null },
+    { name: 'Space yields to a focused disclosure', event: { key: ' ', target: { tagName: 'SUMMARY' } }, want: null },
+    { name: 'K on a focused button still toggles play', event: { key: 'k', target: button }, want: { type: 'togglePlay' } },
     ...([1, 2, 3, 4] as const).map(
       (rate): Case => ({
         name: `digit ${rate} sets speed ${rate}x`,

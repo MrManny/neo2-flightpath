@@ -127,7 +127,7 @@ describe('PlayerChrome', () => {
     expect(within(center).getByRole('button', { name: 'Set loop in' })).toBeTruthy();
     expect(within(center).getByRole('button', { name: 'Set loop out' })).toBeTruthy();
     expect(within(center).getByRole('button', { name: 'Clear loop' })).toBeTruthy();
-    expect(within(center).getByRole('slider')).toBeTruthy();
+    expect(within(center).getByRole('slider', { name: 'Playback position' })).toBeTruthy();
     expect(within(center).getByText('0:00 / 0:03')).toBeTruthy();
     expect(within(center).getByRole('group', { name: 'Playback speed' })).toBeTruthy();
 
@@ -144,6 +144,15 @@ describe('PlayerChrome', () => {
       .getAllByRole('button')
       .map((b) => b.textContent);
     expect(rates).toEqual(['1×', '2×', '3×', '4×']);
+    const titles = within(group)
+      .getAllByRole('button')
+      .map((b) => b.getAttribute('title'));
+    expect(titles).toEqual([
+      'Playback speed 1× (1)',
+      'Playback speed 2× (2)',
+      'Playback speed 3× (3)',
+      'Playback speed 4× (4)',
+    ]);
   });
 
   it('applies the frame the driver already reached when the scene arrives', async () => {
@@ -459,6 +468,15 @@ describe('PlayerChrome loop region', () => {
     expect(screen.queryByText('loop 0:01–0:02')).toBeNull();
   });
 
+  it('states why Clear is disabled without a loop', async () => {
+    await renderPlayer();
+    const clear = screen.getByRole('button', { name: 'Clear loop' }) as HTMLButtonElement;
+    expect(clear.disabled).toBe(true);
+    expect(clear.getAttribute('title')).toBe('No loop to clear.');
+    setLoopRegion(30, 60);
+    expect(clear.getAttribute('title')).toBe('Clear loop (Esc)');
+  });
+
   it('shows no region for an out-of-order loop', async () => {
     await renderPlayer();
     setLoopRegion(60, 30);
@@ -524,10 +542,10 @@ describe('PlayerChrome flight stats strip', () => {
     for (const chip of [
       'Duration 0:03',
       'Track 123 m',
-      'cammeta (ffprobe)',
+      'Camera metadata (ffprobe)',
       '1234 fixes',
       '8 no-lock cues',
-      'heading: yaw',
+      'Heading: drone yaw',
     ]) {
       expect(screen.getByText(chip)).toBeTruthy();
     }

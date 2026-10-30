@@ -106,7 +106,7 @@ button {
   justify-content: center;
   gap: 8px;
   min-height: var(--control-h);
-  padding: 0 12px;
+  padding: 0 16px;
   font: inherit;
   font-size: 14px;
   line-height: 1;
@@ -190,10 +190,10 @@ button.primary {
 /* One notice for every surface: same placement, type size and tone tokens. */
 .notice {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: flex-start;
   margin-top: 16px;
-  padding: 12px 16px;
+  padding: 16px;
   color: var(--text);
   background: color-mix(in srgb, var(--tone) 11%, var(--surface-1));
   border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
@@ -304,7 +304,7 @@ button.primary {
   background: rgba(11, 16, 23, 0.82);
 }
 .stats .stats-chip {
-  padding: 4px 12px;
+  padding: 4px 8px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -315,7 +315,7 @@ button.primary {
 }
 
 /* Control bar: left, centered transport and right view controls on one row.
-   Below 1440px it becomes two rows (see the media query at the end). */
+   At 1440px and below it becomes two rows (see the media query at the end). */
 .controls {
   position: absolute;
   left: 0;
@@ -324,7 +324,7 @@ button.primary {
   height: var(--bar-h);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 0 16px;
   box-sizing: border-box;
   background: var(--bar);
@@ -390,7 +390,7 @@ button.primary {
 }
 .speed-group button.speed {
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 8px;
   background: transparent;
   border: 0;
   border-radius: var(--radius-pill);
@@ -425,7 +425,7 @@ button.primary {
   max-height: calc(100vh - var(--dialog-top) - 24px);
   overflow-y: auto;
   box-sizing: border-box;
-  padding: 20px 24px;
+  padding: 24px;
   background: var(--surface-1);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-panel);
@@ -437,7 +437,7 @@ button.primary {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   margin-bottom: 16px;
 }
 .settings-header h2 {
@@ -447,7 +447,7 @@ button.primary {
 .settings-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-height: 40px;
   font-size: 14px;
 }
@@ -460,7 +460,7 @@ button.primary {
 .settings-row input[type='number'] {
   box-sizing: border-box;
   height: var(--control-h);
-  padding: 0 12px;
+  padding: 0 16px;
   font: inherit;
   font-size: 14px;
   color: var(--text);
@@ -484,7 +484,7 @@ button.primary {
   padding-right: 32px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b9c6d6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 12px center;
+  background-position: right 16px center;
   cursor: pointer;
 }
 .settings-row select option {
@@ -595,7 +595,7 @@ input[type='radio']:disabled {
   color: var(--text-2);
 }
 .export-path {
-  margin: 12px 0 0;
+  margin: 16px 0 0;
   font: 12px/1.5 var(--font-mono);
   color: var(--text-2);
   overflow: hidden;
@@ -603,8 +603,8 @@ input[type='radio']:disabled {
   white-space: nowrap;
 }
 
-/* Below 1440px the bar cannot hold one row without overlaps: the view and
-   settings controls move to a row of their own above the transport row. */
+/* At 1440px and below the bar cannot hold one row without overlaps: the view
+   and settings controls move to a row of their own above the transport row. */
 @media (max-width: 1440px) {
   :root {
     --bar-h: 96px;

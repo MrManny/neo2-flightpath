@@ -46,6 +46,20 @@ describe('SettingsPanel', () => {
     expect((screen.getByLabelText('Outro (s)') as HTMLInputElement).value).toBe('2');
   });
 
+  it('shows plain option labels while keeping raw values', () => {
+    renderPanel(DEFAULT_CONFIG, true);
+    const mapStyle = screen.getByLabelText('Map style') as HTMLSelectElement;
+    expect([...mapStyle.options].map((o) => [o.value, o.textContent])).toEqual([
+      ['satellite', 'Satellite'],
+      ['topo', 'Topographic'],
+    ]);
+    const view = screen.getByLabelText('View') as HTMLSelectElement;
+    expect([...view.options].map((o) => [o.value, o.textContent])).toEqual([
+      ['follow', 'Follow'],
+      ['overview', 'Overview'],
+    ]);
+  });
+
   it('closes from the header Close button, which is never blocked here', () => {
     const onClose = vi.fn();
     render(
