@@ -10,6 +10,12 @@ export function frameFromMediaTime(mediaTime: number, fps: number, frames: numbe
   return Math.max(0, Math.min(frames - 1, Math.floor(mediaTime * fps + 1e-6)));
 }
 
+// Jumps stay frame-quantized: one second is round(fps) frames even for
+// fractional rates like 29.97 fps.
+export function framesForSeconds(fps: number, seconds: number): number {
+  return Math.round(fps * seconds);
+}
+
 export function formatTime(sec: number): string {
   const total = Math.max(0, Math.round(sec));
   return Math.floor(total / 60) + ':' + ('0' + (total % 60)).slice(-2);
@@ -26,9 +32,34 @@ export interface FrameDriverOpts {
   onFps: (fps: number) => void;
 }
 
+export interface LoopPoints {
+  /** First frame of the loop region, inclusive. */
+  in: number;
+  /** Last frame of the loop region, inclusive; playback wraps past it. */
+  out: number;
+}
+
+export interface LoopState {
+  /** Loop start frame, or null while unset. */
+  in: number | null;
+  /** Loop end frame, or null while unset. */
+  out: number | null;
+}
+
+// The one engagement rule for loop regions: both ends set and ordered.
+// Out-of-order pairs stay dormant until the second point lands inside the
+// region. Everything (band, readout, wrap) derives from this.
+export function engagedLoop(state: LoopState): LoopPoints | null {
+  return state.in !== null && state.out !== null && state.in < state.out
+    ? { in: state.in, out: state.out }
+    : null;
+}
+
 export interface FrameDriver {
   /** Queues a scrub target; the loop applies it (coalesced) and seeks i / fps. */
   scrub(i: number): void;
+  /** Sets the loop region points; null clears the loop. */
+  setLoop(state: LoopState | null): void;
   start(): void;
   stop(): void;
 }
@@ -38,13 +69,14 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
   const { fps, frames } = meta;
   let shownIdx = -1;
   let pendingScrub: number | null = null;
+  let loop: LoopState | null = null;
   let lastFpsT = 0;
   let fpsAcc = 0;
   let fpsCount = 0;
   let fpsShownAt = 0;
   let running = false;
   let rafId = 0;
-  let presentedHooked = false;
+  let presentedId = 0;
 
   function commit(i: number): void {
     if (i === shownIdx) return;
@@ -53,28 +85,59 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
     opts.onIndex(i);
   }
 
+  function activeLoop(): LoopPoints | null {
+    return loop === null ? null : engagedLoop(loop);
+  }
+
+  // The wrap seeks and commits immediately so no out-of-region frame flashes
+  // on screen while the seek settles.
+  function wrapTo(active: LoopPoints): void {
+    video.currentTime = active.in / fps;
+    commit(active.in);
+  }
+
+  // Played-back frames are confined to the region, but explicit seek targets
+  // stay verbatim: a seek presents a frame (even while paused), and only
+  // frames the video actually plays past the out point wrap.
+  function commitPlayed(i: number): void {
+    const active = activeLoop();
+    if (active !== null && i > active.out && !video.paused && !video.ended) {
+      wrapTo(active);
+      return;
+    }
+    commit(i);
+  }
+
   // The frame the browser actually presents is the truth: its mediaTime maps
   // to the frame index via floor (round would make the map lead the footage
   // by half a frame). One callback per presented frame, chained.
   function onPresentedFrame(_now: number, meta_: { mediaTime: number }): void {
-    commit(frameFromMediaTime(meta_.mediaTime, fps, frames));
-    video.requestVideoFrameCallback(onPresentedFrame);
+    if (!running) return;
+    commitPlayed(frameFromMediaTime(meta_.mediaTime, fps, frames));
+    presentedId = video.requestVideoFrameCallback(onPresentedFrame);
   }
   const usePresented = typeof video.requestVideoFrameCallback === 'function';
 
   function tick(now: number): void {
     if (!running) return;
     rafId = requestAnimationFrame(tick);
+    const active = activeLoop();
     if (pendingScrub !== null) {
       const seekTo = pendingScrub;
       pendingScrub = null;
       video.currentTime = seekTo / fps;
       commit(seekTo);
+    } else if (active !== null && video.ended) {
+      // The end of the file is a loop boundary too: a region ending on the
+      // last frame would otherwise stop instead of repeating. Resume is
+      // best-effort; play state resyncs from the media events either way.
+      wrapTo(active);
+      video.play().catch(() => {});
     } else if (!usePresented && !video.paused && !video.ended) {
       // Fallback clock when requestVideoFrameCallback is unavailable; only
       // while playing, so a paused scrub target is never re-derived into a
       // neighboring frame.
-      commit(frameFromMediaTime(video.currentTime, fps, frames));
+      commitPlayed(frameFromMediaTime(video.currentTime, fps, frames));
     }
     if (lastFpsT > 0) {
       fpsAcc += now - lastFpsT;
@@ -93,18 +156,26 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
     scrub(i: number): void {
       pendingScrub = Math.max(0, Math.min(frames - 1, i));
     },
+    setLoop(state: LoopState | null): void {
+      loop = state;
+    },
     start(): void {
       if (running) return;
       running = true;
-      if (usePresented && !presentedHooked) {
-        presentedHooked = true;
-        video.requestVideoFrameCallback(onPresentedFrame);
+      if (usePresented && presentedId === 0) {
+        presentedId = video.requestVideoFrameCallback(onPresentedFrame);
       }
       rafId = requestAnimationFrame(tick);
     },
     stop(): void {
       running = false;
       cancelAnimationFrame(rafId);
+      // The presented-frame chain must die with the driver: a stale chain
+      // would keep committing (and wrapping) on a detached video element.
+      if (usePresented && presentedId !== 0) {
+        video.cancelVideoFrameCallback(presentedId);
+        presentedId = 0;
+      }
     },
   };
 }

@@ -7,11 +7,15 @@ import path from 'node:path';
 import { MEDIA_URL, TILE_BASE } from './apppaths.js';
 import type { RenderConfig } from './config.js';
 import { errorMessage } from './errors.js';
+import type { VideoProbe } from './ff.js';
 import type { Bbox } from './geo.js';
 import { buildSceneData } from './page.js';
 import type { SceneData } from './renderer/scene.js';
 import { prepareSession, recordingPageOpts } from './run.js';
 import type { LogFn } from './run.js';
+import { telemetrySummary } from './summary.js';
+import type { TelemetrySummary } from './summary.js';
+import type { Telemetry } from './telemetry.js';
 
 export interface PageVideo {
   /** Media URL the <video> element loads, e.g. "app://bundle/media/video". */
@@ -24,6 +28,21 @@ export interface PageVideo {
   height: number;
 }
 
+/** The flight's key numbers, valued exactly like the CLI summary reports them. */
+export interface FlightStats extends TelemetrySummary {
+  /** Frame-exact duration derived from the reported frames and rate. */
+  durationSec: number;
+}
+
+// Consumes the same value mapping as the batch summary, so the stats strip
+// cannot drift from what the CLI reports for the same recording.
+export function flightStatsFrom(tel: Telemetry, probe: VideoProbe): FlightStats {
+  return {
+    ...telemetrySummary(tel),
+    durationSec: probe.frames / probe.fps.value,
+  };
+}
+
 export interface UiSession {
   scene: SceneData;
   video: PageVideo;
@@ -31,6 +50,8 @@ export interface UiSession {
   tileBase: string;
   /** The telemetry's fix bbox: restyle plans the view from it, like the pipeline. */
   bbox: Bbox;
+  /** Key numbers for the stats strip, matching the CLI summary. */
+  stats: FlightStats;
 }
 
 export interface PickResult {
@@ -59,6 +80,7 @@ export const prepareUiSession: PrepareUiSession = async (videoPath, config, log)
     },
     tileBase: TILE_BASE,
     bbox: prep.tel.bbox,
+    stats: flightStatsFrom(prep.tel, prep.probe),
   };
 };
 
