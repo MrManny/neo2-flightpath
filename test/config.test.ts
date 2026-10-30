@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_CONFIG,
@@ -161,5 +161,50 @@ describe('parseExportRequest', () => {
 
   it('rejects a non-object request', () => {
     expect(() => parseExportRequest('nope', base)).toThrow('invalid export request');
+  });
+});
+
+describe('export request boundary', () => {
+  const base = { ...DEFAULT_CONFIG, outDir: '/recs', tileCache: '/main/cache', browser: null, workers: 4 };
+  const modalSnapshot = { ...DEFAULT_CONFIG, width: 768, height: 768, tileCache: '' };
+
+  it('accepts the modal payload and keeps the segment range intact', () => {
+    const payload = JSON.parse(
+      JSON.stringify({
+        outPath: '/exports/seg.mp4',
+        config: modalSnapshot,
+        range: { start: 100, end: 250 },
+      }),
+    );
+    const request = parseExportRequest(payload, base);
+    expect(request.range).toEqual({ start: 100, end: 250 });
+    expect(request.config.width).toBe(768);
+  });
+
+  it('keeps the main process tile cache even when the snapshot carries an empty one', () => {
+    const request = parseExportRequest(
+      { outPath: '/exports/a.mp4', config: { tileCache: '' } },
+      base,
+    );
+    expect(request.config.tileCache).toBe('/main/cache');
+  });
+
+  it('ignores renderer-supplied machine settings', () => {
+    const request = parseExportRequest(
+      {
+        outPath: '/exports/a.mp4',
+        config: { tileCache: '/attacker', browser: '/evil.exe', workers: 64, outDir: '/elsewhere' },
+      },
+      base,
+    );
+    expect(request.config).toMatchObject({ tileCache: '/main/cache', browser: null, workers: 4, outDir: '/recs' });
+  });
+
+  it('still applies renderer-owned look and dimension settings', () => {
+    const request = parseExportRequest(
+      { outPath: '/exports/a.mp4', config: { style: 'topo', width: 1024, height: 576 } },
+      base,
+    );
+    expect(request.config).toMatchObject({ style: 'topo', width: 1024, height: 576 });
   });
 });

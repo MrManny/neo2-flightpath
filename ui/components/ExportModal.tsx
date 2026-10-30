@@ -134,7 +134,7 @@ export function ExportModal({
         range: { start: loopPoints.in, end: loopPoints.out },
         label:
           `${formatTime(loopPoints.in / video.fps)}–${formatTime(loopPoints.out / video.fps)}` +
-          ` Â· ${loopPoints.out - loopPoints.in + 1} frames`,
+          ` · ${loopPoints.out - loopPoints.in + 1} frames`,
       }
     : null;
 
@@ -257,7 +257,7 @@ export function ExportModal({
           <>
             <div className="settings-row">
               <span>
-                {result.frames} frames @ {result.fps} Â· {result.elapsedSec} s Â·{' '}
+                {result.frames} frames @ {result.fps} · {result.elapsedSec} s ·{' '}
                 {result.width}×{result.height}
               </span>
             </div>

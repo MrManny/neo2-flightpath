@@ -273,14 +273,23 @@ function parseHudObject(value: unknown, name: string): HudSpec {
   };
 }
 
-// The renderer sends the settings snapshot as structured values; the HUD spec
-// travels in its CLI string form so the vocabulary's own normalizers stay the
-// single validation home. Missing keys fall back to the caller's base config.
+// Machine-owned settings the renderer never chooses: the main process's
+// resolved values stay authoritative, so a snapshot cannot redirect the tile
+// cache, the browser, the worker count or the CLI-only switches.
+const MAIN_OWNED_KEYS = [
+  'outDir', 'outSuffix', 'tileCache', 'browser', 'workers', 'capture', 'preset',
+  'skipExisting', 'recurse', 'json', 'quiet',
+] as const;
+
+// The renderer sends the look and the export dimensions; everything else comes
+// from the main process. The HUD spec travels in its CLI string form so the
+// vocabulary's own normalizers stay the single validation home.
 function parseRequestConfig(raw: unknown, base: RenderConfig): RenderConfig {
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('invalid export request: config');
   }
   const flat = { ...(raw as Record<string, unknown>) };
+  for (const key of MAIN_OWNED_KEYS) delete flat[key];
   if (flat.hud !== undefined && flat.hud !== null) {
     flat.hud = formatHud(parseHudObject(flat.hud, 'export request: config: hud'));
   }
