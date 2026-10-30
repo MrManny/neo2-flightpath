@@ -71,14 +71,14 @@ All frames below are from the same recording:
 For reviewing flights without the terminal, grab the packaged Windows app from
 [GitHub Releases](https://github.com/MrManny/neo2-flightpath/releases), or run
 `npm run build && npm run app` from a checkout. Launching it opens a window where
-**Open** picks a video through the native file dialog; the
+**Open…** picks a video through the native file dialog; the
 screen then shows the footage and the map overlay (trail, heading arrow, HUD
 chips) in a swappable picture-in-picture layout on one shared timeline
 scrubber. Play, pause and scrub keep the video frame, trail, drone position
 and HUD chips on the same frame; the map fills its pane at any window size,
 while the export framing follows `--width` / `--height` as usual.
 
-The **Settings** panel (cog button in the control bar) mirrors the CLI option
+The **Settings** panel (opened from the control bar) mirrors the CLI option
 vocabulary &mdash; map style, view, zoom/zoom-out, intro/outro seconds, HUD
 chips &mdash; and every change restyles the preview instantly, without
 reloading the recording; the `alt` chip hides
@@ -91,11 +91,11 @@ same cache the CLI uses.
   first run and are cached like CLI tiles.
 - One recording at a time — batch rendering stays a CLI concern.
 
-**Export** (button in the control bar) renders the recording with the look you
+**Export…** (button in the control bar) renders the recording with the look you
 see in the preview. Choose *Full recording* or the *In–Out segment* (set the
-loop points with `I` / `O` first), set the output size, and pick the file with
+loop points with `I` / `O` first), set the output size, press **Start export**, and pick the file with
 the native save dialog. Exports run one at a time and cannot be paused;
-*Cancel* stops the render and removes its working file. The video is written to
+*Cancel export* stops the render and removes its working file. The video is written to
 a working file and only replaces the chosen file once it has been verified, so
 a failed or canceled export never touches an existing file. Closing the window
 during an export asks whether to stop it.
