@@ -18,8 +18,8 @@ interface LoadedSession {
 export default function Page() {
   const [pickState, dispatch] = useReducer(pickReducer, { kind: 'idle' });
   const [loaded, setLoaded] = useState<LoadedSession | null>(null);
-  // One settings object for the panel and (later) the export queue; seeded
-  // from the resolved config the app backend hands over.
+  // One settings object for the panel and the export modal; seeded from the
+  // resolved config the app backend hands over.
   const [settings, setSettings] = useState<RenderConfig>(DEFAULT_CONFIG);
   const nextId = useRef(0);
 

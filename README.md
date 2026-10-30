@@ -90,7 +90,15 @@ same cache the CLI uses.
   **ffmpeg + ffprobe** on `PATH` like the CLI; map tiles need internet on the
   first run and are cached like CLI tiles.
 - One recording at a time — batch rendering stays a CLI concern.
-- Exporting straight from the app is planned; use the CLI to render until then.
+
+**Export** (button in the control bar) renders the recording with the look you
+see in the preview. Choose *Full recording* or the *In–Out segment* (set the
+loop points with `I` / `O` first), set the output size, and pick the file with
+the native save dialog. Exports run one at a time and cannot be paused;
+*Cancel* stops the render and removes its working file. The video is written to
+a working file and only replaces the chosen file once it has been verified, so
+a failed or canceled export never touches an existing file. Closing the window
+during an export asks whether to stop it.
 
 ## Usage
 

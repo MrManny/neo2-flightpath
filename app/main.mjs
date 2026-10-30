@@ -9,15 +9,18 @@ import process from 'node:process';
 import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
-import { app, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron';
 
 import { resolveAppAsset } from '../dist/appassets.js';
 import { APP_ORIGIN, uiExportRoot } from '../dist/apppaths.js';
 import { createAppSession } from '../dist/appsession.js';
+import { parseExportRequest } from '../dist/config.js';
 import { resolveConfig } from '../dist/configfile.js';
 import { ERROR_PREFIX, errorMessage } from '../dist/errors.js';
+import { createExportRunner } from '../dist/exportjob.js';
 import { requireTools } from '../dist/ff.js';
 import { parseRange } from '../dist/range.js';
+import { outputPathFor } from '../dist/run.js';
 import { createTileFetcher } from '../dist/tiles.js';
 
 const SCHEME = 'app';
@@ -44,6 +47,12 @@ let win = null;
 let session = null;
 let config = null;
 let tileFetcher = null;
+let exportRunner = null;
+// The destination of the last successful export: the only path the renderer
+// may reveal or open.
+let lastExportOut = null;
+let closePromptOpen = false;
+let pendingClose = false;
 
 async function pickRecording() {
   const options = {
@@ -62,6 +71,10 @@ function fail(error) {
   process.stderr.write(`${ERROR_PREFIX}${message}\n`);
   dialog.showErrorBox('neo2-flightpath', message);
   app.quit();
+}
+
+function sendToWindow(channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
 function videoResponse(request, filePath) {
@@ -148,6 +161,22 @@ app.whenReady().then(async () => {
     tileFetcher = createTileFetcher(config.tileCache);
     session = createAppSession({ config, pickFile: pickRecording, log });
 
+    exportRunner = createExportRunner({
+      log: (msg) => {
+        log(msg);
+        sendToWindow('neo2flightpath:export:progress', { message: msg });
+      },
+      onDone: (outcome) => {
+        if (outcome.status === 'ok') lastExportOut = outcome.summary.out;
+        sendToWindow('neo2flightpath:export:done', outcome);
+        if (pendingClose) {
+          pendingClose = false;
+          if (win && !win.isDestroyed()) win.close();
+          else app.quit();
+        }
+      },
+    });
+
     ipcMain.handle('neo2flightpath:pick', (event) => {
       assertTrusted(event);
       return session.pick();
@@ -159,6 +188,87 @@ app.whenReady().then(async () => {
     ipcMain.handle('neo2flightpath:settings', (event) => {
       assertTrusted(event);
       return config;
+    });
+
+    ipcMain.handle('neo2flightpath:export:pick-output', async (event) => {
+      assertTrusted(event);
+      const video = session ? session.videoPath() : null;
+      if (!video) return { ok: false, error: 'no recording loaded' };
+      // The CLI's default naming, with a relative out dir anchored at the
+      // recording: the app process has no meaningful working directory.
+      const outDir = config.outDir
+        ? path.resolve(path.dirname(video), config.outDir)
+        : null;
+      const options = {
+        title: 'Export flight map',
+        defaultPath: outputPathFor(video, { ...config, outDir }),
+        filters: [{ name: 'MP4 video', extensions: ['mp4'] }],
+      };
+      const result = win
+        ? await dialog.showSaveDialog(win, options)
+        : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+      const chosen = result.filePath.toLowerCase().endsWith('.mp4')
+        ? result.filePath
+        : `${result.filePath}.mp4`;
+      // Windows and macOS confirm replacement in the native dialog; Linux does not.
+      if (process.platform === 'linux' && fs.existsSync(chosen)) {
+        const box = {
+          type: 'warning',
+          buttons: ['Replace', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          message: `Replace ${path.basename(chosen)}?`,
+          detail: chosen,
+        };
+        const confirm = win
+          ? await dialog.showMessageBox(win, box)
+          : await dialog.showMessageBox(box);
+        if (confirm.response !== 0) return { ok: false, canceled: true };
+      }
+      return { ok: true, path: chosen };
+    });
+    ipcMain.handle('neo2flightpath:export:start', (event, raw) => {
+      assertTrusted(event);
+      try {
+        const video = session ? session.videoPath() : null;
+        if (!video) return { ok: false, error: 'no recording loaded' };
+        exportRunner.start(video, parseExportRequest(raw, config));
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: errorMessage(e) };
+      }
+    });
+    ipcMain.handle('neo2flightpath:export:cancel', (event) => {
+      assertTrusted(event);
+      exportRunner.cancel();
+      return { ok: true };
+    });
+
+    function exportOutputOf(payload) {
+      const out = payload && typeof payload === 'object' ? payload.out : null;
+      if (typeof out !== 'string' || out !== lastExportOut) {
+        throw new Error('unknown export output');
+      }
+      return out;
+    }
+    ipcMain.handle('neo2flightpath:export:reveal', (event, payload) => {
+      assertTrusted(event);
+      try {
+        shell.showItemInFolder(exportOutputOf(payload));
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: errorMessage(e) };
+      }
+    });
+    ipcMain.handle('neo2flightpath:export:open', async (event, payload) => {
+      assertTrusted(event);
+      try {
+        const error = await shell.openPath(exportOutputOf(payload));
+        return error ? { ok: false, error } : { ok: true };
+      } catch (e) {
+        return { ok: false, error: errorMessage(e) };
+      }
     });
     protocol.handle(SCHEME, (request) =>
       handleRequest(request).catch((e) => {
@@ -189,6 +299,33 @@ app.whenReady().then(async () => {
         nodeIntegration: false,
       },
     });
+    // Closing the window must not silently kill a running export and strand
+    // minutes of work; the user chooses between stopping and keeping it.
+    win.on('close', (e) => {
+      if (!exportRunner || !exportRunner.running() || closePromptOpen) return;
+      e.preventDefault();
+      closePromptOpen = true;
+      const box = {
+        type: 'warning',
+        buttons: ['Stop Export and Close', 'Keep Exporting'],
+        defaultId: 1,
+        cancelId: 1,
+        message: 'An export is in progress',
+        detail: 'Closing the window stops the export and removes its working file.',
+      };
+      void (win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box)).then(
+        ({ response }) => {
+          closePromptOpen = false;
+          if (response !== 0) return;
+          pendingClose = true;
+          exportRunner.cancel();
+          if (!exportRunner.running()) {
+            pendingClose = false;
+            if (win && !win.isDestroyed()) win.close();
+          }
+        },
+      );
+    });
     win.on('closed', () => {
       win = null;
     });
@@ -198,5 +335,13 @@ app.whenReady().then(async () => {
   }
 });
 
-// The window is the app: closing it quits.
-app.on('window-all-closed', () => app.quit());
+// The window is the app: closing it quits. A still-running export delays the
+// quit until its job has settled and cleaned up after itself.
+app.on('window-all-closed', () => {
+  if (exportRunner && exportRunner.running()) {
+    pendingClose = true;
+    exportRunner.cancel();
+    return;
+  }
+  app.quit();
+});

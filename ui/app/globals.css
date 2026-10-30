@@ -284,3 +284,23 @@ button:disabled {
   color: rgba(255, 255, 255, 0.6);
   padding: 0 0 4px;
 }
+.export-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.export-log {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  color: rgba(255, 255, 255, 0.8);
+}

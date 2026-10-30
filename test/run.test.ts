@@ -352,3 +352,84 @@ describe('runBatch tracing', () => {
     expect(spans).toHaveLength(0);
   });
 });
+
+describe('processRecording frame ranges', () => {
+  const RANGE_PROBE: VideoProbe = { ...PROBE, frames: 40 };
+
+  function rangeDeps() {
+    const calls: { render?: { frames: number; frameStart?: number }; verify?: number } = {};
+    const deps = stubDeps({
+      probeVideo: async () => RANGE_PROBE,
+      renderVideo: async (opts) => {
+        calls.render = { frames: opts.frames, frameStart: opts.frameStart };
+        return { profile: { evalMs: 0, captureMs: 0, emitMs: 0 } };
+      },
+      verifyOutput: async (_out, expected) => {
+        calls.verify = expected;
+        return { frames: expected, fps: '30', ok: true };
+      },
+    });
+    return { deps, calls };
+  }
+
+  it('renders only the segment, starting at the range start, and verifies its length', async () => {
+    const { deps, calls } = rangeDeps();
+    const out = path.join(tmpDir(), 'segment.mp4');
+    const summary = await processRecording(VIDEO, testConfig(), () => {}, out, {
+      deps,
+      range: { start: 10, end: 29 },
+    });
+    expect(calls.render).toEqual({ frames: 20, frameStart: 10 });
+    expect(calls.verify).toBe(20);
+    expect(summary.frames).toBe(20);
+    expect(summary.frameRange).toEqual({ start: 10, end: 29 });
+  });
+
+  it('renders the full recording from frame 0 when no range is given', async () => {
+    const { deps, calls } = rangeDeps();
+    const out = path.join(tmpDir(), 'full.mp4');
+    const summary = await processRecording(VIDEO, testConfig(), () => {}, out, { deps });
+    expect(calls.render).toEqual({ frames: 40, frameStart: 0 });
+    expect(calls.verify).toBe(40);
+    expect(summary.frames).toBe(40);
+    expect(summary.frameRange).toBeUndefined();
+  });
+
+  it('exports a range that ends on the last frame', async () => {
+    const { deps, calls } = rangeDeps();
+    const out = path.join(tmpDir(), 'tail.mp4');
+    await processRecording(VIDEO, testConfig(), () => {}, out, {
+      deps,
+      range: { start: 30, end: 39 },
+    });
+    expect(calls.render).toEqual({ frames: 10, frameStart: 30 });
+  });
+
+  it.each([
+    ['start equal to end', { start: 5, end: 5 }, /0 <= start < end/],
+    ['start after end', { start: 9, end: 2 }, /0 <= start < end/],
+    ['end beyond the recording', { start: 0, end: 40 }, /beyond the recording \(40 frames\)/],
+  ])('rejects %s before rendering anything', async (_label, range, pattern) => {
+    const { deps, calls } = rangeDeps();
+    await expect(
+      processRecording(VIDEO, testConfig(), () => {}, path.join(tmpDir(), 'x.mp4'), {
+        deps,
+        range,
+      }),
+    ).rejects.toThrow(pattern);
+    expect(calls.render).toBeUndefined();
+  });
+
+  it('refuses to start when the signal is already aborted', async () => {
+    const { deps, calls } = rangeDeps();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      processRecording(VIDEO, testConfig(), () => {}, path.join(tmpDir(), 'x.mp4'), {
+        deps,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow('render canceled');
+    expect(calls.render).toBeUndefined();
+  });
+});
