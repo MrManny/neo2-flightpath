@@ -296,7 +296,8 @@ app.whenReady().then(async () => {
       // right-hand buttons would become unreachable.
       minWidth: 1024,
       minHeight: 600,
-      backgroundColor: '#0e131c',
+      // Match --page in ui/app/globals.css so startup shows one background.
+      backgroundColor: '#0b1017',
       autoHideMenuBar: true,
       title: 'neo2-flightpath',
       webPreferences: {

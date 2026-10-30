@@ -321,7 +321,7 @@ export function PlayerChrome({
           <button
             type="button"
             aria-label="Clear loop"
-            title="Clear loop (Esc)"
+            title={loop.in === null && loop.out === null ? 'No loop to clear.' : 'Clear loop (Esc)'}
             disabled={loop.in === null && loop.out === null}
             onClick={() => dispatch({ type: 'clearLoop' })}
           >
@@ -341,6 +341,7 @@ export function PlayerChrome({
             <input
               ref={scrubRef}
               type="range"
+              aria-label="Playback position"
               min={0}
               max={maxFrame}
               step={1}
@@ -359,7 +360,7 @@ export function PlayerChrome({
                 type="button"
                 className="speed"
                 aria-pressed={speed === rate}
-                title={`Playback speed ${rate}x (${rate})`}
+                title={`Playback speed ${rate}× (${rate})`}
                 onClick={() => dispatch({ type: 'speed', rate })}
               >
                 {rate}×

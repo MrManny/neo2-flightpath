@@ -13,8 +13,8 @@ describe('CloseIcon', () => {
     const { container } = render(<CloseIcon />);
     const svg = container.querySelector('svg') as SVGSVGElement;
     expect(svg.getAttribute('viewBox')).toBe('0 0 24 24');
-    expect(svg.getAttribute('width')).toBe('18');
-    expect(svg.getAttribute('height')).toBe('18');
+    expect(svg.getAttribute('width')).toBe('16');
+    expect(svg.getAttribute('height')).toBe('16');
     expect(svg.getAttribute('fill')).toBe('none');
     expect(svg.getAttribute('stroke')).toBe('currentColor');
     expect(svg.getAttribute('stroke-width')).toBe('2');

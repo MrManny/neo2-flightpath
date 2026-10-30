@@ -1,11 +1,12 @@
 # Third-party notices
 
-This repository vendors individual icon SVGs from the
-[Lucide](https://lucide.dev) icon set as TypeScript components under
-`ui/icons/`. They are used unmodified except for JSX serialization and fixed
-sizing. The ISC License below applies to all vendored Lucide icons; the MIT
-License additionally applies to Lucide icons derived from the Feather project,
-which among the vendored icons includes `CloseIcon` ("x").
+This repository vendors two icons from the [Lucide](https://lucide.dev) icon
+set as TypeScript components under `ui/icons/`: `CloseIcon` ("x") and
+`SettingsIcon` ("settings"). They are used unmodified except for JSX
+serialization and fixed sizing. The ISC License below applies to both; the MIT
+License additionally applies to `CloseIcon` ("x"), which Lucide derives from
+the Feather project. The other glyphs under `ui/icons/` are original work in
+the Lucide style and are not covered by these licenses.
 
 ## Lucide — ISC License
 

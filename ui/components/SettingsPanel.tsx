@@ -20,7 +20,7 @@ export interface SettingsPanelProps {
 function SelectField(props: {
   label: string;
   value: string;
-  options: readonly string[];
+  options: ReadonlyArray<{ value: string; label: string }>;
   onValue: (value: string) => void;
 }) {
   const id = useId();
@@ -35,14 +35,24 @@ function SelectField(props: {
         onChange={(e) => props.onValue(e.target.value)}
       >
         {props.options.map((option) => (
-          <option key={option} value={option}>
-            {option}
+          <option key={option.value} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>
     </div>
   );
 }
+
+// The config vocabulary holds raw values; the options show plain words.
+const STYLE_LABELS: Record<Style, string> = {
+  satellite: 'Satellite',
+  topo: 'Topographic',
+};
+const VIEW_LABELS: Record<View, string> = {
+  follow: 'Follow',
+  overview: 'Overview',
+};
 
 const HUD_CHIPS: Array<{ chip: 'heading' | 'alt' | 'speed'; label: string }> = [
   { chip: 'heading', label: 'Heading arrow' },
@@ -79,13 +89,13 @@ export function SettingsPanel({
         <SelectField
           label="Map style"
           value={config.style}
-          options={STYLE_VALUES}
+          options={STYLE_VALUES.map((value) => ({ value, label: STYLE_LABELS[value] }))}
           onValue={(style) => apply({ style: style as Style })}
         />
         <SelectField
           label="View"
           value={config.view}
-          options={VIEW_VALUES}
+          options={VIEW_VALUES.map((value) => ({ value, label: VIEW_LABELS[value] }))}
           onValue={(view) => apply({ view: view as View })}
         />
 

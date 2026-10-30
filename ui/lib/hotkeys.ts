@@ -1,9 +1,10 @@
 // Keyboard shortcut vocabulary for the review player as a pure key-to-action
 // mapping, so every shortcut and guard rail stays unit-testable away from the
 // DOM. Guard rails: shortcuts are inert while focus is in an editable control,
-// everything except Esc is inert while a modal overlay is open, and held keys
-// auto-repeat only for stepping/jumping (a repeating Space would flicker
-// play/pause, a repeating S would flicker the layout).
+// Space yields to a focused button, link or disclosure, everything except Esc
+// is inert while a modal overlay is open, and held keys auto-repeat only for
+// stepping/jumping (a repeating Space would flicker play/pause, a repeating S
+// would flicker the layout).
 
 export type HotkeyAction =
   | { type: 'togglePlay' }
@@ -37,6 +38,8 @@ export interface HotkeyContext {
 }
 
 const EDITABLE_TAGS = new Set(['INPUT', 'SELECT', 'TEXTAREA']);
+// Space activates these when focused; hijacking it would steal that activation.
+const ACTIVATABLE_TAGS = new Set(['BUTTON', 'A', 'SUMMARY']);
 
 function tagNameOf(target: unknown): string {
   const tag = (target as { tagName?: unknown } | null | undefined)?.tagName;
@@ -75,6 +78,7 @@ export function mapKey(event: HotkeyEvent, ctx: HotkeyContext): HotkeyAction | n
   switch (key) {
     case ' ':
     case 'Spacebar':
+      return ACTIVATABLE_TAGS.has(tag) ? null : { type: 'togglePlay' };
     case 'k':
     case 'K':
       return { type: 'togglePlay' };
