@@ -19,7 +19,12 @@ const steps = [
 ];
 
 function run(command, args) {
-  const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  // npm is a .cmd shim on Windows, which Node only spawns via a shell.
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    shell: command === npm,
+  });
   if (result.error) {
     console.error(`${ERROR_PREFIX}could not run '${command}': ${errorMessage(result.error)}`);
     return false;
