@@ -67,6 +67,24 @@ UI tokens, components, copy and error text.
   change `CHANGELOG.md` (CI enforces this); releases fold the fragments into
   `CHANGELOG.md` (see `.changeset/README.md`).
 
+## Agent helper scripts
+
+Deterministic helpers in `scripts/` for repetitive GitHub tasks; tooling only —
+never part of the application or its bundle, and not linted or unit-tested.
+
+- `node scripts/start-work.mjs <branch>` — assign the issue in
+  `<type>/<issue-number>-<slug>`, create the branch, set it "In progress".
+- `node scripts/safe-push.mjs` — lint, test and build ("lint ok", "tests okay",
+  "build okay"), then push the current branch; on failure the full error is on stderr.
+- `node scripts/open-pr.mjs <title> <body_path> [base]` — safe-push, fail fast when a
+  `feat:`/`fix:` title lacks a `.changeset/*.md` fragment, label the PR from the first
+  referenced issue and set it "In review", then open the PR (base defaults to `main`).
+
+Project status steps run only when the `gh` login can edit the GitHub project and are
+skipped silently otherwise. Every helper spawns external commands through
+`scripts/lib/exec.mjs` (one child-process policy: hidden windows on Windows) — do not
+call `node:child_process` directly.
+
 ## GitHub interactions
 
 Issues, branches, commits, PRs and releases follow
