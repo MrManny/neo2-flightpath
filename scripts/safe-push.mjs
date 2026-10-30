@@ -19,11 +19,14 @@ const steps = [
 ];
 
 function run(command, args) {
-  // npm is a .cmd shim on Windows, which Node only spawns via a shell.
-  const result = spawnSync(command, args, {
+  // npm is a .cmd shim on Windows, which Node only spawns via a shell; a
+  // joined command string avoids the DEP0190 args-with-shell warning. The
+  // arguments are fixed literals above, so nothing user-supplied is quoted.
+  const spec = command === npm ? { shell: true, command: [command, ...args].join(' ') } : { shell: false, command, args };
+  const result = spawnSync(spec.command, spec.args, {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
-    shell: command === npm,
+    shell: spec.shell,
   });
   if (result.error) {
     console.error(`${ERROR_PREFIX}could not run '${command}': ${errorMessage(result.error)}`);
