@@ -153,3 +153,59 @@ describe('createAppSession', () => {
     expect(await first).toEqual({ ok: true });
   });
 });
+
+describe('createAppSession onPreparing hook', () => {
+  it('fires once with the picked path, before preparation starts', async () => {
+    const file = mp4();
+    const order: string[] = [];
+    const onPreparing = vi.fn((videoPath: string) => {
+      order.push(`preparing ${videoPath}`);
+    });
+    const prepare = vi.fn(async (): Promise<UiSession> => {
+      order.push('prepare');
+      return SESSION;
+    });
+    const session = createAppSession({ config: CONFIG, pickFile: async () => file, prepare, onPreparing });
+
+    expect(await session.pick()).toEqual({ ok: true });
+    expect(onPreparing).toHaveBeenCalledTimes(1);
+    expect(order).toEqual([`preparing ${file}`, 'prepare']);
+  });
+
+  it('stays silent when the dialog is canceled', async () => {
+    const onPreparing = vi.fn();
+    const session = createAppSession({
+      config: CONFIG,
+      pickFile: async () => null,
+      prepare: vi.fn(),
+      onPreparing,
+    });
+    expect(await session.pick()).toEqual({ ok: false, canceled: true });
+    expect(onPreparing).not.toHaveBeenCalled();
+  });
+
+  it('stays silent when the dialog itself fails', async () => {
+    const onPreparing = vi.fn();
+    const session = createAppSession({
+      config: CONFIG,
+      pickFile: async () => {
+        throw new Error('dialog unavailable');
+      },
+      prepare: vi.fn(),
+      onPreparing,
+    });
+    expect(await session.pick()).toEqual({ ok: false, error: 'dialog unavailable' });
+    expect(onPreparing).not.toHaveBeenCalled();
+  });
+
+  it('stays silent for a file that is not a readable recording', async () => {
+    const file = path.join(tmpDir(), 'clip.mov');
+    fs.writeFileSync(file, Buffer.from('video'));
+    const onPreparing = vi.fn();
+    const prepare = vi.fn();
+    const session = createAppSession({ config: CONFIG, pickFile: async () => file, prepare, onPreparing });
+    expect((await session.pick()).ok).toBe(false);
+    expect(onPreparing).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+  });
+});

@@ -29,6 +29,8 @@ export interface AppBridge {
   openExportOutput(out: string): Promise<ExportAck>;
   onExportProgress(cb: (message: string) => void): () => void;
   onExportDone(cb: (outcome: ExportOutcome) => void): () => void;
+  /** The picked recording passed its checks and is being prepared (the picker has closed). */
+  onPreparing(cb: () => void): () => void;
 }
 
 declare global {

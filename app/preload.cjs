@@ -21,4 +21,9 @@ contextBridge.exposeInMainWorld('neo2flightpath', {
     ipcRenderer.on('neo2flightpath:export:done', handler);
     return () => ipcRenderer.removeListener('neo2flightpath:export:done', handler);
   },
+  onPreparing: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on('neo2flightpath:preparing', handler);
+    return () => ipcRenderer.removeListener('neo2flightpath:preparing', handler);
+  },
 });
