@@ -46,7 +46,7 @@ describe('SettingsPanel', () => {
     expect((screen.getByLabelText('Outro (s)') as HTMLInputElement).value).toBe('2');
   });
 
-  it('closes via the X button with a Close tooltip', () => {
+  it('closes from the header Close button, which is never blocked here', () => {
     const onClose = vi.fn();
     render(
       <SettingsPanel
@@ -56,8 +56,8 @@ describe('SettingsPanel', () => {
         onClose={onClose}
       />,
     );
-    const close = screen.getByRole('button', { name: 'Close' });
-    expect(close.getAttribute('title')).toBe('Close');
+    const close = screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement;
+    expect(close.disabled).toBe(false);
     fireEvent.click(close);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -92,7 +92,7 @@ describe('SettingsPanel', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('snaps back to the committed value when a keystroke is rejected', () => {
+  it('keeps a rejected value visible with its message until blur, then reverts', () => {
     function Harness() {
       const [current, setCurrent] = useState(DEFAULT_CONFIG);
       return (
@@ -108,7 +108,14 @@ describe('SettingsPanel', () => {
     const intro = screen.getByLabelText('Intro (s)') as HTMLInputElement;
 
     fireEvent.change(intro, { target: { value: '-1' } });
-    expect(intro.value).toBe('2'); // never keeps displaying a rejected value
+    expect(intro.value).toBe('-1');
+    expect(intro.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText('Must be 0 or more.')).toBeTruthy();
+
+    fireEvent.blur(intro);
+    expect(intro.value).toBe('2');
+    expect(intro.getAttribute('aria-invalid')).toBeNull();
+    expect(screen.queryByText('Must be 0 or more.')).toBeNull();
 
     fireEvent.change(intro, { target: { value: '1.5' } });
     expect(intro.value).toBe('1.5'); // the committed value stays editable
@@ -137,5 +144,31 @@ describe('SettingsPanel', () => {
       />,
     );
     expect(alt.disabled).toBe(false);
+  });
+});
+
+describe.each([{ field: 'Zoom' }, { field: 'Zoom-out' }, { field: 'Intro (s)' }, { field: 'Outro (s)' }])(
+  '$field rejects a negative value',
+  ({ field }) => {
+    it('names the rule, marks the field invalid and emits nothing', () => {
+      const onChange = vi.fn();
+      renderPanel(DEFAULT_CONFIG, true, onChange);
+      const input = screen.getByLabelText(field) as HTMLInputElement;
+      fireEvent.change(input, { target: { value: '-1' } });
+      expect(screen.getByText('Must be 0 or more.')).toBeTruthy();
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(onChange).not.toHaveBeenCalled();
+    });
+  },
+);
+
+describe.each([
+  { hasAltitude: true, note: false },
+  { hasAltitude: false, note: true },
+])('HUD altitude note when hasAltitude is $hasAltitude', ({ hasAltitude, note }) => {
+  it('explains the missing ALT chip only when the telemetry has no altitude', () => {
+    renderPanel(DEFAULT_CONFIG, hasAltitude);
+    const text = 'This recording has no altitude telemetry, so the ALT chip stays off.';
+    expect(screen.queryByText(text) !== null).toBe(note);
   });
 });

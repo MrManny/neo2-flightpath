@@ -1,63 +1,253 @@
-html, body {
+/* Design tokens: every surface, text tone, state color, radius and motion value
+   the UI uses is named here once. Components reference these names only. */
+:root {
+  --page: #0b1017;
+  --surface-1: #121a25;
+  --surface-2: #19232f;
+  --surface-3: #212c3a;
+  --surface-4: #2b3749;
+  --bar: rgba(11, 16, 23, 0.94);
+  --scrim: rgba(4, 7, 12, 0.5);
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+  --hairline-hover: rgba(255, 255, 255, 0.28);
+  --text: #eef3f8;
+  --text-2: rgba(238, 243, 248, 0.74);
+  --text-3: rgba(238, 243, 248, 0.6);
+  --accent: #5cd5ff;
+  --accent-hover: #8fe6ff;
+  --accent-press: #47c2ec;
+  --accent-ink: #071018;
+  --focus: #ffffff;
+  --danger: #ff7a7a;
+  --warning: #ffcb6b;
+  --info: #8ab4ff;
+  --loop: #b388ff;
+  --loop-text: #d4bcff;
+  --radius-control: 8px;
+  --radius-panel: 12px;
+  --radius-pill: 999px;
+  --control-h: 36px;
+  --bar-h: 64px;
+  --dialog-top: 56px;
+  --shadow-float: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-pip: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --disabled-opacity: 0.45;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --motion: 140ms;
+  --font-ui: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+html,
+body {
   margin: 0;
   height: 100%;
-  background: #0e131c;
-  color: #ffffff;
+  background: var(--page);
+  color: var(--text);
   /* Dark native widgets (select popups, scrollbars, spinners): Chromium would
      otherwise paint them white with white option text in dark contexts. */
   color-scheme: dark;
-  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-ui);
+  font-size: 14px;
 }
-* {
+
+h1,
+h2 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Motion is limited to interactive controls. The map and the playback chrome
+   stay free of transitions so playback never competes with a fade. */
+button,
+input[type='checkbox'],
+input[type='radio'],
+input[type='number'],
+select {
+  transition:
+    background-color var(--motion) var(--ease),
+    border-color var(--motion) var(--ease),
+    color var(--motion) var(--ease),
+    transform var(--motion) var(--ease),
+    opacity var(--motion) var(--ease);
+}
+.export-progress-fill {
+  transition: width 250ms var(--ease);
+}
+.scene-host,
+.scene-host * {
   animation: none !important;
   transition: none !important;
 }
-
-.landing {
-  max-width: 560px;
-  margin: 0 auto;
-  padding: 12vh 24px 0;
-  box-sizing: border-box;
-}
-.landing h1 {
-  font-size: 28px;
-  font-weight: 650;
-  margin: 0 0 12px;
-}
-.landing p {
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.82);
-}
-.landing .status {
-  min-height: 1.55em;
-  color: #ffd166;
-}
-.hint {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.55);
+@media (prefers-reduced-motion: reduce) {
+  button,
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='number'],
+  select,
+  .export-progress-fill {
+    transition: none;
+  }
 }
 
-button.primary {
-  font-size: 16px;
-  padding: 12px 22px;
-  border-radius: 10px;
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* One control recipe for every button; the variants below only change tone. */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--control-h);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
   cursor: pointer;
-  color: #071018;
-  background: #41f0ff;
-  border: none;
-  font-weight: 600;
+  white-space: nowrap;
+}
+button svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+button:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--hairline-hover);
+}
+button:active:not(:disabled) {
+  background: var(--surface-4);
+  transform: translateY(1px);
 }
 button:disabled {
-  opacity: 0.55;
+  opacity: var(--disabled-opacity);
   cursor: default;
 }
 
+button.primary,
+button.export-primary {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled),
+button.export-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: transparent;
+}
+button.primary:active:not(:disabled),
+button.export-primary:active:not(:disabled) {
+  background: var(--accent-press);
+}
+button.primary {
+  min-height: 44px;
+  padding: 0 24px;
+  font-size: 16px;
+}
+
+.hint {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* Landing: one raised card on the page surface. */
+.landing {
+  max-width: 560px;
+  margin: 12vh auto 0;
+  padding: 32px;
+  box-sizing: border-box;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-float);
+}
+.landing h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+.landing > p:not(.hint) {
+  margin: 0 0 16px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.landing .hint {
+  margin: 16px 0 0;
+}
+
+/* One notice for every surface: same placement, type size and tone tokens. */
+.notice {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 16px;
+  padding: 12px 16px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--tone) 11%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+  border-radius: var(--radius-control);
+}
+.notice-info {
+  --tone: var(--info);
+}
+.notice-warning {
+  --tone: var(--warning);
+}
+.notice-danger {
+  --tone: var(--danger);
+}
+.notice-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.notice-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.notice-details {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.notice-details summary {
+  width: max-content;
+  cursor: pointer;
+}
+.notice-details pre {
+  margin: 8px 0 0;
+  font: 12px/1.5 var(--font-mono);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.notice-dismiss {
+  flex: none;
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+/* Player stage: the map and the video share it; the picture-in-picture pane
+   floats above the main pane with a hairline and a soft shadow. */
 .stage {
   position: absolute;
   left: 0;
   top: 0;
   right: 0;
-  bottom: 64px;
+  bottom: var(--bar-h);
   overflow: hidden;
 }
 .pane {
@@ -68,12 +258,12 @@ button:disabled {
   inset: 0;
 }
 .pane-pip {
-  right: 12px;
-  bottom: 12px;
-  border-radius: 10px;
+  right: 16px;
+  bottom: 16px;
+  border-radius: var(--radius-panel);
   background: #000;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--hairline-strong);
+  box-shadow: var(--shadow-pip);
 }
 .pane video {
   position: absolute;
@@ -88,266 +278,352 @@ button:disabled {
   position: absolute;
   inset: 0;
 }
-
-.controls {
+.player-notices {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 64px;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  box-sizing: border-box;
-  background: rgba(14, 19, 28, 0.94);
-  color: #ffffff;
+  top: 16px;
+  left: 50%;
+  z-index: 3;
+  width: min(560px, calc(100% - 32px));
+  transform: translateX(-50%);
 }
-.controls-left,
-.controls-center,
-.controls-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.controls-left {
-  justify-self: start;
-}
-.controls-right {
-  justify-self: end;
-}
-.controls button {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
-  padding: 8px 14px;
-  font-size: 14px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.controls input[type='range'] {
-  flex: 1;
-  accent-color: #41f0ff;
-}
-.controls .readout {
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.85);
-  white-space: nowrap;
-}
-.controls button.cog {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 10px;
-}
-.controls button.speed {
-  padding: 8px 10px;
-}
-.controls .speed-group {
-  display: inline-flex;
-}
-.controls .speed-group button.speed {
-  margin-left: -1px;
-  border-radius: 0;
-}
-.controls .speed-group button.speed:first-child {
-  margin-left: 0;
-  border-radius: 8px 0 0 8px;
-}
-.controls .speed-group button.speed:last-child {
-  border-radius: 0 8px 8px 0;
-}
-.controls button.speed[aria-pressed='true'] {
-  background: #41f0ff;
-  color: #071018;
-}
-.controls .scrubber {
-  position: relative;
-  flex: 1 1 auto;
-  width: clamp(120px, 28vw, 420px);
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-.controls .scrubber input[type='range'] {
-  flex: 1;
-}
-.controls .loop-band {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 10px;
-  background: rgba(65, 240, 255, 0.28);
-  border-left: 1px solid #41f0ff;
-  border-right: 1px solid #41f0ff;
-  pointer-events: none;
+.player-notices .notice {
+  margin-top: 0;
+  box-shadow: var(--shadow-float);
 }
 
 .stats {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 64px;
+  bottom: var(--bar-h);
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 16px;
-  padding: 6px 16px;
+  gap: 8px;
+  padding: 8px 16px;
   box-sizing: border-box;
-  background: rgba(14, 19, 28, 0.82);
-  color: rgba(255, 255, 255, 0.85);
+  background: rgba(11, 16, 23, 0.82);
 }
 .stats .stats-chip {
+  padding: 4px 12px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
 }
 
+/* Control bar: left, centered transport and right view controls on one row.
+   Below 1440px it becomes two rows (see the media query at the end). */
+.controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--bar-h);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  box-sizing: border-box;
+  background: var(--bar);
+  border-top: 1px solid var(--hairline);
+  color: var(--text);
+}
+.controls-left,
+.controls-center,
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.controls-left,
+.controls-right {
+  flex: none;
+}
+.controls-center {
+  flex: 1 1 auto;
+}
+.readout {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.readout.loop-readout {
+  color: var(--loop-text);
+}
+.scrubber {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  min-width: 120px;
+  width: clamp(120px, 28vw, 420px);
+}
+.scrubber input[type='range'] {
+  flex: 1;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.loop-band {
+  position: absolute;
+  top: 50%;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--loop) 45%, transparent);
+  box-shadow: inset 0 0 0 1px var(--loop);
+  pointer-events: none;
+}
+.speed-group {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-pill);
+}
+.speed-group button.speed {
+  min-height: 30px;
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+}
+.speed-group button.speed:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+.speed-group button.speed[aria-pressed='true'] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-weight: 600;
+}
+.speed-group button.speed[aria-pressed='true']:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+/* Dialogs share one anchor: the top edge stays fixed as the phase changes. */
 .settings-overlay {
   position: fixed;
   inset: 0;
   z-index: 2000;
-  background: rgba(0, 0, 0, 0.55);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  box-sizing: border-box;
+  padding: var(--dialog-top) 24px 24px;
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
 }
 .settings-panel {
-  width: min(420px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  width: min(440px, 100%);
+  max-height: calc(100vh - var(--dialog-top) - 24px);
   overflow-y: auto;
   box-sizing: border-box;
-  background: #16202e;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 12px;
-  padding: 18px 20px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  padding: 20px 24px;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-float);
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-4) transparent;
 }
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 .settings-header h2 {
-  font-size: 18px;
   margin: 0;
-}
-.settings-header button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
-  padding: 6px 8px;
-  cursor: pointer;
+  font-size: 18px;
 }
 .settings-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 5px 0;
+  gap: 12px;
+  min-height: 40px;
   font-size: 14px;
 }
 .settings-row .settings-label {
+  flex: none;
   width: 96px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-2);
 }
 .settings-row select,
 .settings-row input[type='number'] {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 6px;
-  padding: 5px 8px;
+  box-sizing: border-box;
+  height: var(--control-h);
+  padding: 0 12px;
+  font: inherit;
   font-size: 14px;
-}
-.settings-row select option {
-  background: #16202e;
-  color: #ffffff;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
 }
 .settings-row input[type='number'] {
-  width: 88px;
+  width: 96px;
+  font-variant-numeric: tabular-nums;
+}
+.settings-row input[type='number']:hover:not(:disabled) {
+  border-color: var(--hairline-hover);
+}
+.settings-row input[aria-invalid='true'] {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+.settings-row select {
+  appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b9c6d6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+.settings-row select option {
+  color: var(--text);
+  background: var(--surface-1);
+}
+.field-message {
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--danger);
 }
 .settings-group {
-  border: none;
-  margin: 12px 0 0;
+  min-width: 0;
+  margin: 16px 0 0;
   padding: 0;
+  border: 0;
 }
 .settings-group legend {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
   padding: 0 0 4px;
-}
-.export-path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-3);
 }
+.settings-row .hint {
+  white-space: nowrap;
+}
+
+/* Checkboxes and radios take the accent; the native glyph is replaced, the
+   element and its keyboard behavior stay native. */
+input[type='checkbox'],
+input[type='radio'] {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+}
+input[type='checkbox'] {
+  border-radius: 4px;
+}
+input[type='radio'] {
+  border-radius: 50%;
+}
+input[type='checkbox']::before,
+input[type='radio']::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  transform: scale(0);
+  background: var(--accent-ink);
+}
+input[type='checkbox']::before {
+  clip-path: polygon(4% 52%, 16% 40%, 38% 60%, 84% 12%, 96% 24%, 38% 88%);
+}
+input[type='radio']::before {
+  border-radius: 50%;
+}
+input[type='checkbox']:checked,
+input[type='radio']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+input[type='checkbox']:checked::before,
+input[type='radio']:checked::before {
+  transform: scale(1);
+}
+input[type='checkbox']:hover:not(:disabled):not(:checked),
+input[type='radio']:hover:not(:disabled):not(:checked) {
+  border-color: var(--hairline-hover);
+}
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: default;
+}
+
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 .export-progress {
-  margin: 10px 0 4px;
+  margin-top: 16px;
 }
 .export-progress-track {
   height: 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
 }
 .export-progress-fill {
   height: 100%;
-  border-radius: 999px;
-  background: #41f0ff;
-  transition: width 0.25s ease;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
 }
 .export-progress-label {
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
 }
-.export-stage {
-  font-size: 14px;
-  color: #ffffff;
-}
-.export-hint {
-  margin: 0;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
-}
-/* Secondary modal actions share the player's button look (see .controls button). */
-.settings-row button.modal-button {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-size: 14px;
-  cursor: pointer;
+.export-path {
+  margin: 12px 0 0;
+  font: 12px/1.5 var(--font-mono);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.settings-row button.modal-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.settings-row button.export-primary {
-  background: #41f0ff;
-  color: #071018;
-  border: none;
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.settings-row button.export-primary:disabled {
-  opacity: 0.45;
-  cursor: default;
+
+/* Below 1440px the bar cannot hold one row without overlaps: the view and
+   settings controls move to a row of their own above the transport row. */
+@media (max-width: 1440px) {
+  :root {
+    --bar-h: 96px;
+  }
+  .controls {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-content: center;
+    row-gap: 8px;
+    padding: 8px 16px;
+  }
+  .controls-left {
+    order: 1;
+  }
+  .controls-right {
+    order: 2;
+  }
+  .controls-center {
+    order: 3;
+    flex-basis: 100%;
+  }
 }

@@ -159,7 +159,12 @@ app.whenReady().then(async () => {
     const resolved = resolveConfig({});
     config = resolved.config;
     tileFetcher = createTileFetcher(config.tileCache);
-    session = createAppSession({ config, pickFile: pickRecording, log });
+    session = createAppSession({
+      config,
+      pickFile: pickRecording,
+      log,
+      onPreparing: () => sendToWindow('neo2flightpath:preparing'),
+    });
 
     exportRunner = createExportRunner({
       log: (msg) => {

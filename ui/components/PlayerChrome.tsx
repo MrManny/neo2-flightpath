@@ -18,9 +18,19 @@ import { formatStats } from '../lib/flightstats.js';
 import type { HotkeyAction } from '../lib/hotkeys.js';
 import { mapKey } from '../lib/hotkeys.js';
 import { pipStyle } from '../lib/pipstyle.js';
+import type { PickState } from '../lib/pickstate.js';
+import { CloseIcon } from '../icons/CloseIcon.js';
+import { ExportIcon } from '../icons/ExportIcon.js';
+import { FolderOpenIcon } from '../icons/FolderOpenIcon.js';
+import { MarkInIcon } from '../icons/MarkInIcon.js';
+import { MarkOutIcon } from '../icons/MarkOutIcon.js';
+import { PauseIcon } from '../icons/PauseIcon.js';
+import { PlayIcon } from '../icons/PlayIcon.js';
 import { SettingsIcon } from '../icons/SettingsIcon.js';
+import { SwapIcon } from '../icons/SwapIcon.js';
 import { ExportModal } from './ExportModal.js';
 import { MapIsland } from './MapIsland.js';
+import { OpenNotice } from './OpenNotice.js';
 import { SettingsPanel } from './SettingsPanel.js';
 
 export interface PlayerChromeProps {
@@ -28,15 +38,21 @@ export interface PlayerChromeProps {
   settings: RenderConfig;
   onSettingsChange: (config: RenderConfig) => void;
   onOpen: () => void;
+  /** The Open flow: only preparing and failures show over the player. */
+  openState?: PickState;
+  onDismissOpenState?: () => void;
 }
 
 const NO_LOOP: LoopState = { in: null, out: null };
+const IDLE_OPEN: PickState = { kind: 'idle' };
 
 export function PlayerChrome({
   session,
   settings,
   onSettingsChange,
   onOpen,
+  openState = IDLE_OPEN,
+  onDismissOpenState,
 }: PlayerChromeProps) {
   const { scene: preparedScene, video, tileBase, bbox, stats } = session;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -234,6 +250,11 @@ export function PlayerChrome({
           loop.out !== null ? formatTime(loop.out / video.fps) : '?'
         }`
       : '';
+  const opening = openState.kind === 'preparing';
+  const openNotice =
+    openState.kind === 'preparing' || openState.kind === 'error' ? (
+      <OpenNotice state={openState} onDismiss={onDismissOpenState} />
+    ) : null;
 
   return (
     <>
@@ -258,6 +279,7 @@ export function PlayerChrome({
         >
           <MapIsland data={sceneData} onScene={handleScene} />
         </div>
+        {openNotice ? <div className="player-notices">{openNotice}</div> : null}
       </div>
       <div className="stats">
         {statsChips.map((chip) => (
@@ -268,12 +290,14 @@ export function PlayerChrome({
       </div>
       <div className="controls">
         <div className="controls-left">
-          <button type="button" onClick={onOpen}>
-            Open
+          <button type="button" onClick={onOpen} disabled={opening}>
+            <FolderOpenIcon />
+            Open…
           </button>
         </div>
         <div className="controls-center">
           <button type="button" onClick={togglePlay} disabled={!ready}>
+            {ready && playing ? <PauseIcon /> : <PlayIcon />}
             {ready ? (playing ? 'Pause' : 'Play') : 'Warming tiles…'}
           </button>
           <button
@@ -282,6 +306,7 @@ export function PlayerChrome({
             title="Set loop in (I)"
             onClick={() => dispatch({ type: 'setLoopIn' })}
           >
+            <MarkInIcon />
             In
           </button>
           <button
@@ -290,6 +315,7 @@ export function PlayerChrome({
             title="Set loop out (O)"
             onClick={() => dispatch({ type: 'setLoopOut' })}
           >
+            <MarkOutIcon />
             Out
           </button>
           <button
@@ -299,6 +325,7 @@ export function PlayerChrome({
             disabled={loop.in === null && loop.out === null}
             onClick={() => dispatch({ type: 'clearLoop' })}
           >
+            <CloseIcon />
             Clear
           </button>
           <div className="scrubber">
@@ -324,7 +351,7 @@ export function PlayerChrome({
           <span className="readout" ref={timeRef}>
             0:00 / {totalText}
           </span>
-          {loopReadout ? <span className="readout">{loopReadout}</span> : null}
+          {loopReadout ? <span className="readout loop-readout">{loopReadout}</span> : null}
           <div className="speed-group" role="group" aria-label="Playback speed">
             {([1, 2, 3, 4] as const).map((rate) => (
               <button
@@ -342,19 +369,21 @@ export function PlayerChrome({
         </div>
         <div className="controls-right">
           <button type="button" onClick={swap}>
+            <SwapIcon />
             Swap view
           </button>
           <button type="button" onClick={() => setExportOpen(true)}>
-            Export
+            <ExportIcon />
+            Export…
           </button>
           <button
             type="button"
-            className="cog"
             title="Settings"
             aria-label="Settings"
             onClick={() => setSettingsOpen(true)}
           >
             <SettingsIcon />
+            Settings
           </button>
         </div>
       </div>

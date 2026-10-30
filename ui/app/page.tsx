@@ -22,6 +22,8 @@ export default function Page() {
   // resolved config the app backend hands over.
   const [settings, setSettings] = useState<RenderConfig>(DEFAULT_CONFIG);
   const nextId = useRef(0);
+  // Guards re-entry for the whole Open flow, preparation included.
+  const picking = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,7 +40,21 @@ export default function Page() {
     };
   }, []);
 
+  // The backend reports preparation only after the picker returned a valid file,
+  // so the busy status never covers the native dialog.
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    try {
+      off = appBridge().onPreparing(() => dispatch({ type: 'preparing' }));
+    } catch {
+      // Outside the app shell there is no backend to report progress.
+    }
+    return () => off?.();
+  }, []);
+
   const handlePick = useCallback(() => {
+    if (picking.current) return;
+    picking.current = true;
     dispatch({ type: 'pick' });
     void (async () => {
       try {
@@ -61,9 +77,13 @@ export default function Page() {
         dispatch({ type: 'picked' });
       } catch (e) {
         dispatch({ type: 'failed', message: e instanceof Error ? e.message : String(e) });
+      } finally {
+        picking.current = false;
       }
     })();
   }, []);
+
+  const dismissOpen = useCallback(() => dispatch({ type: 'dismiss' }), []);
 
   if (loaded) {
     return (
@@ -73,8 +93,10 @@ export default function Page() {
         settings={settings}
         onSettingsChange={setSettings}
         onOpen={handlePick}
+        openState={pickState}
+        onDismissOpenState={dismissOpen}
       />
     );
   }
-  return <LandingPanel state={pickState} onPick={handlePick} />;
+  return <LandingPanel state={pickState} onPick={handlePick} onDismiss={dismissOpen} />;
 }

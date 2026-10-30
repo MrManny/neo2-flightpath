@@ -90,6 +90,8 @@ export interface AppSessionOptions {
   pickFile: () => Promise<string | null>;
   prepare?: PrepareUiSession;
   log?: (msg: string) => void;
+  /** Fires once a picked file passes the checks, right before preparation starts. */
+  onPreparing?: (videoPath: string) => void;
 }
 
 export interface AppSession {
@@ -111,6 +113,7 @@ export function createAppSession(options: AppSessionOptions): AppSession {
   const { config, pickFile } = options;
   const prepare = options.prepare ?? prepareUiSession;
   const log = options.log ?? ((): void => {});
+  const onPreparing = options.onPreparing ?? ((): void => {});
   let session: UiSession | null = null;
   let videoPath: string | null = null;
   let picking = false;
@@ -127,6 +130,7 @@ export function createAppSession(options: AppSessionOptions): AppSession {
           log(`rejected: ${resolved}`);
           return { ok: false, error: `not a readable .mp4 file: ${resolved}` };
         }
+        onPreparing(resolved);
         session = await prepare(resolved, config, log);
         videoPath = resolved;
         log(`loaded: ${resolved}`);
