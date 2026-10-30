@@ -8,6 +8,10 @@ import type { RecordingSummary } from '../../src/run.js';
 
 export type ExportPhase = 'form' | 'running' | 'done' | 'error' | 'canceled';
 
+// Only the tail is ever shown, so the reducer keeps a bounded window instead
+// of copying an ever-growing log on every progress line.
+export const LOG_CAP = 50;
+
 export interface ExportForm {
   outPath: string | null;
   width: number;
@@ -89,7 +93,10 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
         : state;
     case 'progress':
       return state.phase === 'running'
-        ? { ...state, messages: [...state.messages, event.message] }
+        ? {
+            ...state,
+            messages: [...state.messages, event.message].slice(-LOG_CAP),
+          }
         : state;
     case 'cancelRequested':
       return state.phase === 'running' ? { ...state, canceling: true } : state;

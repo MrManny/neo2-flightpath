@@ -211,8 +211,10 @@ app.whenReady().then(async () => {
       const chosen = result.filePath.toLowerCase().endsWith('.mp4')
         ? result.filePath
         : `${result.filePath}.mp4`;
-      // Windows and macOS confirm replacement in the native dialog; Linux does not.
-      if (process.platform === 'linux' && fs.existsSync(chosen)) {
+      // The native dialog confirmed the name as typed, but `.mp4` may have been
+      // appended after it: re-check the final path on every platform so an
+      // existing file is never replaced without a confirmation.
+      if (fs.existsSync(chosen)) {
         const box = {
           type: 'warning',
           buttons: ['Replace', 'Cancel'],

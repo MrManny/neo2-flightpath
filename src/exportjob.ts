@@ -21,14 +21,14 @@ export type RunExportJob = (
   videoPath: string,
   request: ExportRequest,
   log: LogFn,
-  outPath: string,
+  workingPath: string,
   signal: AbortSignal,
 ) => Promise<RecordingSummary>;
 
 // The pipeline is called exactly like the CLI calls it: one job, the
 // snapshot's config, the frozen range.
-const runViaPipeline: RunExportJob = (videoPath, request, log, outPath, signal) =>
-  processRecording(videoPath, request.config, log, outPath, {
+const runViaPipeline: RunExportJob = (videoPath, request, log, workingPath, signal) =>
+  processRecording(videoPath, request.config, log, workingPath, {
     range: request.range ?? undefined,
     signal,
   });

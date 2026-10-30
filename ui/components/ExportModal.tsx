@@ -8,14 +8,14 @@ import { appBridge } from '../lib/backend.js';
 import { engagedLoop, formatTime } from '../lib/framedriver.js';
 import type { LoopState } from '../lib/framedriver.js';
 import { exportReducer, initialExportState } from '../lib/exportstate.js';
-import { DEFAULT_CONFIG, validateRenderConfig } from '../../src/config.js';
+import { MIN_DIMENSION, validateDimensions } from '../../src/config.js';
 import { CloseIcon } from '../icons/CloseIcon.js';
 import { NumberField } from './NumberField.js';
 
-// The modal's dimensions go through the same validation the CLI applies.
+// The modal's dimensions go through the same rule the CLI and pipeline apply.
 function dimensionsValid(width: number, height: number): boolean {
   try {
-    validateRenderConfig({ ...DEFAULT_CONFIG, width, height });
+    validateDimensions(width, height);
     return true;
   } catch {
     return false;
@@ -31,6 +31,7 @@ export interface ExportModalProps {
   onBusyChange: (busy: boolean) => void;
 }
 
+// The modal shows the most recent lines of the bounded log.
 const LOG_TAIL = 8;
 
 export function ExportModal({
@@ -133,7 +134,7 @@ export function ExportModal({
         range: { start: loopPoints.in, end: loopPoints.out },
         label:
           `${formatTime(loopPoints.in / video.fps)}–${formatTime(loopPoints.out / video.fps)}` +
-          ` · ${loopPoints.out - loopPoints.in + 1} frames`,
+          ` Â· ${loopPoints.out - loopPoints.in + 1} frames`,
       }
     : null;
 
@@ -183,9 +184,11 @@ export function ExportModal({
                   }}
                 />
                 <span>
-                  {segment
-                    ? `In–Out segment (${segment.label})`
-                    : 'In–Out segment (set loop points first)'}
+                  {form.range
+                    ? `In–Out segment (${formatTime(form.range.start / video.fps)}–${formatTime(form.range.end / video.fps)} · ${form.range.end - form.range.start + 1} frames)`
+                    : segment
+                      ? `In–Out segment (${segment.label})`
+                      : 'In–Out segment (set loop points first)'}
                 </span>
               </label>
             </fieldset>
@@ -195,7 +198,7 @@ export function ExportModal({
               <NumberField
                 label="Width"
                 value={form.width}
-                min={64}
+                min={MIN_DIMENSION}
                 hint="px"
                 onValue={(width) => {
                   if (!dimensionsValid(width, form.height)) return false;
@@ -206,7 +209,7 @@ export function ExportModal({
               <NumberField
                 label="Height"
                 value={form.height}
-                min={64}
+                min={MIN_DIMENSION}
                 hint="px"
                 onValue={(height) => {
                   if (!dimensionsValid(form.width, height)) return false;
@@ -254,7 +257,7 @@ export function ExportModal({
           <>
             <div className="settings-row">
               <span>
-                {result.frames} frames @ {result.fps} · {result.elapsedSec} s ·{' '}
+                {result.frames} frames @ {result.fps} Â· {result.elapsedSec} s Â·{' '}
                 {result.width}×{result.height}
               </span>
             </div>

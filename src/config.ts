@@ -194,11 +194,19 @@ export function normalizeOverrides(
   return out;
 }
 
+// The smallest canvas the renderer and the app's dimension fields accept, in
+// one home so the CLI, the pipeline and the export modal cannot disagree.
+export const MIN_DIMENSION = 64;
+
 // The negated comparisons are NaN-safe: they also reject NaN sneak-ins.
-export function validateRenderConfig(config: RenderConfig): void {
-  if (!(config.width >= 64) || !(config.height >= 64)) {
-    throw new Error('width and height must be at least 64');
+export function validateDimensions(width: number, height: number): void {
+  if (!(width >= MIN_DIMENSION) || !(height >= MIN_DIMENSION)) {
+    throw new Error(`width and height must be at least ${MIN_DIMENSION}`);
   }
+}
+
+export function validateRenderConfig(config: RenderConfig): void {
+  validateDimensions(config.width, config.height);
   if (!Number.isInteger(config.workers) || config.workers < 1) {
     throw new Error('workers must be a positive integer');
   }
