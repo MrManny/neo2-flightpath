@@ -51,6 +51,12 @@ Development instructions; [README.md](README.md) is the user manual.
 - `src/config.ts` owns the option vocabulary; one home per concern.
 - Outputs must be deterministic and idempotent.
 
+## UI design
+
+Before changing anything under `ui/`, read
+[docs/design-guidelines.md](docs/design-guidelines.md), the source of truth for
+UI tokens, components, copy and error text.
+
 ## Definition of done
 
 - `npm run lint`, `npm test`, `npm run build` green (CI adds
