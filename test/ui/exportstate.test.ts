@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ExportRequest } from '../../src/config.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
-import { exportReducer, initialExportState } from '../../ui/lib/exportstate.js';
+import { captureFraction, exportReducer, initialExportState } from '../../ui/lib/exportstate.js';
 import type { ExportState } from '../../ui/lib/exportstate.js';
 
 const REQUEST: ExportRequest = {
@@ -126,5 +126,20 @@ describe('stale events', () => {
   it('ignores a cancel request outside a running job', () => {
     const form = exportReducer(initialExportState(768, 768), { type: 'cancelRequested' });
     expect(form.canceling).toBe(false);
+  });
+});
+
+describe('captureFraction', () => {
+  it('reads the latest captured-frame count as a fraction', () => {
+    expect(captureFraction(['source: a.mp4', 'frames: 100/200 captured', 'frames: 150/200 captured'])).toBe(0.75);
+  });
+
+  it('is null before any frame has been captured', () => {
+    expect(captureFraction(['source: a.mp4', 'telemetry: srt'])).toBeNull();
+  });
+
+  it('never exceeds 1 and tolerates a zero total', () => {
+    expect(captureFraction(['frames: 9/5 captured'])).toBe(1);
+    expect(captureFraction(['frames: 0/0 captured'])).toBeNull();
   });
 });

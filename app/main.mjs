@@ -304,7 +304,12 @@ app.whenReady().then(async () => {
     // Closing the window must not silently kill a running export and strand
     // minutes of work; the user chooses between stopping and keeping it.
     win.on('close', (e) => {
-      if (!exportRunner || !exportRunner.running() || closePromptOpen) return;
+      // A close already confirmed by the user, or with nothing running, passes.
+      if (pendingClose || !exportRunner || !exportRunner.running()) return;
+      if (closePromptOpen) {
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       closePromptOpen = true;
       const box = {
@@ -319,12 +324,10 @@ app.whenReady().then(async () => {
         ({ response }) => {
           closePromptOpen = false;
           if (response !== 0) return;
+          // Cancellation settles asynchronously: the close completes from the
+          // job's onDone, never from a synchronous running() check.
           pendingClose = true;
           exportRunner.cancel();
-          if (!exportRunner.running()) {
-            pendingClose = false;
-            if (win && !win.isDestroyed()) win.close();
-          }
         },
       );
     });

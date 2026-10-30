@@ -7,7 +7,7 @@ import type { ExportRequest, FrameRange, RenderConfig } from '../../src/config.j
 import { appBridge } from '../lib/backend.js';
 import { engagedLoop, formatTime } from '../lib/framedriver.js';
 import type { LoopState } from '../lib/framedriver.js';
-import { exportReducer, initialExportState } from '../lib/exportstate.js';
+import { captureFraction, exportReducer, initialExportState } from '../lib/exportstate.js';
 import { MIN_DIMENSION, validateDimensions } from '../../src/config.js';
 import { CloseIcon } from '../icons/CloseIcon.js';
 import { NumberField } from './NumberField.js';
@@ -31,8 +31,6 @@ export interface ExportModalProps {
   onBusyChange: (busy: boolean) => void;
 }
 
-// The modal shows the most recent lines of the bounded log.
-const LOG_TAIL = 8;
 
 export function ExportModal({
   session,
@@ -48,6 +46,7 @@ export function ExportModal({
   );
   const loopPoints = engagedLoop(loop);
   const busy = state.phase === 'running';
+  const fraction = captureFraction(state.messages);
 
   useEffect(() => {
     onBusyChange(busy);
@@ -72,19 +71,22 @@ export function ExportModal({
     };
   }, []);
 
-  const chooseOut = async (): Promise<void> => {
+  // Export asks for the destination first: the native save dialog is the only
+  // place a path comes from, and cancelling it cancels the export.
+  const chooseAndExport = async (): Promise<void> => {
+    let outPath: string;
     try {
-      const result = await appBridge().pickExportOutput();
-      if (result.ok && result.path) dispatch({ type: 'choose', path: result.path });
-      else if (result.error) dispatch({ type: 'failed', error: result.error });
+      const picked = await appBridge().pickExportOutput();
+      if (!picked.ok || !picked.path) {
+        if (picked.error) dispatch({ type: 'failed', error: picked.error });
+        return;
+      }
+      outPath = picked.path;
     } catch (e) {
       dispatch({ type: 'failed', error: e instanceof Error ? e.message : String(e) });
+      return;
     }
-  };
-
-  const startExport = (): void => {
-    const outPath = state.form.outPath;
-    if (!outPath) return;
+    dispatch({ type: 'choose', path: outPath });
     // The snapshot is frozen here: the job runs this request however the
     // preview settings move afterwards.
     const request: ExportRequest = {
@@ -93,16 +95,14 @@ export function ExportModal({
       range: state.form.range,
     };
     dispatch({ type: 'start', request });
-    void (async () => {
-      try {
-        const ack = await appBridge().startExport(request);
-        if (!ack.ok) {
-          dispatch({ type: 'startFailed', error: ack.error ?? 'export could not start' });
-        }
-      } catch (e) {
-        dispatch({ type: 'startFailed', error: e instanceof Error ? e.message : String(e) });
+    try {
+      const ack = await appBridge().startExport(request);
+      if (!ack.ok) {
+        dispatch({ type: 'startFailed', error: ack.error ?? 'export could not start' });
       }
-    })();
+    } catch (e) {
+      dispatch({ type: 'startFailed', error: e instanceof Error ? e.message : String(e) });
+    }
   };
 
   const cancelExport = (): void => {
@@ -127,7 +127,7 @@ export function ExportModal({
     })();
   };
 
-  const { phase, form, messages, result, error, canceling } = state;
+  const { phase, form, result, error, canceling } = state;
   const totalText = formatTime(video.frames / video.fps);
   const segment: { range: FrameRange; label: string } | null = loopPoints
     ? {
@@ -219,20 +219,14 @@ export function ExportModal({
               />
             </fieldset>
 
-            <fieldset className="settings-group">
-              <legend>Where</legend>
-              <div className="settings-row">
-                <span className="export-path">{form.outPath ?? 'No file chosen'}</span>
-                <button type="button" onClick={() => void chooseOut()}>
-                  Choose…
-                </button>
-              </div>
-            </fieldset>
-
             {error ? <p className="hint">{error}</p> : null}
             <div className="settings-row">
-              <button type="button" onClick={startExport} disabled={!form.outPath}>
-                Export
+              <button
+                type="button"
+                className="export-primary"
+                onClick={() => void chooseAndExport()}
+              >
+                Export…
               </button>
               <button type="button" onClick={onClose}>
                 Cancel
@@ -243,13 +237,33 @@ export function ExportModal({
 
         {phase === 'running' ? (
           <>
+            <div className="export-progress">
+              <div
+                className="export-progress-track"
+                role="progressbar"
+                aria-label="Export progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round((fraction ?? 0) * 100)}
+              >
+                <div
+                  className="export-progress-fill"
+                  style={{ width: `${Math.round((fraction ?? 0) * 100)}%` }}
+                />
+              </div>
+              <div className="export-progress-label">
+                {canceling
+                  ? 'Canceling…'
+                  : fraction === null
+                    ? 'Preparing…'
+                    : `Rendering ${Math.round(fraction * 100)}%`}
+              </div>
+            </div>
             <div className="settings-row">
-              <span>{canceling ? 'Canceling…' : 'Exporting…'}</span>
               <button type="button" onClick={cancelExport} disabled={canceling}>
-                Cancel
+                Cancel export
               </button>
             </div>
-            <pre className="export-log">{messages.slice(-LOG_TAIL).join('\n')}</pre>
           </>
         ) : null}
 

@@ -12,6 +12,22 @@ export type ExportPhase = 'form' | 'running' | 'done' | 'error' | 'canceled';
 // of copying an ever-growing log on every progress line.
 export const LOG_CAP = 50;
 
+// The pipeline reports capture progress as "frames: N/M captured"; the bar
+// advances from exactly those counts so it never runs ahead of the render.
+const CAPTURE_LINE = /frames:\s*(\d+)\/(\d+)\s+captured/;
+
+export function captureFraction(messages: readonly string[]): number | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const match = CAPTURE_LINE.exec(messages[i]);
+    if (match) {
+      const done = Number(match[1]);
+      const total = Number(match[2]);
+      return total > 0 ? Math.min(1, done / total) : null;
+    }
+  }
+  return null;
+}
+
 export interface ExportForm {
   outPath: string | null;
   width: number;

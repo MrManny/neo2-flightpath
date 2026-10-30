@@ -293,14 +293,46 @@ button:disabled {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.85);
 }
-.export-log {
-  max-height: 180px;
-  overflow-y: auto;
-  margin: 8px 0 0;
-  padding: 8px 10px;
-  background: rgba(0, 0, 0, 0.35);
-  border-radius: 6px;
-  font-size: 12px;
-  white-space: pre-wrap;
-  color: rgba(255, 255, 255, 0.8);
+.export-progress {
+  margin: 10px 0 4px;
+}
+.export-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.export-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #41f0ff;
+  transition: width 0.25s ease;
+}
+.export-progress-label {
+  margin-top: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.export-stage {
+  font-size: 14px;
+  color: #ffffff;
+}
+.export-hint {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.settings-row button.export-primary {
+  background: #41f0ff;
+  color: #071018;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.settings-row button.export-primary:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
