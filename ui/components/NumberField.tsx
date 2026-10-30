@@ -2,45 +2,59 @@
 
 import { useId, useState } from 'react';
 
-export function NumberField(props: {
+export interface NumberFieldProps {
   label: string;
   value: number;
   min: number;
+  /** The rule a rejected value breaks, phrased to follow "must be", e.g. "0 or more". */
+  rule: string;
   step?: number;
   hint?: string;
-  /** Returns whether the value committed; rejected values snap back. */
+  /** Returns whether the value committed; a rejected value stays visible with its message until blur. */
   onValue: (value: number) => boolean;
-}) {
+}
+
+// The message takes the hint's place in the same row, so showing or clearing it
+// never changes the layout: a button below the field keeps its position between
+// mousedown (which blurs the field) and mouseup.
+export function NumberField({ label, value, min, rule, step, hint, onValue }: NumberFieldProps) {
   const id = useId();
-  // The display is derived: it shows the draft while the user types and the
-  // committed value otherwise, so it can never desync from the settings and
-  // never races any effect timing. Rejected keystrokes drop the draft and
-  // snap back immediately.
+  const messageId = `${id}-message`;
+  // The draft is what the user typed; it is shown while the field is focused
+  // so a rejected value stays visible next to its message. Blur reverts it.
   const [draft, setDraft] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
   return (
     <div className="settings-row">
       <label className="settings-label" htmlFor={id}>
-        {props.label}
+        {label}
       </label>
       <input
         id={id}
         type="number"
-        min={props.min}
-        step={props.step ?? 1}
-        value={draft ?? String(props.value)}
+        min={min}
+        step={step ?? 1}
+        value={draft ?? String(value)}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? messageId : undefined}
         onChange={(e) => {
           const raw = e.target.value;
-          if (raw === '') {
-            setDraft(raw);
-            return;
-          }
-          const value = Number(raw);
-          const committed = Number.isFinite(value) && props.onValue(value);
-          setDraft(committed ? raw : null);
+          setDraft(raw);
+          const parsed = raw === '' ? Number.NaN : Number(raw);
+          setInvalid(!(Number.isFinite(parsed) && parsed >= min && onValue(parsed)));
         }}
-        onBlur={() => setDraft(null)}
+        onBlur={() => {
+          setDraft(null);
+          setInvalid(false);
+        }}
       />
-      {props.hint ? <span className="hint">{props.hint}</span> : null}
+      {invalid ? (
+        <span className="field-message" id={messageId}>
+          {`Must be ${rule}.`}
+        </span>
+      ) : hint ? (
+        <span className="hint">{hint}</span>
+      ) : null}
     </div>
   );
 }

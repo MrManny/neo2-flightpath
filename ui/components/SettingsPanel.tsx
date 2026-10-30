@@ -4,8 +4,9 @@ import { useId } from 'react';
 
 import { STYLE_VALUES, VIEW_VALUES } from '../../src/config.js';
 import type { RenderConfig, Style, View } from '../../src/config.js';
-import { CloseIcon } from '../icons/CloseIcon.js';
 import { patchConfig, setHudChip } from '../lib/settings.js';
+import { DialogClose } from './DialogClose.js';
+import { Notice } from './Notice.js';
 import { NumberField } from './NumberField.js';
 
 export interface SettingsPanelProps {
@@ -72,9 +73,7 @@ export function SettingsPanel({
       >
         <div className="settings-header">
           <h2>Settings</h2>
-          <button type="button" onClick={onClose} aria-label="Close" title="Close">
-            <CloseIcon />
-          </button>
+          <DialogClose onClose={onClose} />
         </div>
 
         <SelectField
@@ -94,6 +93,7 @@ export function SettingsPanel({
           label="Zoom"
           value={config.zoom}
           min={0}
+          rule="0 or more"
           hint="0 = auto-fit"
           onValue={(zoom) => apply({ zoom })}
         />
@@ -101,6 +101,7 @@ export function SettingsPanel({
           label="Zoom-out"
           value={config.zoomOut}
           min={0}
+          rule="0 or more"
           hint="auto-fit only"
           onValue={(zoomOut) => apply({ zoomOut })}
         />
@@ -108,6 +109,7 @@ export function SettingsPanel({
           label="Intro (s)"
           value={config.introSec}
           min={0}
+          rule="0 or more"
           step={0.5}
           onValue={(introSec) => apply({ introSec })}
         />
@@ -115,6 +117,7 @@ export function SettingsPanel({
           label="Outro (s)"
           value={config.outroSec}
           min={0}
+          rule="0 or more"
           step={0.5}
           onValue={(outroSec) => apply({ outroSec })}
         />
@@ -142,6 +145,11 @@ export function SettingsPanel({
               </label>
             );
           })}
+          {hasAltitude ? null : (
+            <Notice tone="warning">
+              This recording has no altitude telemetry, so the ALT chip stays off.
+            </Notice>
+          )}
         </fieldset>
       </div>
     </div>
