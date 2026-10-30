@@ -92,7 +92,9 @@ export function ExportModal({
     const request: ExportRequest = {
       outPath,
       config: { ...settings, width: state.form.width, height: state.form.height },
-      range: state.form.range,
+      // A segment only exists while its loop is engaged; a stale choice never
+      // exports frames the user can no longer see marked.
+      range: segment ? state.form.range : null,
     };
     dispatch({ type: 'start', request });
     try {
@@ -162,36 +164,31 @@ export function ExportModal({
 
         {phase === 'form' ? (
           <>
-            <fieldset className="settings-group">
-              <legend>What</legend>
-              <label className="settings-row">
-                <input
-                  type="radio"
-                  name="export-range"
-                  checked={form.range === null}
-                  onChange={() => dispatch({ type: 'setRange', range: null })}
-                />
-                <span>Full recording ({totalText})</span>
-              </label>
-              <label className="settings-row">
-                <input
-                  type="radio"
-                  name="export-range"
-                  checked={form.range !== null}
-                  disabled={!segment}
-                  onChange={() => {
-                    if (segment) dispatch({ type: 'setRange', range: segment.range });
-                  }}
-                />
-                <span>
-                  {form.range
-                    ? `In–Out segment (${formatTime(form.range.start / video.fps)}–${formatTime(form.range.end / video.fps)} · ${form.range.end - form.range.start + 1} frames)`
-                    : segment
-                      ? `In–Out segment (${segment.label})`
-                      : 'In–Out segment (set loop points first)'}
-                </span>
-              </label>
-            </fieldset>
+            {/* With no engaged loop there is nothing to choose: the export is
+                the full recording and the choice stays out of the way. */}
+            {segment ? (
+              <fieldset className="settings-group">
+                <legend>What</legend>
+                <label className="settings-row">
+                  <input
+                    type="radio"
+                    name="export-range"
+                    checked={form.range === null}
+                    onChange={() => dispatch({ type: 'setRange', range: null })}
+                  />
+                  <span>Full recording ({totalText})</span>
+                </label>
+                <label className="settings-row">
+                  <input
+                    type="radio"
+                    name="export-range"
+                    checked={form.range !== null}
+                    onChange={() => dispatch({ type: 'setRange', range: segment.range })}
+                  />
+                  <span>In–Out segment ({segment.label})</span>
+                </label>
+              </fieldset>
+            ) : null}
 
             <fieldset className="settings-group">
               <legend>How</legend>
@@ -228,7 +225,7 @@ export function ExportModal({
               >
                 Export…
               </button>
-              <button type="button" onClick={onClose}>
+              <button type="button" className="modal-button" onClick={onClose}>
                 Cancel
               </button>
             </div>
@@ -260,7 +257,7 @@ export function ExportModal({
               </div>
             </div>
             <div className="settings-row">
-              <button type="button" onClick={cancelExport} disabled={canceling}>
+              <button type="button" className="modal-button" onClick={cancelExport} disabled={canceling}>
                 Cancel export
               </button>
             </div>
@@ -279,19 +276,15 @@ export function ExportModal({
               <span className="export-path">{result.out}</span>
             </div>
             <div className="settings-row">
-              <button
-                type="button"
-                onClick={() => runOnBridge((b) => b.revealExportOutput(result.out))}
+              <button type="button" className="modal-button" onClick={() => runOnBridge((b) => b.revealExportOutput(result.out))}
               >
                 Reveal in folder
               </button>
-              <button
-                type="button"
-                onClick={() => runOnBridge((b) => b.openExportOutput(result.out))}
+              <button type="button" className="modal-button" onClick={() => runOnBridge((b) => b.openExportOutput(result.out))}
               >
                 Open
               </button>
-              <button type="button" onClick={onClose}>
+              <button type="button" className="modal-button" onClick={onClose}>
                 Close
               </button>
             </div>
@@ -301,7 +294,7 @@ export function ExportModal({
         {phase === 'canceled' ? (
           <div className="settings-row">
             <span>Export canceled; its working file was removed.</span>
-            <button type="button" onClick={onClose}>
+            <button type="button" className="modal-button" onClick={onClose}>
               Close
             </button>
           </div>
@@ -312,7 +305,7 @@ export function ExportModal({
             <p className="hint">{error}</p>
             <p className="hint">The destination file was left untouched.</p>
             <div className="settings-row">
-              <button type="button" onClick={onClose}>
+              <button type="button" className="modal-button" onClick={onClose}>
                 Close
               </button>
             </div>
