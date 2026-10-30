@@ -2,10 +2,10 @@
 // Best-effort by design: when the gh login cannot read or edit the project
 // every step here fails softly and setIssueStatus() reports false, so the
 // calling script can skip silently without treating it as an error.
-import { execFileSync } from 'node:child_process';
+import { execOrThrow } from './exec.mjs';
 
 function ghJson(args) {
-  return JSON.parse(execFileSync('gh', args, { encoding: 'utf8' }));
+  return JSON.parse(execOrThrow('gh', args));
 }
 
 // Moves the given issue's project item to the named Status option. Option and
@@ -27,7 +27,7 @@ export function setIssueStatus(issueNumber, optionName) {
       const status = fields.find((field) => field.name === 'Status' && field.options);
       const option = status?.options.find((candidate) => candidate.name === optionName);
       if (!status || !option) return false;
-      execFileSync('gh', [
+      execOrThrow('gh', [
         'project', 'item-edit',
         '--id', item.id,
         '--project-id', project.id,

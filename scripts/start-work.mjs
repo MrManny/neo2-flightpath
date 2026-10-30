@@ -7,9 +7,9 @@
 // ("Issue 42 set to 'in progress'"); without project access that step is
 // skipped silently. One parameter: the branch name.
 // Part of the agent tooling in scripts/; not shipped in the app or bundle.
-import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { setIssueStatus } from './lib/project.mjs';
+import { execOrThrow } from './lib/exec.mjs';
 import { ERROR_PREFIX, errorMessage } from '../src/errors.ts';
 
 export function runStartWork(argv) {
@@ -20,10 +20,10 @@ export function runStartWork(argv) {
     return 1;
   }
   try {
-    execFileSync('gh', ['issue', 'edit', issue, '--add-assignee', '@me']);
+    execOrThrow('gh', ['issue', 'edit', issue, '--add-assignee', '@me']);
     console.log(`Assigned issue ${issue}`);
     console.log(`Creating branch \`${branch}\``);
-    execFileSync('git', ['switch', '-c', branch]);
+    execOrThrow('git', ['switch', '-c', branch]);
     if (setIssueStatus(issue, 'In progress')) {
       console.log(`Issue ${issue} set to 'in progress'`);
     }

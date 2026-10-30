@@ -69,7 +69,9 @@ never part of the application or its bundle, and not linted or unit-tested.
   referenced issue and set it "In review", then open the PR (base defaults to `main`).
 
 Project status steps run only when the `gh` login can edit the GitHub project and are
-skipped silently otherwise.
+skipped silently otherwise. Every helper spawns external commands through
+`scripts/lib/exec.mjs` (one child-process policy: hidden windows on Windows) — do not
+call `node:child_process` directly.
 
 ## GitHub interactions
 

@@ -7,27 +7,26 @@
 // gh login can edit this repo's GitHub project; otherwise that step is
 // skipped silently. [base] defaults to main; pass a branch to target it.
 // Part of the agent tooling in scripts/; not shipped in the app or bundle.
-import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { hasChangesetFragment, prNeedsChangeset } from '../src/changeset-gate.ts';
 import { setIssueStatus } from './lib/project.mjs';
+import { exec, execOrThrow } from './lib/exec.mjs';
 import { ERROR_PREFIX, errorMessage } from '../src/errors.ts';
 
 const ISSUE_REFERENCE = /\b(?:refs?|close[sd]?|fix(?:es|ed)?)\s+#(\d+)\b/i;
 
 function listChanged(base) {
-  const output = execFileSync(
+  const output = execOrThrow(
     'git',
     ['diff', '--name-only', '--diff-filter=ACMR', '-z', `${base}...HEAD`],
-    { encoding: 'utf8' },
   );
   return output.split('\0').filter(Boolean);
 }
 
 function issueLabels(issue) {
-  const json = execFileSync('gh', ['issue', 'view', issue, '--json', 'labels'], { encoding: 'utf8' });
+  const json = execOrThrow('gh', ['issue', 'view', issue, '--json', 'labels']);
   return JSON.parse(json).labels.map((label) => label.name);
 }
 
@@ -37,7 +36,7 @@ export function runOpenPr(argv) {
     console.error(`${ERROR_PREFIX}usage: node scripts/open-pr.mjs <title> <body_path> [base]`);
     return 1;
   }
-  const push = spawnSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), 'safe-push.mjs')], {
+  const push = exec(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), 'safe-push.mjs')], {
     stdio: 'inherit',
   });
   if (push.status !== 0) return 1;
@@ -52,7 +51,7 @@ export function runOpenPr(argv) {
     const issue = ISSUE_REFERENCE.exec(readFileSync(bodyPath, 'utf8'))?.[1];
     const args = ['pr', 'create', '--title', title, '--body-file', bodyPath, '--base', base];
     for (const label of issue ? issueLabels(issue) : []) args.push('--label', label);
-    execFileSync('gh', args, { stdio: 'inherit' });
+    execOrThrow('gh', args, { stdio: 'inherit' });
     if (issue && setIssueStatus(issue, 'In review')) {
       console.log(`Issue ${issue} set to 'in review'`);
     }
