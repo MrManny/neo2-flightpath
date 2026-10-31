@@ -1,5 +1,5 @@
-// HTTP byte-range parsing (RFC 7233) shared by the headless render server and
-// the app's custom-scheme handler.
+// HTTP byte-range parsing and response planning (RFC 7233) shared by the
+// headless render server and the app's custom-scheme handler.
 
 export interface ByteRange {
   start: number;
@@ -33,4 +33,35 @@ export function parseRange(
   }
   if (start > end || start >= size) return 'unsatisfiable';
   return { start, end: Math.min(end, size - 1) };
+}
+
+export type RangePlan =
+  | { status: 200; headers: Record<string, string> }
+  | { status: 206; headers: Record<string, string>; span: ByteRange }
+  | { status: 416; headers: Record<string, string>; body: string };
+
+// Everything both transports compute by hand for one Range request: status,
+// the response headers, and the byte span (or 416 body) to send. Only the
+// transport write is left to the caller.
+export function rangePlan(
+  header: string | string[] | undefined,
+  size: number,
+  mime: string,
+): RangePlan {
+  const range = parseRange(header, size);
+  if (range === 'unsatisfiable') {
+    return {
+      status: 416,
+      headers: { 'Content-Range': `bytes */${size}`, 'Content-Type': 'text/plain' },
+      body: 'range not satisfiable',
+    };
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': mime,
+    'Accept-Ranges': 'bytes',
+    'Content-Length': String(range === null ? size : range.end - range.start + 1),
+  };
+  if (range === null) return { status: 200, headers };
+  headers['Content-Range'] = `bytes ${range.start}-${range.end}/${size}`;
+  return { status: 206, headers, span: range };
 }
