@@ -85,31 +85,37 @@ function createRequestGate(): RequestGate {
 }
 
 function cacheKeyFor(style: Style): string {
-  return TILE_SOURCES[style].cacheKey || style;
+  return TILE_SOURCES[style].cacheKey;
 }
 
-function tileCachePath(cacheDir: string, style: Style, tile: TileCoord): string {
-  return path.join(
-    cacheDir,
-    cacheKeyFor(style),
-    String(tile.z),
-    String(tile.x),
-    `${tile.y}.png`,
-  );
+export interface TileRef {
+  style: Style;
+  tile: TileCoord;
 }
 
-function tilePlaceholderPath(
+/** The one tile route: /tiles/<style>/<z>/<x>/<y>.png. */
+export function parseTilePathname(pathname: string): TileRef | null {
+  const m = /^\/tiles\/([a-z0-9_-]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(pathname);
+  return m
+    ? {
+        style: m[1] as Style,
+        tile: { z: Number(m[2]), x: Number(m[3]), y: Number(m[4]) },
+      }
+    : null;
+}
+
+// The one cache layout, shared by the prefetcher, the render server and the
+// app server so they can never disagree about where a tile lives.
+export function tilePaths(
   cacheDir: string,
   style: Style,
   tile: TileCoord,
-): string {
-  return path.join(
-    cacheDir,
-    cacheKeyFor(style),
-    String(tile.z),
-    String(tile.x),
-    `${tile.y}.placeholder.png`,
-  );
+): { file: string; placeholder: string } {
+  const dir = path.join(cacheDir, cacheKeyFor(style), String(tile.z), String(tile.x));
+  return {
+    file: path.join(dir, `${tile.y}.png`),
+    placeholder: path.join(dir, `${tile.y}.placeholder.png`),
+  };
 }
 
 function tileUrl(style: Style, tile: TileCoord): string {
@@ -174,15 +180,14 @@ async function fetchTileToCache(
   tile: TileCoord,
   acquire: RequestGate,
 ): Promise<TileFetchResult> {
-  const cachePath = tileCachePath(cacheDir, style, tile);
-  if (fs.existsSync(cachePath)) return { file: cachePath, status: 'cached' };
-  if (await downloadTile(tileUrl(style, tile), cachePath, acquire)) {
-    return { file: cachePath, status: 'downloaded' };
+  const paths = tilePaths(cacheDir, style, tile);
+  if (fs.existsSync(paths.file)) return { file: paths.file, status: 'cached' };
+  if (await downloadTile(tileUrl(style, tile), paths.file, acquire)) {
+    return { file: paths.file, status: 'downloaded' };
   }
-  const placeholderPath = tilePlaceholderPath(cacheDir, style, tile);
-  fs.mkdirSync(path.dirname(placeholderPath), { recursive: true });
-  fs.writeFileSync(placeholderPath, placeholderPng(style));
-  return { file: placeholderPath, status: 'failed' };
+  fs.mkdirSync(path.dirname(paths.placeholder), { recursive: true });
+  fs.writeFileSync(paths.placeholder, placeholderPng(style));
+  return { file: paths.placeholder, status: 'failed' };
 }
 
 export interface PrefetchStats {
@@ -204,8 +209,8 @@ export async function prefetchTiles({
   log?: (msg: string) => void;
 }): Promise<PrefetchStats> {
   const missing = tiles
-    .map((tile) => ({ tile, cachePath: tileCachePath(cacheDir, style, tile) }))
-    .filter(({ cachePath }) => !fs.existsSync(cachePath));
+    .map((tile) => ({ tile, file: tilePaths(cacheDir, style, tile).file }))
+    .filter(({ file }) => !fs.existsSync(file));
   if (missing.length === 0) {
     return { downloaded: 0, failed: 0, total: tiles.length };
   }
@@ -268,7 +273,7 @@ export function createTileFetcher(cacheDir: string): TileFetcher {
 
   return {
     ensure(style, tile): Promise<string> {
-      const key = `${cacheKeyFor(style)}/${tile.z}/${tile.x}/${tile.y}`;
+      const key = tilePaths(cacheDir, style, tile).file;
       let task = inFlight.get(key);
       if (!task) {
         task = new Promise<string>((resolve, reject) => {

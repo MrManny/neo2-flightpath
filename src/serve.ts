@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { TILE_SOURCES } from './renderer/tilesources.js';
 import type { Style } from './config.js';
 import { parseRange } from './range.js';
+import { parseTilePathname, tilePaths } from './tiles.js';
 
 const require_ = createRequire(import.meta.url);
 const LEAFLET_DIR = path.dirname(require_.resolve('leaflet/dist/leaflet.js'));
@@ -52,15 +53,12 @@ export function serveAsset(
       file = path.join(LEAFLET_DIR, rel);
     }
   } else if (url.startsWith('/tiles/')) {
-    const m = /^\/tiles\/([a-z0-9_-]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(url);
-    const src = m ? TILE_SOURCES[m[1] as Style] : null;
-    if (m && src && m[1] === routes.style) {
-      const key = src.cacheKey || m[1];
-      file = path.join(routes.tileCache, key, m[2], m[3], `${m[4]}.png`);
-      if (!fs.existsSync(file)) {
-        const alt = path.join(routes.tileCache, key, m[2], m[3], `${m[4]}.placeholder.png`);
-        if (fs.existsSync(alt)) file = alt;
-      }
+    const parsed = parseTilePathname(url);
+    const src = parsed ? TILE_SOURCES[parsed.style] : null;
+    if (parsed && src && parsed.style === routes.style) {
+      const paths = tilePaths(routes.tileCache, parsed.style, parsed.tile);
+      file = paths.file;
+      if (!fs.existsSync(file) && fs.existsSync(paths.placeholder)) file = paths.placeholder;
     }
   } else if (url.startsWith('/renderer/')) {
     const rel = url.slice('/renderer/'.length);

@@ -1,13 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { decimateTrack } from './decimate.js';
-import type { DecimatedTrack } from './decimate.js';
 import { errorMessage } from './errors.js';
-import { unproject } from './geo.js';
-import type { Bbox, LatLon } from './geo.js';
+import type { Bbox } from './geo.js';
 import { outputMatchesSource, probeVideo, verifyOutput } from './ff.js';
 import type { VideoProbe } from './ff.js';
+import { videoBaseName } from './inputs.js';
 import { loadTelemetry } from './telemetry.js';
 import type { Telemetry } from './telemetry.js';
 import { prefetchTiles } from './tiles.js';
@@ -18,7 +16,12 @@ import { buildPageHtml, planPageOpts } from './page.js';
 import type { PageOpts } from './page.js';
 import { renderVideo } from './render.js';
 import type { FrameRange, HudSpec, RenderConfig } from './config.js';
-import { hasAltitude, resolveHudSpec } from './config.js';
+import {
+  assertValidFrameRange,
+  effectiveZoomOut,
+  hasAltitude,
+  resolveHudSpec,
+} from './config.js';
 import {
   fixesLabel,
   noLockCuesLabel,
@@ -68,7 +71,7 @@ export interface BatchResult {
 }
 
 export function outputPathFor(videoPath: string, config: RenderConfig): string {
-  const base = path.basename(videoPath).replace(/\.[^.]+$/, '');
+  const base = videoBaseName(videoPath);
   const name = `${base}${config.outSuffix}.mp4`;
   return config.outDir
     ? path.join(config.outDir, name)
@@ -150,6 +153,10 @@ function describeView(
   );
 }
 
+function mtimeOf(outPath: string): number | null {
+  return fs.existsSync(outPath) ? fs.statSync(outPath).mtimeMs : null;
+}
+
 // Never leave a broken or partial render behind: on any failure the output
 // this run wrote is deleted (a pre-existing file we did not touch stays).
 function removePartialOutput(
@@ -157,9 +164,7 @@ function removePartialOutput(
   mtimeBefore: number | null,
   log: LogFn,
 ): void {
-  const mtimeNow = fs.existsSync(outPath)
-    ? fs.statSync(outPath).mtimeMs
-    : null;
+  const mtimeNow = mtimeOf(outPath);
   if (mtimeNow !== null && (mtimeBefore === null || mtimeNow !== mtimeBefore)) {
     fs.rmSync(outPath, { force: true });
     log(`removed partial output: ${outPath}`);
@@ -171,9 +176,7 @@ async function renderWithOutputCleanup(
   log: LogFn,
   render: () => Promise<void>,
 ): Promise<void> {
-  const mtimeBefore = fs.existsSync(outPath)
-    ? fs.statSync(outPath).mtimeMs
-    : null;
+  const mtimeBefore = mtimeOf(outPath);
   try {
     await render();
   } catch (e) {
@@ -218,11 +221,7 @@ function resolveRange(
   frames: number,
 ): FrameRange | null {
   if (!range) return null;
-  if (range.start < 0 || range.start >= range.end) {
-    throw new Error(
-      `invalid frame range: expected 0 <= start < end, got ${range.start}-${range.end}`,
-    );
-  }
+  assertValidFrameRange(range);
   if (range.end >= frames) {
     throw new Error(
       `frame range ${range.start}-${range.end} is beyond the recording (${frames} frames)`,
@@ -232,6 +231,8 @@ function resolveRange(
 }
 
 // Everything the shared renderer page needs after the I/O shell stages ran.
+// View planning (zoom, center, decimated trail) belongs to planPageOpts, the
+// one settings + telemetry -> page mapping.
 export interface PreparedRecording {
   width: number;
   height: number;
@@ -240,10 +241,8 @@ export interface PreparedRecording {
   hud: HudSpec;
   introOutro: IntroOutroFrames;
   overview: Overview;
-  center: LatLon;
   tileStats: PrefetchStats;
   frames: FrameArrays;
-  decimated: DecimatedTrack;
 }
 
 // The preparation stages shared by the headless pipeline and the app: probe,
@@ -300,12 +299,11 @@ export async function prepareSession(
     const computed = planView(tel.bbox, width, height, config);
     span.setAttributes({
       'plan.zoom': computed.zoom,
-      'plan.zoomOut': config.zoom > 0 ? 0 : config.zoomOut,
+      'plan.zoomOut': effectiveZoomOut(config),
       'plan.tile.count': computed.tiles.length,
     });
     return computed;
   });
-  const center = unproject(overview.centerPx.x, overview.centerPx.y, overview.zoom);
   log(describeView(config, overview, config.style));
 
   const tileStats = await stage(tracer, 'tiles.prefetch', parent, {}, async (span) => {
@@ -328,7 +326,6 @@ export async function prepareSession(
   }
 
   const frames = frameArrays(tel);
-  const decimated = decimateTrack(frames.lat, frames.lon, overview.zoom);
 
   return {
     width,
@@ -338,10 +335,8 @@ export async function prepareSession(
     hud,
     introOutro,
     overview,
-    center,
     tileStats,
     frames,
-    decimated,
   };
 }
 
@@ -392,7 +387,7 @@ function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummar
     bbox: tel.bbox,
     zoom: overview.zoom,
     zoomFixed: config.zoom > 0,
-    zoomOut: config.zoom > 0 ? 0 : config.zoomOut,
+    zoomOut: effectiveZoomOut(config),
     tilesDownloaded: tileStats.downloaded,
     verified: true,
     elapsedSec,

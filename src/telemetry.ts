@@ -5,6 +5,7 @@ import { bearingDeg, circularMeanDeg, haversineM } from './geo.js';
 import type { Bbox, LatLon } from './geo.js';
 import { parseSrt } from './srt.js';
 import { parseCamMeta } from './cammeta.js';
+import { videoBaseName } from './inputs.js';
 
 export interface FrameData {
   lat: number | null;
@@ -58,7 +59,7 @@ function hasGpsFix(sample: TelSample): boolean {
 // Sidecar lookup matches the video basename, case-insensitively (.SRT vs .srt).
 export function findSrtSidecar(videoPath: string): string | null {
   const dir = path.dirname(videoPath);
-  const base = path.basename(videoPath).replace(/\.[^.]+$/, '');
+  const base = videoBaseName(videoPath);
   for (const f of fs.readdirSync(dir)) {
     if (f.toLowerCase() === `${base.toLowerCase()}.srt`) {
       return path.join(dir, f);
