@@ -19,7 +19,7 @@ import { resolveConfig } from '../dist/configfile.js';
 import { ERROR_PREFIX, errorMessage } from '../dist/errors.js';
 import { createExportRunner } from '../dist/exportjob.js';
 import { requireTools } from '../dist/ff.js';
-import { parseRange } from '../dist/range.js';
+import { rangePlan } from '../dist/range.js';
 import { outputPathFor } from '../dist/run.js';
 import { createTileFetcher } from '../dist/tiles.js';
 
@@ -79,25 +79,15 @@ function sendToWindow(channel, payload) {
 
 function videoResponse(request, filePath) {
   const size = fs.statSync(filePath).size;
-  const range = parseRange(request.headers.get('range') ?? undefined, size);
-  if (range === 'unsatisfiable') {
-    return new Response('range not satisfiable', {
-      status: 416,
-      headers: { 'Content-Range': `bytes */${size}`, 'Content-Type': 'text/plain' },
-    });
+  const plan = rangePlan(request.headers.get('range') ?? undefined, size, 'video/mp4');
+  if (plan.status === 416) {
+    return new Response(plan.body, { status: 416, headers: plan.headers });
   }
-  const start = range === null ? 0 : range.start;
-  const end = range === null ? size - 1 : range.end;
-  const stream = fs.createReadStream(filePath, { start, end });
-  return new Response(Readable.toWeb(stream), {
-    status: range === null ? 200 : 206,
-    headers: {
-      'Content-Type': 'video/mp4',
-      'Accept-Ranges': 'bytes',
-      'Content-Length': String(end - start + 1),
-      ...(range === null ? {} : { 'Content-Range': `bytes ${start}-${end}/${size}` }),
-    },
-  });
+  const stream =
+    plan.status === 206
+      ? fs.createReadStream(filePath, { start: plan.span.start, end: plan.span.end })
+      : fs.createReadStream(filePath);
+  return new Response(Readable.toWeb(stream), { status: plan.status, headers: plan.headers });
 }
 
 // net.fetch only sets request headers; wrapping the body gives the client
