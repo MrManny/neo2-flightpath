@@ -5,6 +5,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { UiSession } from '../../src/appsession.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
 import type { RenderConfig } from '../../src/config.js';
+import { errorMessage } from '../../src/errors.js';
 import { LandingPanel } from '../components/LandingPanel.js';
 import { PlayerChrome } from '../components/PlayerChrome.js';
 import { appBridge } from '../lib/backend.js';
@@ -76,7 +77,7 @@ export default function Page() {
         setLoaded({ id: nextId.current, value: session });
         dispatch({ type: 'picked' });
       } catch (e) {
-        dispatch({ type: 'failed', message: e instanceof Error ? e.message : String(e) });
+        dispatch({ type: 'failed', message: errorMessage(e) });
       } finally {
         picking.current = false;
       }

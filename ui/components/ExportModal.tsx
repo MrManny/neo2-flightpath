@@ -5,6 +5,7 @@ import { useEffect, useReducer } from 'react';
 import type { UiSession } from '../../src/appsession.js';
 import type { ExportRequest, FrameRange, RenderConfig } from '../../src/config.js';
 import { MIN_DIMENSION, validateDimensions } from '../../src/config.js';
+import { errorMessage } from '../../src/errors.js';
 import { appBridge } from '../lib/backend.js';
 import { describeError } from '../lib/errortext.js';
 import { captureFraction, exportReducer, initialExportState } from '../lib/exportstate.js';
@@ -85,7 +86,7 @@ export function ExportModal({
       }
       outPath = picked.path;
     } catch (e) {
-      dispatch({ type: 'failed', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'failed', error: errorMessage(e) });
       return;
     }
     dispatch({ type: 'choose', path: outPath });
@@ -105,7 +106,7 @@ export function ExportModal({
         dispatch({ type: 'startFailed', error: ack.error ?? 'export could not start' });
       }
     } catch (e) {
-      dispatch({ type: 'startFailed', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'startFailed', error: errorMessage(e) });
     }
   };
 
@@ -126,7 +127,7 @@ export function ExportModal({
         const ack = await fn(appBridge());
         if (!ack.ok) dispatch({ type: 'failed', error: ack.error ?? 'action failed' });
       } catch (e) {
-        dispatch({ type: 'failed', error: e instanceof Error ? e.message : String(e) });
+        dispatch({ type: 'failed', error: errorMessage(e) });
       }
     })();
   };
