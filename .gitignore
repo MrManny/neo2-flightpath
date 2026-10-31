@@ -11,8 +11,8 @@ ui/next-env.d.ts
 # configuration, caches and renderings
 .neo2flightpath.json
 out/
-/.scrap/**
-!/.scrap/.gitkeep
+/.scratch/**
+!/.scratch/.gitkeep
 
 # test coverage
 coverage/
