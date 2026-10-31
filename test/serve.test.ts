@@ -212,6 +212,23 @@ describe('serveFileWithRange', () => {
     }
   });
 
+  it('answers HEAD on a range request with the 206 headers and no body', async () => {
+    const { videoPath } = withVideo();
+    const host = await startHost(tmpDir(), videoPath);
+    try {
+      const res = await fetch(`${host.url}/video`, {
+        method: 'HEAD',
+        headers: { range: 'bytes=2-5' },
+      });
+      expect(res.status).toBe(206);
+      expect(res.headers.get('content-range')).toBe('bytes 2-5/10');
+      expect(res.headers.get('content-length')).toBe('4');
+      expect((await res.arrayBuffer()).byteLength).toBe(0);
+    } finally {
+      await host.close();
+    }
+  });
+
   it('404s a missing file', async () => {
     const host = await startHost(tmpDir(), path.join(tmpDir(), 'gone.mp4'));
     try {

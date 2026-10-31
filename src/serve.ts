@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { TILE_SOURCES } from './renderer/tilesources.js';
 import type { Style } from './config.js';
-import { parseRange } from './range.js';
+import { rangePlan } from './range.js';
 import { parseTilePathname, tilePaths } from './tiles.js';
 
 const require_ = createRequire(import.meta.url);
@@ -97,33 +97,20 @@ export function serveFileWithRange(
     return Promise.resolve();
   }
   const mime = MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
-  const range = parseRange(req.headers['range'], size);
-  if (range === 'unsatisfiable') {
-    res.writeHead(416, {
-      'Content-Range': `bytes */${size}`,
-      'Content-Type': 'text/plain',
-    });
-    res.end('range not satisfiable');
+  const plan = rangePlan(req.headers['range'], size, mime);
+  res.writeHead(plan.status, plan.headers);
+  if (plan.status === 416) {
+    res.end(plan.body);
     return Promise.resolve();
   }
-  const head = req.method === 'HEAD';
-  const headers: Record<string, string | number> = {
-    'Content-Type': mime,
-    'Accept-Ranges': 'bytes',
-    'Content-Length': range === null ? size : range.end - range.start + 1,
-  };
-  if (range !== null) {
-    headers['Content-Range'] = `bytes ${range.start}-${range.end}/${size}`;
-  }
-  res.writeHead(range === null ? 200 : 206, headers);
-  if (head) {
+  if (req.method === 'HEAD') {
     res.end();
     return Promise.resolve();
   }
   const stream =
-    range === null
-      ? fs.createReadStream(filePath)
-      : fs.createReadStream(filePath, { start: range.start, end: range.end });
+    plan.status === 206
+      ? fs.createReadStream(filePath, { start: plan.span.start, end: plan.span.end })
+      : fs.createReadStream(filePath);
   // pipeline tears the read stream down when the client aborts (every video
   // seek does), so the file handle is released and the promise settles.
   return new Promise<void>((resolve) => {
