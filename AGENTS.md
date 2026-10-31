@@ -11,6 +11,9 @@ Development instructions; [README.md](README.md) is the user manual.
 - `npm run app:dev` runs the UI with hot reload (`next dev`) inside Electron.
   The UI builds with webpack (`--webpack`): Turbopack cannot resolve the
   shared renderer's NodeNext `.js` specifiers.
+- `npm run app:pack` packages the desktop app with `electron-builder` into
+  `dist-electron/`: `-- --dir` for the unpacked smoke, `-- --win portable` and
+  `-- --linux AppImage` for release artifacts.
 - When adding a new dependency, pin it to a patch-level range (i.e. `~1.2.3`);
   new dependencies **must not** have high or critical security issues on
   Snyk. Check `https://security.snyk.io/package/npm/<package_name>`.
@@ -59,8 +62,9 @@ UI tokens, components, copy and error text.
 
 ## Definition of done
 
-- `npm run lint`, `npm test`, `npm run build` green (CI adds
-  `npm pack --dry-run` on Node 24 + 26).
+- `npm run lint`, `npm test`, `npm run build` green (CI gates on lint + test
+  over Node 24 + 26, then adds `npm pack --dry-run` and a desktop packaging
+  smoke on Node 24).
 - Behavior changes ship with tests; docs updated (README: user-visible, here:
   commands and standards).
 - PRs titled `feat:`/`fix:` add a `.changeset/*.md` fragment, `release:` PRs

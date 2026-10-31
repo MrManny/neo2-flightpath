@@ -1,5 +1,7 @@
 appId: io.github.mrmanny.neo2flightpath
 productName: neo2-flightpath
+# The portable default would contain a space; keep artifact names shell-friendly.
+artifactName: ${name}-${version}-${os}-${arch}.${ext}
 directories:
   output: dist-electron
 files:
@@ -10,3 +12,5 @@ files:
   - "!node_modules/playwright-core/**"
 win:
   target: portable
+linux:
+  target: AppImage
