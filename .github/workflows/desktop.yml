@@ -70,7 +70,8 @@ jobs:
           echo "APP_VERSION=${pkg_version}-pre-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       - name: Build desktop app
-        run: npm run app:pack -- ${{ matrix.target }} -c.extraMetadata.version=${{ env.APP_VERSION }}
+        shell: bash
+        run: npm run app:pack -- ${{ matrix.target }} "-c.extraMetadata.version=${{ env.APP_VERSION }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
