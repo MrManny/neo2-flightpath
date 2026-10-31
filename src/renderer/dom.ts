@@ -121,6 +121,17 @@ ${hudMarkup(hud)}
 </div>`;
 }
 
+/** The drone marker's inner markup: the arrow glyph in the track color. */
+export function droneMarkerMarkup(coreColor: string): string {
+  return (
+    '<div class="drone-wrap"><div class="drone-arrow" id="drone-arrow">' +
+    '<svg viewBox="0 0 24 24"><path d="M12 1.8 L21 22 L12 16.9 L3 22 Z" fill="' +
+    coreColor +
+    '" stroke="rgba(255,255,255,0.9)" stroke-width="0.9" stroke-linejoin="round"/></svg>' +
+    '</div></div>'
+  );
+}
+
 /** Returns the element the renderer's DOM contract guarantees. */
 export function el<T extends Element>(root: ParentNode, selector: string): T {
   const found = root.querySelector<T>(selector);

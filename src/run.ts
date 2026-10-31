@@ -29,7 +29,7 @@ import {
   trackDistanceLabel,
 } from './summary.js';
 import { NOOP_TRACER, stage } from './tracing.js';
-import type { TraceContext } from './tracing.js';
+import type { Span, Tracer, TraceContext } from './tracing.js';
 
 export type LogFn = (msg: string) => void;
 
@@ -367,6 +367,16 @@ interface RenderContext extends PreparedRecording {
   frameRange: FrameRange | null;
 }
 
+// Everything the output stages share: one recording's context plus the
+// pipeline shell it runs in.
+interface RenderStageEnv {
+  ctx: RenderContext;
+  deps: PipelineDeps;
+  options: PipelineOptions;
+  tracer: Tracer;
+  root: Span;
+}
+
 function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummary {
   const { config, probe, tel, hud, introOutro, overview, tileStats } = ctx;
   return {
@@ -392,6 +402,61 @@ function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummar
     verified: true,
     elapsedSec,
   };
+}
+
+// What the render produced must match what was planned; the log says so in
+// user words.
+async function verifyRenderedOutput(env: RenderStageEnv): Promise<void> {
+  const { ctx, deps, tracer, root } = env;
+  await stage(tracer, 'output.verify', root, {}, async (span) => {
+    const verify = await deps.verifyOutput(ctx.outPath, ctx.outFrames, ctx.probe.fps.value);
+    span.setAttributes({
+      'verify.frames.expected': ctx.outFrames,
+      'verify.frames.actual': verify.frames,
+      'verify.fps.expected': ctx.probe.fps.str,
+      'verify.fps.actual': verify.fps ?? 'unknown',
+      'verify.ok': verify.ok,
+    });
+    if (!verify.ok) {
+      throw new Error(
+        `output verification failed: got ${verify.frames} frames @ ${verify.fps ?? 'unknown'}, ` +
+          `expected ${ctx.outFrames} @ ${ctx.probe.fps.str}`,
+      );
+    }
+  });
+  ctx.log(
+    ctx.frameRange
+      ? 'verified: frame count and frame rate are 1:1 within the exported range'
+      : 'verified: frame count and frame rate match the source',
+  );
+}
+
+// One recording's output: build the page, render through the encoder, verify.
+async function renderToOutput(env: RenderStageEnv): Promise<void> {
+  const { ctx, deps, options, tracer, root } = env;
+  const html = buildPageHtml(recordingPageOpts(ctx, ctx.config));
+  fs.mkdirSync(path.dirname(ctx.outPath), { recursive: true });
+  await renderWithOutputCleanup(ctx.outPath, ctx.log, async () => {
+    await deps.renderVideo({
+      html,
+      capture: ctx.config.capture,
+      preset: ctx.config.preset,
+      style: ctx.config.style,
+      tileCache: ctx.config.tileCache,
+      width: ctx.width,
+      height: ctx.height,
+      frames: ctx.outFrames,
+      frameStart: ctx.frameRange?.start ?? 0,
+      fpsStr: ctx.probe.fps.str,
+      workers: ctx.config.workers,
+      outPath: ctx.outPath,
+      browserPath: ctx.config.browser,
+      signal: options.signal,
+      log: ctx.log,
+      trace: { tracer, parent: root },
+    });
+    await verifyRenderedOutput(env);
+  });
 }
 
 // Throws on failure (the caller decides policy). outPath may be pre-planned by
@@ -434,65 +499,17 @@ export async function processRecording(
 
       const range = resolveRange(options.range, prep.probe.frames);
       const outFrames = range ? range.end - range.start + 1 : prep.probe.frames;
-
-      const html = buildPageHtml(recordingPageOpts(prep, config));
-
-      fs.mkdirSync(path.dirname(outPath), { recursive: true });
-      await renderWithOutputCleanup(outPath, log, async () => {
-        await deps.renderVideo({
-          html,
-          capture: config.capture,
-          preset: config.preset,
-          style: config.style,
-          tileCache: config.tileCache,
-          width: prep.width,
-          height: prep.height,
-          frames: outFrames,
-          frameStart: range ? range.start : 0,
-          fpsStr: prep.probe.fps.str,
-          workers: config.workers,
-          outPath,
-          browserPath: config.browser,
-          signal: options.signal,
-          log,
-          trace: { tracer, parent: root },
-        });
-
-        await stage(tracer, 'output.verify', root, {}, async (span) => {
-          const verify = await deps.verifyOutput(outPath, outFrames, prep.probe.fps.value);
-          span.setAttributes({
-            'verify.frames.expected': outFrames,
-            'verify.frames.actual': verify.frames,
-            'verify.fps.expected': prep.probe.fps.str,
-            'verify.fps.actual': verify.fps ?? 'unknown',
-            'verify.ok': verify.ok,
-          });
-          if (!verify.ok) {
-            throw new Error(
-              `output verification failed: got ${verify.frames} frames @ ${verify.fps ?? 'unknown'}, ` +
-                `expected ${outFrames} @ ${prep.probe.fps.str}`,
-            );
-          }
-        });
-        log(
-          range
-            ? 'verified: frame count and frame rate are 1:1 within the exported range'
-            : 'verified: frame count and frame rate match the source',
-        );
-      });
-
-      return buildOkSummary(
-        {
-          ...prep,
-          videoPath,
-          outPath,
-          config,
-          log,
-          outFrames,
-          frameRange: range,
-        },
-        Math.round((Date.now() - t0) / 1000),
-      );
+      const ctx: RenderContext = {
+        ...prep,
+        videoPath,
+        outPath,
+        config,
+        log,
+        outFrames,
+        frameRange: range,
+      };
+      await renderToOutput({ ctx, deps, options, tracer, root });
+      return buildOkSummary(ctx, Math.round((Date.now() - t0) / 1000));
     },
   );
 }

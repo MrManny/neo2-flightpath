@@ -221,6 +221,117 @@ interface StageTiming {
   emitMs: number;
 }
 
+// Everything the frame workers share: one capture run's explicit context.
+interface WorkerRun {
+  active: Browser;
+  url: string;
+  width: number;
+  height: number;
+  frames: number;
+  frameStart: number;
+  capture: Capture;
+  signal: AbortSignal | undefined;
+  log: (msg: string) => void;
+  stream: OrderedFrameStream;
+  batches: FrameBatchRecorder;
+  timing: StageTiming;
+  captureSpan: Span;
+}
+
+// The frame loop: workers race for frame indices and stream every capture
+// into ffmpeg in exact order. allSettled, not all: the batch spans and the
+// captured-frame count must be final before the capture span is wound down.
+async function runWorkers(run: WorkerRun, workerCount: number): Promise<void> {
+  let captureCursor = 0;
+  let capturesDone = 0;
+  let failed = false;
+
+  async function worker(workerId: number): Promise<void> {
+    const page = await run.active.newPage({
+      viewport: { width: run.width, height: run.height },
+      deviceScaleFactor: 1,
+    });
+    try {
+      await page.goto(run.url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
+      await page.waitForFunction('window.__READY === true', null, { timeout: PAGE_LOAD_TIMEOUT_MS });
+      for (;;) {
+        // A doomed render stops at the next frame: survivors have to settle
+        // before the spans below are wound down.
+        if (failed) return;
+        if (run.signal?.aborted) throw new Error('render canceled');
+        const idx = captureCursor++;
+        if (idx >= run.frames) break;
+        let t0 = Date.now();
+        // __setFrame resolves after the canvas painted (canvas drawing is
+        // deferred to requestAnimationFrame); awaiting it keeps every
+        // screenshot on the current frame.
+        await page.evaluate(
+          (frame: number) =>
+            (globalThis as unknown as { __setFrame: (n: number) => Promise<void> }).__setFrame(frame),
+          run.frameStart + idx,
+        );
+        run.timing.evalMs += Date.now() - t0;
+        t0 = Date.now();
+        const buf = await page.screenshot(screenshotOptions(run.capture));
+        const captureMs = Date.now() - t0;
+        run.timing.captureMs += captureMs;
+        capturesDone++;
+        run.batches.recordFrame(capturesDone, captureMs);
+        t0 = Date.now();
+        await run.stream.submit(idx, buf);
+        run.timing.emitMs += Date.now() - t0;
+        if (capturesDone % 100 === 0 || capturesDone === run.frames) {
+          run.log(`frames: ${capturesDone}/${run.frames} captured`);
+        }
+      }
+    } finally {
+      await page.close().catch(() => {});
+    }
+    run.log(`worker ${workerId} done`);
+  }
+
+  const settled = await Promise.allSettled(
+    Array.from({ length: workerCount }, (_, i) =>
+      worker(i + 1).catch((e) => {
+        failed = true;
+        throw e;
+      }),
+    ),
+  );
+  const rejected = settled.find(
+    (r): r is PromiseRejectedResult => r.status === 'rejected',
+  );
+  run.batches.close(rejected?.reason);
+  run.captureSpan.setAttribute('render.frames.captured', capturesDone);
+  if (rejected) throw rejected.reason;
+}
+
+// Ends the frame stream and holds the encoder to its exit code.
+async function finishEncode(
+  encoder: Encoder,
+  stream: OrderedFrameStream,
+  encodeSpan: Span,
+  log: (msg: string) => void,
+  outPath: string,
+): Promise<void> {
+  await stream.flushReady();
+  stream.end();
+  // `closed` (not `once(ffmpeg, 'close')`): ffmpeg may already have exited.
+  const code = await encoder.closed;
+  encodeSpan.setAttribute('render.ffmpeg.exitCode', code ?? -1);
+  if (code !== 0) {
+    throw new Error(`ffmpeg exited with code ${code}: ${encoder.stderrText().trim()}`);
+  }
+  log(`encoded: ${outPath}`);
+}
+
+function formatProfile(profile: RenderProfile, workerCount: number): string {
+  return (
+    `profile: eval=${(profile.evalMs / 1000).toFixed(1)}s capture=${(profile.captureMs / 1000).toFixed(1)}s ` +
+    `encode-backpressure=${(profile.emitMs / 1000).toFixed(1)}s (summed over ${workerCount} workers)`
+  );
+}
+
 // One `render.capture.batch` subspan per cadence of captured frames, carrying
 // the per-frame capture spread of that batch. Per-frame spans would bury the
 // trace in thousands of near-identical spans and overflow the exporter queue.
@@ -319,82 +430,26 @@ export async function renderVideo(
         try {
           await stage(tracer, 'render.encode', renderSpan, { ...presetAttributes }, async (encodeSpan) => {
             await stage(tracer, 'render.capture', renderSpan, {}, async (captureSpan) => {
-              const batches = new FrameBatchRecorder(tracer, captureSpan, frames);
-
-              let captureCursor = 0;
-              let capturesDone = 0;
-              let failed = false;
-
-              async function worker(workerId: number): Promise<void> {
-                const page = await active.newPage({
-                  viewport: { width, height },
-                  deviceScaleFactor: 1,
-                });
-                try {
-                  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
-                  await page.waitForFunction('window.__READY === true', null, { timeout: PAGE_LOAD_TIMEOUT_MS });
-                  for (;;) {
-                    // A doomed render stops at the next frame: survivors have
-                    // to settle before the spans below are wound down.
-                    if (failed) return;
-                    if (signal?.aborted) throw new Error('render canceled');
-                    const idx = captureCursor++;
-                    if (idx >= frames) break;
-                    let t0 = Date.now();
-                    // __setFrame resolves after the canvas painted (canvas
-                    // drawing is deferred to requestAnimationFrame); awaiting
-                    // it keeps every screenshot on the current frame.
-                    await page.evaluate(
-                      (frame: number) =>
-                        (globalThis as unknown as { __setFrame: (n: number) => Promise<void> }).__setFrame(frame),
-                      frameStart + idx,
-                    );
-                    timing.evalMs += Date.now() - t0;
-                    t0 = Date.now();
-                    const buf = await page.screenshot(screenshotOptions(capture));
-                    const captureMs = Date.now() - t0;
-                    timing.captureMs += captureMs;
-                    capturesDone++;
-                    batches.recordFrame(capturesDone, captureMs);
-                    t0 = Date.now();
-                    await stream.submit(idx, buf);
-                    timing.emitMs += Date.now() - t0;
-                    if (capturesDone % 100 === 0 || capturesDone === frames) {
-                      log(`frames: ${capturesDone}/${frames} captured`);
-                    }
-                  }
-                } finally {
-                  await page.close().catch(() => {});
-                }
-                log(`worker ${workerId} done`);
-              }
-
-              // allSettled, not all: the batch spans and the captured-frame
-              // count must be final before the capture span is wound down.
-              const settled = await Promise.allSettled(
-                Array.from({ length: workerCount }, (_, i) =>
-                  worker(i + 1).catch((e) => {
-                    failed = true;
-                    throw e;
-                  }),
-                ),
+              await runWorkers(
+                {
+                  active,
+                  url,
+                  width,
+                  height,
+                  frames,
+                  frameStart,
+                  capture,
+                  signal,
+                  log,
+                  stream,
+                  batches: new FrameBatchRecorder(tracer, captureSpan, frames),
+                  timing,
+                  captureSpan,
+                },
+                workerCount,
               );
-              const rejected = settled.find(
-                (r): r is PromiseRejectedResult => r.status === 'rejected',
-              );
-              batches.close(rejected?.reason);
-              captureSpan.setAttribute('render.frames.captured', capturesDone);
-              if (rejected) throw rejected.reason;
             });
-            await stream.flushReady();
-            stream.end();
-            // `closed` (not `once(ffmpeg, 'close')`): ffmpeg may already have exited.
-            const code = await encoder.closed;
-            encodeSpan.setAttribute('render.ffmpeg.exitCode', code ?? -1);
-            if (code !== 0) {
-              throw new Error(`ffmpeg exited with code ${code}: ${encoder.stderrText().trim()}`);
-            }
-            log(`encoded: ${outPath}`);
+            await finishEncode(encoder, stream, encodeSpan, log, outPath);
           });
         } catch (e) {
           encoder.kill();
@@ -425,10 +480,7 @@ export async function renderVideo(
         'render.captureMs': profile.captureMs,
         'render.emitMs': profile.emitMs,
       });
-      log(
-        `profile: eval=${(profile.evalMs / 1000).toFixed(1)}s capture=${(profile.captureMs / 1000).toFixed(1)}s ` +
-          `encode-backpressure=${(profile.emitMs / 1000).toFixed(1)}s (summed over ${workerCount} workers)`,
-      );
+      log(formatProfile(profile, workerCount));
       return { profile };
     },
   );
