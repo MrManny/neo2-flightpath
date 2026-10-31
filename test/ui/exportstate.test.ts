@@ -129,6 +129,47 @@ describe('stale events', () => {
   });
 });
 
+describe('cancel failures', () => {
+  it('reverts the canceling state and keeps the reason', () => {
+    let state = exportReducer(running(), { type: 'cancelRequested' });
+    state = exportReducer(state, { type: 'cancelFailed', error: 'export could not be canceled' });
+    expect(state.phase).toBe('running');
+    expect(state.canceling).toBe(false);
+    expect(state.error).toBe('export could not be canceled');
+  });
+
+  it('ignores a cancel failure outside a running job', () => {
+    const state = exportReducer(initialExportState(768, 768), {
+      type: 'cancelFailed',
+      error: 'export could not be canceled',
+    });
+    expect(state.error).toBeNull();
+  });
+
+  it('drops the stale reason once the job settles', () => {
+    const failed = exportReducer(
+      exportReducer(running(), { type: 'cancelRequested' }),
+      { type: 'cancelFailed', error: 'export could not be canceled' },
+    );
+    const done = exportReducer(failed, {
+      type: 'finish',
+      outcome: { status: 'ok', summary: OK_SUMMARY },
+    });
+    expect(done.phase).toBe('done');
+    expect(done.error).toBeNull();
+    const canceled = exportReducer(failed, { type: 'finish', outcome: { status: 'canceled' } });
+    expect(canceled.error).toBeNull();
+  });
+
+  it('clears a stale error when the next action starts', () => {
+    const failed = exportReducer(running(), {
+      type: 'cancelFailed',
+      error: 'export could not be canceled',
+    });
+    expect(exportReducer(failed, { type: 'clearError' }).error).toBeNull();
+  });
+});
+
 describe('captureFraction', () => {
   it('reads the latest captured-frame count as a fraction', () => {
     expect(captureFraction(['source: a.mp4', 'frames: 100/200 captured', 'frames: 150/200 captured'])).toBe(0.75);

@@ -112,16 +112,22 @@ export function ExportModal({
 
   const cancelExport = (): void => {
     dispatch({ type: 'cancelRequested' });
-    try {
-      void appBridge().cancelExport();
-    } catch {
-      // nothing to cancel without a backend
-    }
+    void (async () => {
+      try {
+        const ack = await appBridge().cancelExport();
+        if (!ack.ok) {
+          dispatch({ type: 'cancelFailed', error: ack.error ?? 'export could not be canceled' });
+        }
+      } catch (e) {
+        dispatch({ type: 'cancelFailed', error: errorMessage(e) });
+      }
+    })();
   };
 
   const runOnBridge = (
     fn: (bridge: NonNullable<Window['neo2flightpath']>) => Promise<{ ok: boolean; error?: string }>,
   ): void => {
+    dispatch({ type: 'clearError' });
     void (async () => {
       try {
         const ack = await fn(appBridge());
@@ -265,6 +271,11 @@ export function ExportModal({
                     : `Rendering ${Math.round(fraction * 100)}%`}
               </div>
             </div>
+            {errorText ? (
+              <Notice tone="danger" details={errorText.technical}>
+                {errorText.text}
+              </Notice>
+            ) : null}
             <div className="dialog-actions">
               <button
                 type="button"
@@ -280,8 +291,13 @@ export function ExportModal({
 
         {phase === 'done' && result ? (
           <>
+            {errorText ? (
+              <Notice tone="danger" details={errorText.technical}>
+                {errorText.text}
+              </Notice>
+            ) : null}
             <Notice tone="info">
-              {`${result.frames} frames @ ${formatFrameRate(result.fps ?? '')} · ${result.elapsedSec} s · ${result.width}×${result.height}`}
+              {`${result.frames} frames @ ${formatFrameRate(result.fps ?? '')} · ${Math.round(result.elapsedSec)} s · ${result.width}×${result.height}`}
             </Notice>
             <p className="export-path">{result.out}</p>
             <div className="dialog-actions">

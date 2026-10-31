@@ -207,6 +207,15 @@ describe('ExportModal outcomes', () => {
     expect(screen.getByText('120 frames @ 29.97 fps · 4 s · 1280×720')).toBeTruthy();
   });
 
+  it('rounds the elapsed seconds to whole ones', async () => {
+    const { emitDone } = installBridge();
+    renderModal({ in: null, out: null });
+    fireEvent.click(screen.getByRole('button', { name: 'Start export' }));
+    await screen.findByRole('button', { name: 'Cancel export' });
+    emitDone({ status: 'ok', summary: { ...SUMMARY, elapsedSec: 4.25 } });
+    expect(screen.getByText('120 frames @ 29.97 fps · 4 s · 1280×720')).toBeTruthy();
+  });
+
   it('turns a raw Node error into a sentence and keeps the original as details', async () => {
     const { emitDone } = installBridge();
     await reachPhase('error', emitDone);
@@ -243,5 +252,41 @@ describe('ExportModal rainy paths', () => {
     fireEvent.change(width, { target: { value: '10' } });
     expect(screen.getByText('Must be at least 64 px.')).toBeTruthy();
     expect(width.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('shows a failed Reveal in folder in the done phase', async () => {
+    const { emitDone } = installBridge({
+      revealExportOutput: vi.fn(async () => ({
+        ok: false,
+        error: "EACCES: permission denied, open '/exports/a.mp4'",
+      })),
+    });
+    await reachPhase('done', emitDone);
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal in folder' }));
+    expect(
+      await screen.findByText('Access to "a.mp4" was denied. Choose a location you can write to.'),
+    ).toBeTruthy();
+  });
+
+  it('re-enables Cancel export and says why when the cancel is refused', async () => {
+    const { emitDone } = installBridge({
+      cancelExport: vi.fn(async () => ({ ok: false, error: 'export could not be canceled' })),
+    });
+    await reachPhase('running', emitDone);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel export' }));
+    expect(await screen.findByText('The export could not be canceled. Try again.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel export' }).disabled).toBe(false);
+  });
+
+  it('shows the reason when the cancel request itself fails', async () => {
+    const { emitDone } = installBridge({
+      cancelExport: vi.fn(async () => {
+        throw new Error('the app backend went away');
+      }),
+    });
+    await reachPhase('running', emitDone);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel export' }));
+    expect(await screen.findByText('the app backend went away')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel export' }).disabled).toBe(false);
   });
 });

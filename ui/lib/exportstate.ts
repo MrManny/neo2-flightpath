@@ -57,6 +57,8 @@ export type ExportEvent =
   | { type: 'startFailed'; error: string }
   | { type: 'progress'; message: string }
   | { type: 'cancelRequested' }
+  | { type: 'cancelFailed'; error: string }
+  | { type: 'clearError' }
   | { type: 'finish'; outcome: ExportOutcome };
 
 export function initialExportState(width: number, height: number): ExportState {
@@ -115,16 +117,21 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
           }
         : state;
     case 'cancelRequested':
-      return state.phase === 'running' ? { ...state, canceling: true } : state;
+      return state.phase === 'running' ? { ...state, canceling: true, error: null } : state;
+    case 'cancelFailed':
+      // The job keeps running: the cancel affordance comes back for a retry.
+      return state.phase === 'running' ? { ...state, canceling: false, error: event.error } : state;
+    case 'clearError':
+      return { ...state, error: null };
     case 'finish': {
       // Late events after a terminal state are stale and must not flip it.
       if (state.phase !== 'running') return state;
       const { outcome } = event;
       if (outcome.status === 'ok') {
-        return { ...state, phase: 'done', result: outcome.summary, canceling: false };
+        return { ...state, phase: 'done', result: outcome.summary, error: null, canceling: false };
       }
       if (outcome.status === 'canceled') {
-        return { ...state, phase: 'canceled', canceling: false };
+        return { ...state, phase: 'canceled', error: null, canceling: false };
       }
       return { ...state, phase: 'error', error: outcome.error, canceling: false };
     }

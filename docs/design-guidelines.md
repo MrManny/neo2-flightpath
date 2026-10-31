@@ -131,10 +131,10 @@ Spacing values are literals on this scale; use nothing else:
 |---|---|
 | `info` | Open preparing; no recording picked; export summary; export canceled |
 | `warning` | Settings: no altitude telemetry, so the ALT chip stays off |
-| `danger` | Open failed; export could not start; export failed |
+| `danger` | Open failed; export could not start; export failed; reveal or open failed; cancel failed |
 
-- **Placement:** landing, below Open… (16px top margin). Player: a centered overlay at the top of the stage (16px from the top, at most 560px wide, z-index 3, `--shadow-float`), showing only Open preparing and Open errors. Dialogs: above the footer on the export form; under the title in the done, canceled and error phases. Settings: inside the HUD chips group.
-- **Dismissible:** only when the owner passes `onDismiss`; today only Open errors are. Notices that describe a state clear when the state changes. Export form errors clear on the next form edit or start (`ui/lib/exportstate.ts`).
+- **Placement:** landing, below Open… (16px top margin). Player: a centered overlay at the top of the stage (16px from the top, at most 560px wide, z-index 3, `--shadow-float`), showing only Open preparing and Open errors. Dialogs: above the footer on the export form and while running; under the title in the done, canceled and error phases. Settings: inside the HUD chips group.
+- **Dismissible:** only when the owner passes `onDismiss`; today only Open errors are. Notices that describe a state clear when the state changes. Export form errors clear on the next form edit or start; action and cancel errors clear on the next attempt or when the job settles (`ui/lib/exportstate.ts`).
 
 ### 8.4 Fields
 
@@ -153,8 +153,8 @@ Spacing values are literals on this scale; use nothing else:
 | Phase | Footer | Notice |
 |---|---|---|
 | Form | Cancel (closes); Start export (primary) | Danger, for a start or file error |
-| Running | Cancel export (disabled while canceling) | Progress above |
-| Done | Reveal in folder; Open video; Close | Info summary; output path above |
+| Running | Cancel export (disabled while canceling) | Progress above; danger when a cancel fails |
+| Done | Reveal in folder; Open video; Close | Info summary; output path above; danger when a reveal or open fails |
 | Canceled | Close | Info |
 | Error | Close | Danger; ends "The destination file was left untouched." |
 
@@ -198,7 +198,7 @@ Spacing values are literals on this scale; use nothing else:
 ## 11. Error guidance
 
 - **Flow:** a backend or Node message goes through `describeError()` (`ui/lib/errortext.ts`) and yields `{ text, technical }`. The owning component renders `Notice tone="danger"`: `text` is the main line; `technical` sits under "Technical details". Open errors prefix the sentence with "Could not open the recording:".
-- **Mapping:** (1) a message that starts with a Node code (`EEXIST`, `ENOENT`, `EACCES`, `EPERM`, `ENOSPC`, `EBUSY`, `EISDIR`) becomes "{what happened} {what to do}", naming the file when the message ends with a quoted path; (2) one of 12 known app messages becomes its sentence; (3) any other message passes through unchanged as the main line, with no technical text.
+- **Mapping:** (1) a message that starts with a Node code (`EEXIST`, `ENOENT`, `EACCES`, `EPERM`, `ENOSPC`, `EBUSY`, `EISDIR`) becomes "{what happened} {what to do}", naming the file when the message ends with a quoted path; (2) one of 13 known app messages becomes its sentence; (3) any other message passes through unchanged as the main line, with no technical text.
 - **Sentence pattern:** what happened, in plain words with the cause when known, then what to do next. The original message always sits under "Technical details":
 
 | Message in | Main line shown |

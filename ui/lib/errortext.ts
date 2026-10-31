@@ -62,6 +62,7 @@ const APP_SENTENCES: ReadonlyArray<readonly [RegExp, (match: RegExpExecArray) =>
   [/^no recording loaded$/, () => 'No recording is loaded. Open a recording first.'],
   [/^an export is already running$/, () => 'An export is already running. Wait for it to finish or cancel it.'],
   [/^export could not start$/, () => 'The export could not start. Try again.'],
+  [/^export could not be canceled$/, () => 'The export could not be canceled. Try again.'],
   [
     /^the output must not overwrite the source recording$/,
     () => 'The export would replace the source recording. Choose another file name.',
