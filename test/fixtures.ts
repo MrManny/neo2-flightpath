@@ -5,6 +5,12 @@ import path from 'node:path';
 import type { ReadableSpan } from '@opentelemetry/sdk-trace';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace';
 
+import { DEFAULT_CONFIG } from '../src/config.js';
+import type { RenderConfig } from '../src/config.js';
+import type { VideoProbe } from '../src/ff.js';
+import { videoBaseName } from '../src/inputs.js';
+import type { PipelineDeps } from '../src/run.js';
+import type { Telemetry } from '../src/telemetry.js';
 import { createTracing } from '../src/tracing.js';
 import type { Tracer, Tracing } from '../src/tracing.js';
 
@@ -123,3 +129,93 @@ export const SRT_SAMPLE_MIXED = `1
 2026-05-25 09:18:11.808
 [iso: 340] [latitude: 46.613072] [longitude: 14.262390] [rel_alt: 3.600 abs_alt: 313.527]</font>
 `;
+
+export function probeFixture(overrides: Partial<VideoProbe> = {}): VideoProbe {
+  return {
+    fps: { num: 30, den: 1, value: 30, str: '30' },
+    frames: 3,
+    durationSec: 0.1,
+    width: 1280,
+    height: 720,
+    ...overrides,
+  };
+}
+
+// Pipeline telemetry from an SRT sidecar. Tests with deliberate data (a wider
+// fix bbox, more frame samples) override just those fields.
+export function telemetryFixture(overrides: Partial<Telemetry> = {}): Telemetry {
+  return {
+    source: 'srt',
+    method: 'srt-cues',
+    headingMode: 'cog',
+    sampleCount: 5,
+    fixCount: 3,
+    noLock: 2,
+    frames: [
+      { lat: 46.6, lon: 14.2, alt: 3.3, speed: 1.2, headingDeg: 90 },
+      { lat: 46.61, lon: 14.21, alt: 3.4, speed: 1.3, headingDeg: 91 },
+      { lat: 46.62, lon: 14.22, alt: 3.5, speed: 1.4, headingDeg: 92 },
+    ],
+    bbox: { minLat: 46.6, maxLat: 46.62, minLon: 14.2, maxLon: 14.22 },
+    trackDistanceM: 42,
+    ...overrides,
+  };
+}
+
+// The stats/summary scenario: camera-metadata telemetry without per-frame
+// samples. Shared by the summary and app-session tests so their cross-module
+// assertions compare the same numbers.
+export function statsTelemetry(overrides: Partial<Telemetry> = {}): Telemetry {
+  return {
+    source: 'cammeta',
+    method: 'ffprobe',
+    headingMode: 'yaw',
+    sampleCount: 600,
+    fixCount: 590,
+    noLock: 4,
+    frames: [],
+    bbox: { minLat: 46.6, maxLat: 46.612, minLon: 14.26, maxLon: 14.262 },
+    trackDistanceM: 567.4,
+    ...overrides,
+  };
+}
+
+export type StubDepsOptions = Partial<PipelineDeps> & {
+  probe?: VideoProbe;
+  telemetry?: Telemetry;
+};
+
+export function stubDeps(options: StubDepsOptions = {}): PipelineDeps {
+  const {
+    probe = probeFixture(),
+    telemetry = telemetryFixture(),
+    ...overrides
+  } = options;
+  return {
+    probeVideo: async () => probe,
+    loadTelemetry: async () => telemetry,
+    prefetchTiles: async () => ({ downloaded: 2, failed: 1, total: 5 }),
+    renderVideo: async () => ({ profile: { evalMs: 10, captureMs: 20, emitMs: 30 } }),
+    // Keyed on the probe so the verified frame count can never drift from the
+    // frames the pipeline plans for.
+    verifyOutput: async () => ({ frames: probe.frames, fps: probe.fps.str, ok: true }),
+    outputMatchesSource: async () => false,
+    ...overrides,
+  };
+}
+
+export function testConfig(overrides: Partial<RenderConfig> = {}): RenderConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    outDir: tmpDir(),
+    tileCache: tmpDir(),
+    ...overrides,
+  };
+}
+
+// Sidecar named the way loadTelemetry looks it up: the video's stem.
+export function writeSrt(videoPath: string, text: string): string {
+  const srtPath = path.join(path.dirname(videoPath), `${videoBaseName(videoPath)}.srt`);
+  fs.writeFileSync(srtPath, text);
+  return srtPath;
+}

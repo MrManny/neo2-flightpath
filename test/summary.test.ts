@@ -6,23 +6,11 @@ import {
   telemetrySummary,
   trackDistanceLabel,
 } from '../src/summary.js';
-import type { Telemetry } from '../src/telemetry.js';
-
-const TELEMETRY: Telemetry = {
-  source: 'cammeta',
-  method: 'ffprobe',
-  headingMode: 'yaw',
-  sampleCount: 600,
-  fixCount: 590,
-  noLock: 4,
-  frames: [],
-  bbox: { minLat: 46.6, maxLat: 46.612, minLon: 14.26, maxLon: 14.262 },
-  trackDistanceM: 567.4,
-};
+import { statsTelemetry } from './fixtures.js';
 
 describe('telemetrySummary', () => {
   it('maps the telemetry fields every summary surface reports', () => {
-    expect(telemetrySummary(TELEMETRY)).toEqual({
+    expect(telemetrySummary(statsTelemetry())).toEqual({
       source: 'cammeta',
       method: 'ffprobe',
       headingMode: 'yaw',
@@ -38,17 +26,13 @@ describe('telemetrySummary', () => {
     { name: 'zero distance', value: 0, want: 0 },
     { name: 'sub-meter distance', value: 0.6, want: 1 },
   ])('track distance $value -> $want m ($name)', ({ value, want }) => {
-    expect(telemetrySummary({ ...TELEMETRY, trackDistanceM: value }).trackDistanceM).toBe(want);
+    expect(telemetrySummary(statsTelemetry({ trackDistanceM: value })).trackDistanceM).toBe(want);
   });
 
   it('keeps srt-sourced and cog-derived telemetry verbatim', () => {
-    const summary = telemetrySummary({
-      ...TELEMETRY,
-      source: 'srt',
-      method: 'sidecar',
-      headingMode: 'cog',
-      noLock: 0,
-    });
+    const summary = telemetrySummary(
+      statsTelemetry({ source: 'srt', method: 'sidecar', headingMode: 'cog', noLock: 0 }),
+    );
     expect(summary.source).toBe('srt');
     expect(summary.method).toBe('sidecar');
     expect(summary.headingMode).toBe('cog');

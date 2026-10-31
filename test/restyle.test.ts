@@ -1,69 +1,46 @@
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG } from '../src/config.js';
 import type { RenderConfig } from '../src/config.js';
 import { buildSceneData } from '../src/page.js';
 import { prepareSession, recordingPageOpts } from '../src/run.js';
-import type { PipelineDeps } from '../src/run.js';
 import { restyleSceneData } from '../src/restyle.js';
 import type { RestyleMeta } from '../src/restyle.js';
-import type { VideoProbe } from '../src/ff.js';
-import type { Telemetry } from '../src/telemetry.js';
+import {
+  cleanupTmpDirs,
+  probeFixture,
+  stubDeps,
+  telemetryFixture,
+  testConfig,
+} from './fixtures.js';
 
 const VIDEO = path.join('clips', 'flight.mp4');
 
-const PROBE: VideoProbe = {
-  fps: { num: 30, den: 1, value: 30, str: '30' },
-  frames: 5,
-  durationSec: 5 / 30,
-  width: 1280,
-  height: 720,
-};
+const PROBE = probeFixture({ frames: 5, durationSec: 5 / 30 });
 
 // The fix bbox is deliberately wider than the frame samples (a fix between
 // two frame times never appears in a frame position): planning from the frame
 // samples would fit the view tighter than the pipeline does.
-function telemetryFixture(): Telemetry {
-  return {
-    source: 'srt',
-    method: 'srt-cues',
-    headingMode: 'cog',
-    sampleCount: 3,
-    fixCount: 3,
-    noLock: 0,
-    frames: [
-      { lat: 46.61, lon: 14.26, alt: 10, speed: 1.2, headingDeg: 90 },
-      { lat: 46.6105, lon: 14.2605, alt: 11, speed: 1.3, headingDeg: 91 },
-      { lat: 46.611, lon: 14.261, alt: 12, speed: 1.4, headingDeg: 92 },
-      { lat: 46.6115, lon: 14.2615, alt: 13, speed: 1.5, headingDeg: 93 },
-      { lat: 46.612, lon: 14.262, alt: 14, speed: 1.6, headingDeg: 94 },
-    ],
-    bbox: { minLat: 46.605, maxLat: 46.615, minLon: 14.255, maxLon: 14.265 },
-    trackDistanceM: 42,
-  };
-}
+const TEL = telemetryFixture({
+  sampleCount: 3,
+  fixCount: 3,
+  noLock: 0,
+  frames: [
+    { lat: 46.61, lon: 14.26, alt: 10, speed: 1.2, headingDeg: 90 },
+    { lat: 46.6105, lon: 14.2605, alt: 11, speed: 1.3, headingDeg: 91 },
+    { lat: 46.611, lon: 14.261, alt: 12, speed: 1.4, headingDeg: 92 },
+    { lat: 46.6115, lon: 14.2615, alt: 13, speed: 1.5, headingDeg: 93 },
+    { lat: 46.612, lon: 14.262, alt: 14, speed: 1.6, headingDeg: 94 },
+  ],
+  bbox: { minLat: 46.605, maxLat: 46.615, minLon: 14.255, maxLon: 14.265 },
+});
 
-function stubDeps(overrides: Partial<PipelineDeps> = {}): PipelineDeps {
-  return {
-    probeVideo: async () => PROBE,
-    loadTelemetry: async () => telemetryFixture(),
-    prefetchTiles: async () => ({ downloaded: 2, failed: 1, total: 5 }),
-    renderVideo: async () => ({ profile: { evalMs: 10, captureMs: 20, emitMs: 30 } }),
-    verifyOutput: async () => ({ frames: 5, fps: '30', ok: true }),
-    outputMatchesSource: async () => false,
-    ...overrides,
-  };
-}
-
-function testConfig(overrides: Partial<RenderConfig> = {}): RenderConfig {
-  return { ...DEFAULT_CONFIG, ...overrides };
-}
+afterEach(cleanupTmpDirs);
 
 async function pipelineScene(config: RenderConfig) {
   const prep = await prepareSession(VIDEO, config, () => {}, {
-    deps: stubDeps(),
+    deps: stubDeps({ probe: PROBE, telemetry: TEL }),
   });
   const meta: RestyleMeta = {
     fps: prep.probe.fps.value,
@@ -151,10 +128,8 @@ describe('restyleSceneData', () => {
     const config = testConfig({ hud: { heading: true, alt: true, speed: true } });
     const { meta } = await pipelineScene(config);
     const noAlt = stubDeps({
-      loadTelemetry: async () => ({
-        ...telemetryFixture(),
-        frames: telemetryFixture().frames.map((f) => ({ ...f, alt: null })),
-      }),
+      probe: PROBE,
+      telemetry: { ...TEL, frames: TEL.frames.map((f) => ({ ...f, alt: null })) },
     });
     const prep = await prepareSession(VIDEO, config, () => {}, { deps: noAlt });
     const prepared = buildSceneData(recordingPageOpts(prep, config), '/tiles');

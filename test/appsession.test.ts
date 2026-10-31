@@ -3,9 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createAppSession, flightStatsFrom } from '../src/appsession.js';
 import type { UiSession } from '../src/appsession.js';
 import type { RenderConfig } from '../src/config.js';
-import type { VideoProbe } from '../src/ff.js';
-import type { Telemetry } from '../src/telemetry.js';
-import { cleanupTmpDirs, tmpDir } from './fixtures.js';
+import { cleanupTmpDirs, probeFixture, statsTelemetry, tmpDir } from './fixtures.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -14,29 +12,17 @@ import { afterEach } from 'vitest';
 const CONFIG = {} as RenderConfig;
 const SESSION = { scene: {}, video: {} } as unknown as UiSession;
 
-const PROBE: VideoProbe = {
+const PROBE = probeFixture({
   fps: { num: 30000, den: 1001, value: 29.97, str: '30000/1001' },
   frames: 300,
   durationSec: 10.01,
   width: 1920,
   height: 1080,
-};
-
-const TELEMETRY: Telemetry = {
-  source: 'cammeta',
-  method: 'ffprobe',
-  headingMode: 'yaw',
-  sampleCount: 600,
-  fixCount: 590,
-  noLock: 4,
-  frames: [],
-  bbox: { minLat: 46.6, maxLat: 46.612, minLon: 14.26, maxLon: 14.262 },
-  trackDistanceM: 567.4,
-};
+});
 
 describe('flightStatsFrom', () => {
   it('reports the same values the CLI summary reports', () => {
-    expect(flightStatsFrom(TELEMETRY, PROBE)).toEqual({
+    expect(flightStatsFrom(statsTelemetry(), PROBE)).toEqual({
       source: 'cammeta',
       method: 'ffprobe',
       headingMode: 'yaw',
@@ -48,7 +34,7 @@ describe('flightStatsFrom', () => {
   });
 
   it('takes the duration from the frame-exact count and rate', () => {
-    const stats = flightStatsFrom(TELEMETRY, {
+    const stats = flightStatsFrom(statsTelemetry(), {
       ...PROBE,
       fps: { num: 30, den: 1, value: 30, str: '30' },
       frames: 90,
