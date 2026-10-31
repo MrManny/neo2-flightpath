@@ -68,7 +68,8 @@ All frames below are from the same recording:
 
 ## Desktop app
 
-For reviewing flights without the terminal, grab the packaged Windows app from
+For reviewing flights without the terminal, grab the packaged desktop app
+(Windows portable or Linux AppImage) from
 [GitHub Releases](https://github.com/MrManny/neo2-flightpath/releases), or run
 `npm run build && npm run app` from a checkout. Launching it opens a window where
 **Open…** picks a video through the native file dialog; the
