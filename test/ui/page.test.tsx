@@ -54,15 +54,7 @@ const SESSION: UiSession = {
   video: { src: '/video', fps: 30, frames: 90, width: 1512, height: 2688 },
   tileBase: '/tiles',
   bbox: { minLat: 46.6, maxLat: 46.612, minLon: 14.26, maxLon: 14.262 },
-  stats: {
-    source: 'cammeta',
-    method: 'ffprobe',
-    headingMode: 'yaw',
-    fixes: 1234,
-    noLock: 8,
-    trackDistanceM: 123,
-    durationSec: 3,
-  },
+  durationSec: 3,
 };
 
 // The bridge stands in for the shell: the test decides when the native picker

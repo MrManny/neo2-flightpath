@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createAppSession, flightStatsFrom } from '../src/appsession.js';
+import { createAppSession, frameExactDuration } from '../src/appsession.js';
 import type { PrepareUiSession, UiSession } from '../src/appsession.js';
 import type { RenderConfig } from '../src/config.js';
 import type { PrepareProgress } from '../src/run.js';
-import { cleanupTmpDirs, probeFixture, statsTelemetry, tmpDir } from './fixtures.js';
+import { cleanupTmpDirs, probeFixture, tmpDir } from './fixtures.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -21,26 +21,19 @@ const PROBE = probeFixture({
   height: 1080,
 });
 
-describe('flightStatsFrom', () => {
-  it('reports the same values the CLI summary reports', () => {
-    expect(flightStatsFrom(statsTelemetry(), PROBE)).toEqual({
-      source: 'cammeta',
-      method: 'ffprobe',
-      headingMode: 'yaw',
-      fixes: 590,
-      noLock: 4,
-      trackDistanceM: 567,
-      durationSec: 300 / 29.97,
-    });
+describe('frameExactDuration', () => {
+  it('takes the duration from the frame-exact count and rate', () => {
+    expect(frameExactDuration(PROBE)).toBe(300 / 29.97);
   });
 
-  it('takes the duration from the frame-exact count and rate', () => {
-    const stats = flightStatsFrom(statsTelemetry(), {
+  it('ignores the container duration the probe reports alongside', () => {
+    const probe = {
       ...PROBE,
       fps: { num: 30, den: 1, value: 30, str: '30' },
       frames: 90,
-    });
-    expect(stats.durationSec).toBe(3);
+    };
+    expect(frameExactDuration(probe)).toBe(3);
+    expect(probe.durationSec).not.toBe(3);
   });
 });
 

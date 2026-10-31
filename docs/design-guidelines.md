@@ -4,7 +4,7 @@ Standing reference for the Electron desktop UI. Read before changing anything un
 
 ## 1. Purpose, scope and status
 
-- **Scope:** the app UI: landing, player (video, map overlay, control bar, stats strip), settings and export dialogs, icons, copy and error text. Native OS dialogs in `app/main.mjs` are not styled here; their wording follows section 10.
+- **Scope:** the app UI: landing, player (video, map overlay, control bar), settings and export dialogs, icons, copy and error text. Native OS dialogs in `app/main.mjs` are not styled here; their wording follows section 10.
 - **Out of scope:** the frames and map overlay rendered by `src/renderer/` (its palette included) and CLI output.
 - **Tokens:** live only in the `:root` block of `ui/app/globals.css`, named by role. Components consume tokens through classes; inline styles are limited to runtime geometry (`pipStyle()`, loop band and progress widths, the map host's `isolation`).
 - **Status:** dark theme only.
@@ -41,7 +41,7 @@ Color tokens live in the `:root` block of `ui/app/globals.css` (section 1):
 | `--bar` | Control bar over the footage |
 | `--scrim` | Dialog backdrop |
 | `--hairline` / `--hairline-strong` / `--hairline-hover` | Decorative separators / control, dialog and PIP borders / hover borders |
-| `--text` / `--text-2` / `--text-3` | Primary text / labels, readouts, chips, paths / hints, legends, "Technical details" |
+| `--text` / `--text-2` / `--text-3` | Primary text / labels, readouts, paths / hints, legends, "Technical details" |
 | `--accent` (hover `--accent-hover`, pressed `--accent-press`) | Primary fill, selected speed, checked toggle, played timeline range, progress fill |
 | `--accent-ink` | Text and check mark on accent |
 | `--focus` | Focus outline |
@@ -51,7 +51,7 @@ Color tokens live in the `:root` block of `ui/app/globals.css` (section 1):
 - **Accent** marks the primary action, the selected speed segment, a checked toggle, the played part of the timeline and the progress fills. It never marks loops, warnings or decoration. **Loop** colors mark only the loop band, its ring and the loop readout. **Warning** appears only in notices; **danger** appears in notices and on invalid fields and field messages.
 - **Never color alone:** every state also has text — a label, `aria-invalid` with a message, or notice wording.
 - **Contrast:** text needs 4.5:1 on its surface; focus, state fills and meaningful icons need 3:1. Disabled controls are exempt.
-- `--tone` is a local property set by `.notice-info`, `.notice-warning` and `.notice-danger`. Literal colors outside `:root`: `#000` (video and PIP backgrounds), `rgba(11, 16, 23, 0.82)` (stats strip), `#b9c6d6` (select chevron).
+- `--tone` is a local property set by `.notice-info`, `.notice-warning` and `.notice-danger`. Literal colors outside `:root`: `#000` (video and PIP backgrounds), `#b9c6d6` (select chevron).
 
 ## 4. Typography
 
@@ -59,7 +59,7 @@ Color tokens live in the `:root` block of `ui/app/globals.css` (section 1):
 - **Type scale** (every size and weight in `ui/app/globals.css`): 28/600 landing title, 18/600 dialog titles, 16/600 landing primary button, 14/400 body and controls, 13/400 hints, legends and readouts, 12/400 mono details and paths.
 - **Weights:** 400 and 600; 600 also on `h1`, `h2`, `button.primary`, `button.export-primary` and the pressed speed segment. Headings use `letter-spacing: -0.01em`.
 - **Line height:** 1 for buttons; 1.5 for notice text, hints, landing copy and mono text.
-- **Tabular numerals** (`font-variant-numeric: tabular-nums`): readouts, stats chips, number fields, the progress label and the preparation's tile count.
+- **Tabular numerals** (`font-variant-numeric: tabular-nums`): readouts, number fields, the progress label and the preparation's tile count.
 - **Case:** sentence case; capitals only for names and acronyms (ALT, SPD, HUD, SRT).
 - **Characters:** "…" (U+2026), never three periods, for actions that open a dialog or picker (Open…, Export…) and for work in progress (Preparing…, Warming tiles…, Canceling…); "×" in sizes and speed ("1280×720", "1×"); "–" in ranges; " · " between parts of a summary; straight quotes inside error sentences.
 
@@ -70,9 +70,9 @@ Spacing values are literals on this scale; use nothing else:
 | Value | Used for |
 |---|---|
 | 2px | Speed group gap and padding |
-| 4px | Stats chip and legend padding |
-| 8px | Gaps between controls: buttons, bar groups, stats strip, dialog actions |
-| 16px | Paddings and margins: buttons, fields, notices, bar and stats sides, dialog sections |
+| 4px | Legend padding |
+| 8px | Gaps between controls: buttons, bar groups, dialog actions |
+| 16px | Paddings and margins: buttons, fields, notices, bar sides, dialog sections |
 | 24px | Dialog panel padding; landing primary padding |
 | 32px | Landing card padding; room for the select chevron |
 | 40px | Minimum height of a settings row |
@@ -82,15 +82,15 @@ Spacing values are literals on this scale; use nothing else:
 
 ## 6. Shape, elevation and motion
 
-- **Radii:** `--radius-control` 8px (buttons, fields, select, notices, dismiss); `--radius-panel` 12px (landing card, dialog panel, PIP); `--radius-pill` 999px (stats chips, speed group and segments, progress track and fill, loop band). Literals: 4px checkboxes, 50% radios (§8.2).
+- **Radii:** `--radius-control` 8px (buttons, fields, select, notices, dismiss); `--radius-panel` 12px (landing card, dialog panel, PIP); `--radius-pill` 999px (speed group and segments, progress track and fill, loop band). Literals: 4px checkboxes, 50% radios (§8.2).
 - **Borders:** 1 px. `--hairline` for decorative separators; `--hairline-strong` for controls, dialogs and the PIP; `--hairline-hover` on hover. Notice borders are the tone at 40%.
 - **Shadows:** `--shadow-float` `0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35)` (landing card, dialog panel, player notices); `--shadow-pip` `0 12px 32px rgba(0, 0, 0, 0.5)` (PIP). No other drop shadows.
 - **Inset rings:** a 1 px inset ring marks two states only: the loop band (`--loop`) and an invalid field (`--danger`).
-- **Scrim:** `--scrim` with `backdrop-filter: blur(2px)` on `.settings-overlay`. Blur belongs only behind dialogs; never on the bar, the stats strip or other surfaces.
+- **Scrim:** `--scrim` with `backdrop-filter: blur(2px)` on `.settings-overlay`. Blur belongs only behind dialogs; never on the bar or other surfaces.
 - **Stacking:** dialog overlay 2000; player notices 3; PIP 2 (`ui/lib/pipstyle.ts`); the map host isolates its internal layers.
 - **Motion tokens:** `--motion` 140ms; `--ease` `cubic-bezier(0.2, 0, 0, 1)`.
 - **What moves:** buttons, checkboxes, radios, number fields and selects transition `background-color`, `border-color`, `color`, `transform` and `opacity`; the press shift (`translateY(1px)`) moves with its button. The progress fill animates `width` over 250ms.
-- **What never moves:** the map (`.scene-host` and children set `animation: none` and `transition: none`), the video, the stage panes and the PIP swap (instant), the control bar, the timeline and loop band, the stats strip, notices, and dialog open and close. A toggle's check mark is a pseudo-element and does not transition.
+- **What never moves:** the map (`.scene-host` and children set `animation: none` and `transition: none`), the video, the stage panes and the PIP swap (instant), the control bar, the timeline and loop band, notices, and dialog open and close. A toggle's check mark is a pseudo-element and does not transition.
 - **Reduced motion:** `prefers-reduced-motion: reduce` sets `transition: none` on the transitioning controls and the progress fill; the press shift becomes instant.
 
 ## 7. Iconography
@@ -175,7 +175,6 @@ Spacing values are literals on this scale; use nothing else:
 - **Window:** default 1600×950; minimum 1024×600 (`app/main.mjs`).
 - **Landing:** card at most 560px wide, 32px padding, 12vh top margin, centered.
 - **Player stage:** fills the area above the control bar. The video is the main pane (`object-fit: contain`, black letterbox). By default the map is the picture-in-picture pane: 30% of the stage width in a 16:9 frame; a video in that pane takes its own aspect, and a portrait video takes 45% of the stage height. The pane sits 16px from the right and bottom edges. Swap view exchanges the two.
-- **Stats strip:** above the bar, 8px 16px padding; five chips, or six with no-lock cues, wrapping with 8px gaps.
 - **Control bar:** `--bar-h` 64px. Above 1440px it is one row: Open… (left); transport (center: Play, In, Out, Clear, timeline, time readout, loop readout, speed group); Swap view, Export… and Settings (right). Gaps 8px; padding 0 16px.
 - **At 1440px and below:** the bar is 96px high in two rows. The left and right groups share the first row; the transport takes the second. Row gap 8px; padding 8px 16px.
 - **Timeline:** minimum 120px, `clamp(120px, 28vw, 420px)` wide, growing to fill its row.
@@ -221,8 +220,7 @@ Spacing values are literals on this scale; use nothing else:
 - **Time:** `formatTime` (`ui/lib/framedriver.ts`) gives m:ss from whole seconds, rounded, with no hour field. Readout "0:00 / 0:34"; loop readout "loop 0:10–0:12" ("?" for an unset point); segment "0:10–0:12 · 121 frames" (frames = out − in + 1).
 - **Frames and seeks:** time is frame index ÷ fps; a one-second jump is `round(fps)` frames (`framesForSeconds`).
 - **Export summary:** "{frames} frames @ {fps} · {seconds} s · {width}×{height}". Seconds are whole; width and height are the even sizes rendered (each rounded down, minimum 64), so they can differ from the typed values. Dimensions are px, minimum 64 (`MIN_DIMENSION`, `src/config.ts`).
-- **Stats strip** (`formatStats`, `ui/lib/flightstats.ts`): "Duration {m:ss}", "Track {n} m", "{source} ({method})", "{n} fixes", "{n} no-lock cues" (only above 0), "Heading: {drone yaw or course over ground}". Chips name sources and methods in plain words ("SRT (cues)", "Camera metadata (packets)"); the raw identifiers stay in the CLI.
-- **Percent:** whole percent, rounded ("Rendering 83%"). **Units:** px, s, m, fps; speed uses "×". **Numerals:** tabular for readouts, stats chips, number fields and the progress label; decimal point "."; " · " between parts; "–" for ranges; "×" for sizes and speed.
+- **Percent:** whole percent, rounded ("Rendering 83%"). **Units:** px, s, m, fps; speed uses "×". **Numerals:** tabular for readouts, number fields and the progress label; decimal point "."; " · " between parts; "–" for ranges; "×" for sizes and speed.
 
 ## 13. Accessibility
 

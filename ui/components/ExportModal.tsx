@@ -43,7 +43,7 @@ export function ExportModal({
   onClose,
   onBusyChange,
 }: ExportModalProps) {
-  const { video, stats } = session;
+  const { video, durationSec } = session;
   const [state, dispatch] = useReducer(
     exportReducer,
     initialExportState(settings.width, settings.height),
@@ -77,8 +77,7 @@ export function ExportModal({
   }, []);
 
   const { phase, form, result, error, canceling } = state;
-  // The one duration definition: the stats chip and the export form agree.
-  const totalText = formatTime(stats.durationSec);
+  const totalText = formatTime(durationSec);
   const segment: { range: FrameRange; label: string } | null = loopPoints
     ? {
         range: { start: loopPoints.in, end: loopPoints.out },

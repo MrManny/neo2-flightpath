@@ -1,6 +1,6 @@
 // The shared value vocabulary of a recording's telemetry summary: one mapping
-// from Telemetry, consumed by the batch summary, the CLI log line and the UI
-// stats strip, so their numbers cannot drift apart.
+// from Telemetry, consumed by the batch summary and the CLI log line, so their
+// numbers cannot drift apart.
 
 import type { Telemetry } from './telemetry.js';
 

@@ -305,29 +305,6 @@ button.primary {
   margin-top: 0;
 }
 
-.stats {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: var(--bar-h);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 16px;
-  box-sizing: border-box;
-  background: rgba(11, 16, 23, 0.82);
-}
-.stats .stats-chip {
-  padding: 4px 8px;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  color: var(--text-2);
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill);
-}
-
 /* Control bar: left, centered transport and right view controls on one row.
    At 1440px and below it becomes two rows (see the media query at the end). */
 .controls {

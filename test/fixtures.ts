@@ -162,9 +162,7 @@ export function telemetryFixture(overrides: Partial<Telemetry> = {}): Telemetry 
   };
 }
 
-// The stats/summary scenario: camera-metadata telemetry without per-frame
-// samples. Shared by the summary and app-session tests so their cross-module
-// assertions compare the same numbers.
+// The summary scenario: camera-metadata telemetry without per-frame samples.
 export function statsTelemetry(overrides: Partial<Telemetry> = {}): Telemetry {
   return {
     source: 'cammeta',

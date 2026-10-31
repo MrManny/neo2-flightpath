@@ -17,7 +17,6 @@ import {
   framesForSeconds,
   timeAt,
 } from '../lib/framedriver.js';
-import { formatStats } from '../lib/flightstats.js';
 import type { HotkeyAction } from '../lib/hotkeys.js';
 import { mapKey } from '../lib/hotkeys.js';
 import type { PickState } from '../lib/pickstate.js';
@@ -48,7 +47,7 @@ export function PlayerChrome({
   openState = IDLE_OPEN,
   onDismissOpenState,
 }: PlayerChromeProps) {
-  const { scene: preparedScene, video, tileBase, bbox, stats } = session;
+  const { scene: preparedScene, video, tileBase, bbox, durationSec } = session;
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubRef = useRef<HTMLInputElement>(null);
   const timeRef = useRef<HTMLSpanElement>(null);
@@ -67,8 +66,7 @@ export function PlayerChrome({
   const [speed, setSpeed] = useState<1 | 2 | 3 | 4>(1);
   const [loop, setLoop] = useState<LoopState>(NO_LOOP);
 
-  // The one duration definition: the stats chip and the time readout agree.
-  const totalText = formatTime(stats.durationSec);
+  const totalText = formatTime(durationSec);
 
   // One settings -> scene mapping for the preview and the export: the same
   // pure planners the pipeline runs.
@@ -82,8 +80,6 @@ export function PlayerChrome({
       }),
     [preparedScene, settings, video.fps, video.frames, tileBase, bbox],
   );
-
-  const statsChips = useMemo(() => formatStats(stats), [stats]);
 
   const loopPoints = engagedLoop(loop);
 
@@ -268,13 +264,6 @@ export function PlayerChrome({
         onPlayState={setPlaying}
         notice={openNotice}
       />
-      <div className="stats">
-        {statsChips.map((chip) => (
-          <span key={chip} className="stats-chip">
-            {chip}
-          </span>
-        ))}
-      </div>
       <ControlBar
         onOpen={onOpen}
         opening={opening}

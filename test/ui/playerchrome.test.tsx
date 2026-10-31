@@ -57,15 +57,7 @@ const SESSION: UiSession = {
   video: { src: '/video', fps: 30, frames: 90, width: 1512, height: 2688 },
   tileBase: '/tiles',
   bbox: { minLat: 46.6, maxLat: 46.612, minLon: 14.26, maxLon: 14.262 },
-  stats: {
-    source: 'cammeta',
-    method: 'ffprobe',
-    headingMode: 'yaw',
-    fixes: 1234,
-    noLock: 8,
-    trackDistanceM: 123,
-    durationSec: 3,
-  },
+  durationSec: 3,
 };
 
 const SETTINGS: RenderConfig = { ...DEFAULT_CONFIG };
@@ -560,37 +552,11 @@ describe('PlayerChrome shortcut guard rails', () => {
 });
 
 describe('PlayerChrome flight stats strip', () => {
-  it('shows the CLI summary values as chips', () => {
+  it('renders no telemetry chips over the player', () => {
     render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
-    for (const chip of [
-      'Duration 0:03',
-      'Track 123 m',
-      'Camera metadata (ffprobe)',
-      '1234 fixes',
-      '8 no-lock cues',
-      'Heading: drone yaw',
-    ]) {
-      expect(screen.getByText(chip)).toBeTruthy();
-    }
-  });
-
-  it('omits the no-lock chip when the CLI summary would print none', () => {
-    render(
-      <PlayerChrome
-        session={{ ...SESSION, stats: { ...SESSION.stats, noLock: 0 } }}
-        settings={SETTINGS}
-        onSettingsChange={() => {}}
-        onOpen={() => {}}
-      />,
-    );
-    expect(screen.getByText('1234 fixes')).toBeTruthy();
-    expect(screen.queryByText(/no-lock/)).toBeNull();
-  });
-
-  it('shows the same duration in the readout and the stats strip', () => {
-    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
-    expect(screen.getByText('Duration 0:03')).toBeTruthy();
-    expect(screen.getByText('0:00 / 0:03')).toBeTruthy();
+    expect(document.querySelector('.stats')).toBeNull();
+    expect(screen.queryByText(/^(Duration|Track|Heading:)/)).toBeNull();
+    expect(screen.queryByText(/no-lock cues/)).toBeNull();
   });
 });
 
