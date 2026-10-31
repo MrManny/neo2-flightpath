@@ -1,0 +1,80 @@
+name: Desktop build
+
+# Manually triggered desktop app builds: the same packaging as the release
+# job, but with a prerelease version (<package.json version>-pre-<short git
+# hash>) so the binaries are clearly not release artifacts. They are attached
+# to the workflow run instead of a GitHub release.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+  build:
+    name: Desktop app (${{ matrix.label }})
+    needs: check
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            label: win-x64
+            target: --win portable
+            artifact: dist-electron/*.exe
+          - os: ubuntu-latest
+            label: linux-x86_64
+            target: --linux AppImage
+            artifact: dist-electron/*.AppImage
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Compute prerelease version
+        shell: bash
+        run: |
+          pkg_version="$(node -p "require('./package.json').version")"
+          echo "APP_VERSION=${pkg_version}-pre-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Build desktop app
+        run: npm run app:pack -- ${{ matrix.target }} -c.extraMetadata.version=${{ env.APP_VERSION }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: neo2-flightpath-${{ env.APP_VERSION }}-${{ matrix.label }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error

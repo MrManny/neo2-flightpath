@@ -13,7 +13,6 @@
   "workers": 4,
   "capture": "jpeg",
   "preset": "medium",
-  "trail": "full",
   "tileCache": "out/tilecache",
   "browser": null,
   "skipExisting": false,

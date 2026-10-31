@@ -17,7 +17,9 @@ It is a CLI tool, since I plan to support agentic use cases.
 Meaning, if an agent wants to use it to help you create flight-path videos,
 that's all cool with me.
 
-I will tack on a UI version later on for us humans though.
+For us humans, there is a desktop app (see *Desktop app*): it opens a window
+where you pick a recording and watch its flight path on the map in sync with
+the footage.
 
 ## Quick start
 
@@ -64,6 +66,41 @@ All frames below are from the same recording:
 - Internet on the first run: map tiles are fetched politely and cached
   permanently afterwards (see *Tiles & attribution*).
 
+## Desktop app
+
+For reviewing flights without the terminal, grab the packaged desktop app
+(Windows portable or Linux AppImage) from
+[GitHub Releases](https://github.com/MrManny/neo2-flightpath/releases), or run
+`npm run build && npm run app` from a checkout. Launching it opens a window where
+**Open…** picks a video through the native file dialog; the
+screen then shows the footage and the map overlay (trail, heading arrow, HUD
+chips) in a swappable picture-in-picture layout on one shared timeline
+scrubber. Play, pause and scrub keep the video frame, trail, drone position
+and HUD chips on the same frame; the map fills its pane at any window size,
+while the export framing follows `--width` / `--height` as usual.
+
+The **Settings** panel (opened from the control bar) mirrors the CLI option
+vocabulary &mdash; map style, view, zoom/zoom-out, intro/outro seconds, HUD
+chips &mdash; and every change restyles the preview instantly, without
+reloading the recording; the `alt` chip hides
+itself automatically when the telemetry has no altitude. A look change fetches
+any missing map tiles on demand (politely, at two requests per second) into the
+same cache the CLI uses.
+
+- The app embeds Chromium and needs no system browser, but it does need
+  **ffmpeg + ffprobe** on `PATH` like the CLI; map tiles need internet on the
+  first run and are cached like CLI tiles.
+- One recording at a time — batch rendering stays a CLI concern.
+
+**Export…** (button in the control bar) renders the recording with the look you
+see in the preview. Choose *Full recording* or the *In–Out segment* (set the
+loop points with `I` / `O` first), set the output size, press **Start export**, and pick the file with
+the native save dialog. Exports run one at a time and cannot be paused;
+*Cancel export* stops the render and removes its working file. The video is written to
+a working file and only replaces the chosen file once it has been verified, so
+a failed or canceled export never touches an existing file. Closing the window
+during an export asks whether to stop it.
+
 ## Usage
 
 If you are stuck, `npx neo2-flightpath --help` can help.
@@ -89,7 +126,6 @@ optionally with `--recurse`). Every recording is processed independently.
 | `--workers <n>` | `4` | parallel browser capture pages |
 | `--capture <mode>` | `jpeg` | `jpeg` (q95 screenshots, ~5x faster) or `png`; `canvas` is parked |
 | `--preset <name>` | `medium` | x264 preset (`medium` \| `veryfast`) |
-| `--trail <mode>` | `full` | trail update strategy (`full` \| `incr`) |
 | `--tile-cache <dir>` | per-user cache | tile cache directory |
 | `--browser <path>` | system Chrome/Edge | browser executable |
 | `--skip-existing` | off | skip recordings whose output exists and matches the source (frame count + frame rate) |

@@ -2,19 +2,34 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { errorMessage } from './errors.js';
-import { unproject } from './geo.js';
 import type { Bbox } from './geo.js';
 import { outputMatchesSource, probeVideo, verifyOutput } from './ff.js';
 import type { VideoProbe } from './ff.js';
+import { videoBaseName } from './inputs.js';
 import { loadTelemetry } from './telemetry.js';
 import type { Telemetry } from './telemetry.js';
-import { TILE_SOURCES, computeOverview, prefetchTiles } from './tiles.js';
-import type { Overview, PrefetchStats } from './tiles.js';
-import { buildPageHtml } from './page.js';
+import { prefetchTiles } from './tiles.js';
+import type { PrefetchStats } from './tiles.js';
+import { planIntroOutroFrames, planView } from './plan.js';
+import type { IntroOutroFrames, Overview } from './plan.js';
+import { buildPageHtml, planPageOpts } from './page.js';
+import type { PageOpts } from './page.js';
 import { renderVideo } from './render.js';
-import type { HudSpec, RenderConfig } from './config.js';
+import type { FrameRange, HudSpec, RenderConfig } from './config.js';
+import {
+  assertValidFrameRange,
+  effectiveZoomOut,
+  hasAltitude,
+  resolveHudSpec,
+} from './config.js';
+import {
+  fixesLabel,
+  noLockCuesLabel,
+  telemetrySummary,
+  trackDistanceLabel,
+} from './summary.js';
 import { NOOP_TRACER, stage } from './tracing.js';
-import type { TraceContext } from './tracing.js';
+import type { Span, Tracer, TraceContext } from './tracing.js';
 
 export type LogFn = (msg: string) => void;
 
@@ -36,6 +51,8 @@ export interface RecordingSummary {
   noLock?: number;
   frames?: number;
   fps?: string;
+  /** Set when the export covered a source-frame segment instead of everything. */
+  frameRange?: FrameRange;
   trackDistanceM?: number;
   bbox?: Bbox;
   zoom?: number;
@@ -54,7 +71,7 @@ export interface BatchResult {
 }
 
 export function outputPathFor(videoPath: string, config: RenderConfig): string {
-  const base = path.basename(videoPath).replace(/\.[^.]+$/, '');
+  const base = videoBaseName(videoPath);
   const name = `${base}${config.outSuffix}.mp4`;
   return config.outDir
     ? path.join(config.outDir, name)
@@ -92,48 +109,25 @@ export function planOutputs(videos: string[], config: RenderConfig): PlannedOutp
   });
 }
 
-interface IntroOutroFrames {
-  introN: number;
-  outroN: number;
-}
-
-// Intro/outro zoom timing (frames); clamp for very short clips.
-function planIntroOutroFrames(
-  config: RenderConfig,
-  probe: VideoProbe,
-  log: LogFn,
-): IntroOutroFrames {
-  let introN = Math.max(0, Math.round(config.introSec * probe.fps.value));
-  let outroN = Math.max(0, Math.round(config.outroSec * probe.fps.value));
-  const budget = Math.max(2, Math.floor(probe.frames / 2));
-  if (introN + outroN > budget) {
-    const scale = budget / (introN + outroN);
-    introN = Math.floor(introN * scale);
-    outroN = Math.floor(outroN * scale);
-    log(`intro/outro shortened to ${introN}/${outroN} frames for this clip`);
-  }
-  return { introN, outroN };
-}
-
 // HUD sanity: drop chips whose data does not exist for this source.
 function resolveHud(config: RenderConfig, tel: Telemetry, log: LogFn): HudSpec {
-  const hud: HudSpec = { ...config.hud };
-  const hasAltitude = tel.frames.some((f) => f.alt !== null);
-  if (hud.alt && !hasAltitude) {
-    hud.alt = false;
+  const hud = resolveHudSpec(config.hud, hasAltitude(tel.frames.map((f) => f.alt)));
+  if (config.hud.alt && !hud.alt) {
     log('hud: altitude unavailable in this telemetry source (chip disabled)');
   }
   return hud;
 }
 
 // The page script expects per-frame telemetry as parallel arrays.
-function frameArrays(tel: Telemetry): {
+export interface FrameArrays {
   lat: number[];
   lon: number[];
   alt: (number | null)[];
   speed: (number | null)[];
   headingDeg: number[];
-} {
+}
+
+export function frameArrays(tel: Telemetry): FrameArrays {
   return {
     lat: tel.frames.map((f) => f.lat as number),
     lon: tel.frames.map((f) => f.lon as number),
@@ -159,6 +153,10 @@ function describeView(
   );
 }
 
+function mtimeOf(outPath: string): number | null {
+  return fs.existsSync(outPath) ? fs.statSync(outPath).mtimeMs : null;
+}
+
 // Never leave a broken or partial render behind: on any failure the output
 // this run wrote is deleted (a pre-existing file we did not touch stays).
 function removePartialOutput(
@@ -166,9 +164,7 @@ function removePartialOutput(
   mtimeBefore: number | null,
   log: LogFn,
 ): void {
-  const mtimeNow = fs.existsSync(outPath)
-    ? fs.statSync(outPath).mtimeMs
-    : null;
+  const mtimeNow = mtimeOf(outPath);
   if (mtimeNow !== null && (mtimeBefore === null || mtimeNow !== mtimeBefore)) {
     fs.rmSync(outPath, { force: true });
     log(`removed partial output: ${outPath}`);
@@ -180,9 +176,7 @@ async function renderWithOutputCleanup(
   log: LogFn,
   render: () => Promise<void>,
 ): Promise<void> {
-  const mtimeBefore = fs.existsSync(outPath)
-    ? fs.statSync(outPath).mtimeMs
-    : null;
+  const mtimeBefore = mtimeOf(outPath);
   try {
     await render();
   } catch (e) {
@@ -214,22 +208,168 @@ const realDeps: PipelineDeps = {
 export interface PipelineOptions {
   deps?: PipelineDeps;
   trace?: TraceContext;
+  /** Source-frame segment to render; omit for the full recording. */
+  range?: FrameRange;
+  /** Aborting stops the render at the next frame and cleans up the output. */
+  signal?: AbortSignal;
 }
 
-interface RenderContext {
-  videoPath: string;
-  outPath: string;
-  config: RenderConfig;
-  log: LogFn;
+// A segment export renders source frames start..end inclusive; the guard
+// keeps the render and the verification honest about what the source has.
+function resolveRange(
+  range: FrameRange | undefined,
+  frames: number,
+): FrameRange | null {
+  if (!range) return null;
+  assertValidFrameRange(range);
+  if (range.end >= frames) {
+    throw new Error(
+      `frame range ${range.start}-${range.end} is beyond the recording (${frames} frames)`,
+    );
+  }
+  return range;
+}
+
+export interface PreparedRecording {
+  width: number;
+  height: number;
   probe: VideoProbe;
   tel: Telemetry;
   hud: HudSpec;
   introOutro: IntroOutroFrames;
   overview: Overview;
-  center: { lat: number; lon: number };
   tileStats: PrefetchStats;
-  width: number;
-  height: number;
+  frames: FrameArrays;
+}
+
+// The preparation stages shared by the headless pipeline and the app: probe,
+// telemetry, view plan, tile pre-warm. One trace context: the stages nest
+// under the caller's parent span (or stand alone when none is given).
+export async function prepareSession(
+  videoPath: string,
+  config: RenderConfig,
+  log: LogFn,
+  options: PipelineOptions = {},
+): Promise<PreparedRecording> {
+  const tracer = options.trace?.tracer ?? NOOP_TRACER;
+  const deps = options.deps ?? realDeps;
+  const parent = options.trace?.parent;
+
+  const width = Math.max(64, 2 * Math.floor(config.width / 2));
+  const height = Math.max(64, 2 * Math.floor(config.height / 2));
+
+  const probe = await stage(tracer, 'probe', parent, {}, () =>
+    deps.probeVideo(videoPath, log),
+  );
+  log(
+    `source: ${path.basename(videoPath)}  ${probe.width}x${probe.height} @ ${probe.fps.str} fps, ${probe.frames} frames`,
+  );
+  const introOutro = planIntroOutroFrames(
+    config,
+    { fps: probe.fps.value, frames: probe.frames },
+    log,
+  );
+
+  const tel = await stage(tracer, 'telemetry.load', parent, {}, async (span) => {
+    const loaded = await deps.loadTelemetry(videoPath, {
+      frames: probe.frames,
+      fpsValue: probe.fps.value,
+      durationSec: probe.durationSec,
+    });
+    span.setAttributes({
+      'telemetry.source': loaded.source,
+      'telemetry.method': loaded.method,
+      'telemetry.fix.count': loaded.fixCount,
+      'telemetry.noLock.count': loaded.noLock,
+    });
+    return loaded;
+  });
+  const summary = telemetrySummary(tel);
+  log(
+    `telemetry: ${summary.source} (${summary.method}), ${fixesLabel(summary.fixes)}, ` +
+      `heading=${summary.headingMode}, track ${trackDistanceLabel(summary.trackDistanceM)}` +
+      (summary.noLock ? `, ${noLockCuesLabel(summary.noLock)}` : ''),
+  );
+  const hud = resolveHud(config, tel, log);
+
+  const overview = await stage(tracer, 'plan', parent, { 'plan.view': config.view }, async (span) => {
+    const computed = planView(tel.bbox, width, height, config);
+    span.setAttributes({
+      'plan.zoom': computed.zoom,
+      'plan.zoomOut': effectiveZoomOut(config),
+      'plan.tile.count': computed.tiles.length,
+    });
+    return computed;
+  });
+  log(describeView(config, overview, config.style));
+
+  const tileStats = await stage(tracer, 'tiles.prefetch', parent, {}, async (span) => {
+    const stats = await deps.prefetchTiles({
+      style: config.style,
+      tiles: overview.tiles,
+      cacheDir: config.tileCache,
+      log,
+    });
+    span.setAttributes({
+      'tiles.total': stats.total,
+      'tiles.downloaded': stats.downloaded,
+      'tiles.cached': stats.total - stats.downloaded - stats.failed,
+      'tiles.failed': stats.failed,
+    });
+    return stats;
+  });
+  if (tileStats.downloaded) {
+    log(`tiles: ${tileStats.downloaded} downloaded, ${tileStats.failed} placeholders`);
+  }
+
+  const frames = frameArrays(tel);
+
+  return {
+    width,
+    height,
+    probe,
+    tel,
+    hud,
+    introOutro,
+    overview,
+    tileStats,
+    frames,
+  };
+}
+
+// Maps a prepared recording onto the shared renderer page's inputs through
+// the same planning the app's live restyle uses; callers add the video option
+// when they drive the interactive variant.
+export function recordingPageOpts(
+  prep: PreparedRecording,
+  config: RenderConfig,
+): PageOpts {
+  return planPageOpts({
+    bbox: prep.tel.bbox,
+    width: prep.width,
+    height: prep.height,
+    config,
+    source: { fps: prep.probe.fps.value, frames: prep.probe.frames },
+    frames: prep.frames,
+  });
+}
+
+interface RenderContext extends PreparedRecording {
+  videoPath: string;
+  outPath: string;
+  config: RenderConfig;
+  log: LogFn;
+  /** Frames actually rendered: the source count or the exported range's. */
+  outFrames: number;
+  frameRange: FrameRange | null;
+}
+
+interface RenderStageEnv {
+  ctx: RenderContext;
+  deps: PipelineDeps;
+  options: PipelineOptions;
+  tracer: Tracer;
+  root: Span;
 }
 
 function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummary {
@@ -245,22 +385,70 @@ function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummar
     introFrames: introOutro.introN,
     outroFrames: introOutro.outroN,
     hud,
-    source: tel.source,
-    method: tel.method,
-    headingMode: tel.headingMode,
-    fixes: tel.fixCount,
-    noLock: tel.noLock,
-    frames: probe.frames,
+    ...telemetrySummary(tel),
+    frames: ctx.outFrames,
     fps: probe.fps.str,
-    trackDistanceM: Math.round(tel.trackDistanceM),
+    frameRange: ctx.frameRange ?? undefined,
     bbox: tel.bbox,
     zoom: overview.zoom,
     zoomFixed: config.zoom > 0,
-    zoomOut: config.zoom > 0 ? 0 : config.zoomOut,
+    zoomOut: effectiveZoomOut(config),
     tilesDownloaded: tileStats.downloaded,
     verified: true,
     elapsedSec,
   };
+}
+
+async function verifyRenderedOutput(env: RenderStageEnv): Promise<void> {
+  const { ctx, deps, tracer, root } = env;
+  await stage(tracer, 'output.verify', root, {}, async (span) => {
+    const verify = await deps.verifyOutput(ctx.outPath, ctx.outFrames, ctx.probe.fps.value);
+    span.setAttributes({
+      'verify.frames.expected': ctx.outFrames,
+      'verify.frames.actual': verify.frames,
+      'verify.fps.expected': ctx.probe.fps.str,
+      'verify.fps.actual': verify.fps ?? 'unknown',
+      'verify.ok': verify.ok,
+    });
+    if (!verify.ok) {
+      throw new Error(
+        `output verification failed: got ${verify.frames} frames @ ${verify.fps ?? 'unknown'}, ` +
+          `expected ${ctx.outFrames} @ ${ctx.probe.fps.str}`,
+      );
+    }
+  });
+  ctx.log(
+    ctx.frameRange
+      ? 'verified: frame count and frame rate are 1:1 within the exported range'
+      : 'verified: frame count and frame rate match the source',
+  );
+}
+
+async function renderToOutput(env: RenderStageEnv): Promise<void> {
+  const { ctx, deps, options, tracer, root } = env;
+  const html = buildPageHtml(recordingPageOpts(ctx, ctx.config));
+  fs.mkdirSync(path.dirname(ctx.outPath), { recursive: true });
+  await renderWithOutputCleanup(ctx.outPath, ctx.log, async () => {
+    await deps.renderVideo({
+      html,
+      capture: ctx.config.capture,
+      preset: ctx.config.preset,
+      style: ctx.config.style,
+      tileCache: ctx.config.tileCache,
+      width: ctx.width,
+      height: ctx.height,
+      frames: ctx.outFrames,
+      frameStart: ctx.frameRange?.start ?? 0,
+      fpsStr: ctx.probe.fps.str,
+      workers: ctx.config.workers,
+      outPath: ctx.outPath,
+      browserPath: ctx.config.browser,
+      signal: options.signal,
+      log: ctx.log,
+      trace: { tracer, parent: root },
+    });
+    await verifyRenderedOutput(env);
+  });
 }
 
 // Throws on failure (the caller decides policy). outPath may be pre-planned by
@@ -277,9 +465,7 @@ export async function processRecording(
   const t0 = Date.now();
   const tracer = options.trace?.tracer ?? NOOP_TRACER;
   const deps = options.deps ?? realDeps;
-
-  const width = Math.max(64, 2 * Math.floor(config.width / 2));
-  const height = Math.max(64, 2 * Math.floor(config.height / 2));
+  if (options.signal?.aborted) throw new Error('render canceled');
 
   return stage(
     tracer,
@@ -287,155 +473,35 @@ export async function processRecording(
     options.trace?.parent,
     {
       'source.file.name': path.basename(videoPath),
-      'canvas.width': width,
-      'canvas.height': height,
-      'map.style': config.style,
-      'map.view': config.view,
     },
     async (root) => {
-      const probe = await stage(tracer, 'probe', root, {}, () =>
-        deps.probeVideo(videoPath, log),
-      );
-      root.setAttribute('source.frames', probe.frames);
-      root.setAttribute('source.fps', probe.fps.value);
-      log(
-        `source: ${path.basename(videoPath)}  ${probe.width}x${probe.height} @ ${probe.fps.str} fps, ${probe.frames} frames`,
-      );
-      const introOutro = planIntroOutroFrames(config, probe, log);
-
-      const tel = await stage(tracer, 'telemetry.load', root, {}, async (span) => {
-        const loaded = await deps.loadTelemetry(videoPath, {
-          frames: probe.frames,
-          fpsValue: probe.fps.value,
-          durationSec: probe.durationSec,
-        });
-        span.setAttributes({
-          'telemetry.source': loaded.source,
-          'telemetry.method': loaded.method,
-          'telemetry.fix.count': loaded.fixCount,
-          'telemetry.noLock.count': loaded.noLock,
-        });
-        return loaded;
+      const prep = await prepareSession(videoPath, config, log, {
+        ...options,
+        trace: { tracer, parent: root },
       });
-      root.setAttribute('telemetry.source', tel.source);
-      log(
-        `telemetry: ${tel.source} (${tel.method}), ${tel.fixCount} fixes, heading=${tel.headingMode}, ` +
-          `track ${Math.round(tel.trackDistanceM)} m${tel.noLock ? `, ${tel.noLock} no-lock cues` : ''}`,
-      );
-      const hud = resolveHud(config, tel, log);
-
-      const tileSource = TILE_SOURCES[config.style];
-      const overview = await stage(tracer, 'plan', root, { 'plan.view': config.view }, async (span) => {
-        const computed = computeOverview({
-          bbox: tel.bbox,
-          width,
-          height,
-          maxZoom: tileSource.maxZoom || 19,
-          maxNativeZoom: tileSource.maxNativeZoom || null,
-          zoomOut: config.zoomOut,
-          zoomOverride: config.zoom,
-          follow: config.view === 'follow',
-        });
-        span.setAttributes({
-          'plan.zoom': computed.zoom,
-          'plan.zoomOut': config.zoom > 0 ? 0 : config.zoomOut,
-          'plan.tile.count': computed.tiles.length,
-        });
-        return computed;
-      });
-      const center = unproject(overview.centerPx.x, overview.centerPx.y, overview.zoom);
-      log(describeView(config, overview, config.style));
-
-      const tileStats = await stage(tracer, 'tiles.prefetch', root, {}, async (span) => {
-        const stats = await deps.prefetchTiles({
-          style: config.style,
-          tiles: overview.tiles,
-          cacheDir: config.tileCache,
-          log,
-        });
-        span.setAttributes({
-          'tiles.total': stats.total,
-          'tiles.downloaded': stats.downloaded,
-          'tiles.cached': stats.total - stats.downloaded - stats.failed,
-          'tiles.failed': stats.failed,
-        });
-        return stats;
-      });
-      if (tileStats.downloaded) {
-        log(`tiles: ${tileStats.downloaded} downloaded, ${tileStats.failed} placeholders`);
-      }
-
-      const html = buildPageHtml({
-        width,
-        height,
-        style: config.style,
-        view: config.view,
-        center,
-        zoom: overview.zoom,
-        attribution: tileSource.attribution,
-        introN: introOutro.introN,
-        outroN: introOutro.outroN,
-        trail: config.trail,
-        ...frameArrays(tel),
-        hud,
+      root.setAttributes({
+        'canvas.width': prep.width,
+        'canvas.height': prep.height,
+        'map.style': config.style,
+        'map.view': config.view,
+        'source.frames': prep.probe.frames,
+        'source.fps': prep.probe.fps.value,
+        'telemetry.source': prep.tel.source,
       });
 
-      fs.mkdirSync(path.dirname(outPath), { recursive: true });
-      await renderWithOutputCleanup(outPath, log, async () => {
-        await deps.renderVideo({
-          html,
-          capture: config.capture,
-          preset: config.preset,
-          style: config.style,
-          tileCache: config.tileCache,
-          width,
-          height,
-          frames: probe.frames,
-          fpsStr: probe.fps.str,
-          workers: config.workers,
-          outPath,
-          browserPath: config.browser,
-          log,
-          trace: { tracer, parent: root },
-        });
-
-        await stage(tracer, 'output.verify', root, {}, async (span) => {
-          const verify = await deps.verifyOutput(outPath, probe.frames, probe.fps.value);
-          span.setAttributes({
-            'verify.frames.expected': probe.frames,
-            'verify.frames.actual': verify.frames,
-            'verify.fps.expected': probe.fps.str,
-            'verify.fps.actual': verify.fps ?? 'unknown',
-            'verify.ok': verify.ok,
-          });
-          if (!verify.ok) {
-            throw new Error(
-              `output verification failed: got ${verify.frames} frames @ ${verify.fps ?? 'unknown'}, ` +
-                `expected ${probe.frames} @ ${probe.fps.str}`,
-            );
-          }
-        });
-        log('verified: frame count and frame rate match the source');
-      });
-
-      return buildOkSummary(
-        {
-          videoPath,
-          outPath,
-          config,
-          log,
-          probe,
-          tel,
-          hud,
-          introOutro,
-          overview,
-          center,
-          tileStats,
-          width,
-          height,
-        },
-        Math.round((Date.now() - t0) / 1000),
-      );
+      const range = resolveRange(options.range, prep.probe.frames);
+      const outFrames = range ? range.end - range.start + 1 : prep.probe.frames;
+      const ctx: RenderContext = {
+        ...prep,
+        videoPath,
+        outPath,
+        config,
+        log,
+        outFrames,
+        frameRange: range,
+      };
+      await renderToOutput({ ctx, deps, options, tracer, root });
+      return buildOkSummary(ctx, Math.round((Date.now() - t0) / 1000));
     },
   );
 }

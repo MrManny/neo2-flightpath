@@ -3,8 +3,9 @@ import { Command, Option } from 'commander';
 
 import { ERROR_PREFIX, errorMessage } from './errors.js';
 import { VERSION } from './version.js';
-import { parseHud, resolveConfig } from './config.js';
-import type { Capture, ConfigOverrides, Preset, Style, Trail, View } from './config.js';
+import { asNumber, parseHud } from './config.js';
+import { resolveConfig } from './configfile.js';
+import type { Capture, ConfigOverrides, Preset, Style, View } from './config.js';
 import { collectRecordings } from './inputs.js';
 import { requireTools } from './ff.js';
 import { runBatch } from './run.js';
@@ -32,7 +33,6 @@ interface RawOpts {
   workers: string;
   capture: Capture;
   preset: Preset;
-  trail: Trail;
   tileCache: string;
   browser?: string;
   skipExisting?: boolean;
@@ -40,12 +40,6 @@ interface RawOpts {
   json?: boolean;
   quiet?: boolean;
   config?: string;
-}
-
-function numOpt(value: string, name: string): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) throw new Error(`invalid number for ${name}: ${value}`);
-  return n;
 }
 
 export function buildProgram(): Command {
@@ -103,11 +97,6 @@ export function buildProgram(): Command {
         .choices(['medium', 'veryfast'])
         .default('medium'),
     )
-    .addOption(
-      new Option('--trail <mode>', 'trail update strategy')
-        .choices(['full', 'incr'])
-        .default('full'),
-    )
     .option(
       '--tile-cache <dir>',
       'tile cache directory (default: per-user cache dir)',
@@ -146,19 +135,18 @@ function collectOverrides(program: Command, opts: RawOpts): ConfigOverrides {
   const cli: ConfigOverrides = {};
   if (given('outDir') && opts.outDir !== undefined) cli.outDir = opts.outDir;
   if (given('outSuffix')) cli.outSuffix = opts.outSuffix;
-  if (given('width')) cli.width = numOpt(opts.width, '--width');
-  if (given('height')) cli.height = numOpt(opts.height, '--height');
+  if (given('width')) cli.width = asNumber(opts.width, '--width');
+  if (given('height')) cli.height = asNumber(opts.height, '--height');
   if (given('style')) cli.style = opts.style;
   if (given('view')) cli.view = opts.view;
-  if (given('zoom')) cli.zoom = numOpt(opts.zoom, '--zoom');
-  if (given('zoomOut')) cli.zoomOut = numOpt(opts.zoomOut, '--zoom-out');
-  if (given('introSec')) cli.introSec = numOpt(opts.introSec, '--intro-sec');
-  if (given('outroSec')) cli.outroSec = numOpt(opts.outroSec, '--outro-sec');
+  if (given('zoom')) cli.zoom = asNumber(opts.zoom, '--zoom');
+  if (given('zoomOut')) cli.zoomOut = asNumber(opts.zoomOut, '--zoom-out');
+  if (given('introSec')) cli.introSec = asNumber(opts.introSec, '--intro-sec');
+  if (given('outroSec')) cli.outroSec = asNumber(opts.outroSec, '--outro-sec');
   if (given('hud')) cli.hud = parseHud(opts.hud);
-  if (given('workers')) cli.workers = numOpt(opts.workers, '--workers');
+  if (given('workers')) cli.workers = asNumber(opts.workers, '--workers');
   if (given('capture')) cli.capture = opts.capture;
   if (given('preset')) cli.preset = opts.preset;
-  if (given('trail')) cli.trail = opts.trail;
   if (given('tileCache')) cli.tileCache = opts.tileCache;
   if (given('browser')) cli.browser = opts.browser ?? null;
   if (given('skipExisting')) cli.skipExisting = opts.skipExisting ?? false;

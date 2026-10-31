@@ -5,6 +5,11 @@ function isMp4(name: string): boolean {
   return name.toLowerCase().endsWith('.mp4');
 }
 
+// The recording's stem: sidecar lookup and output naming both key on it.
+export function videoBaseName(filePath: string): string {
+  return path.basename(filePath).replace(/\.[^.]+$/, '');
+}
+
 function listMp4(dir: string, recurse: boolean): string[] {
   const found: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
