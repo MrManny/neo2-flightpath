@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PickResult, UiSession } from '../../src/appsession.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
+import type { PrepareProgress } from '../../src/run.js';
 import type { Scene } from '../../src/renderer/scene.js';
 import Page from '../../ui/app/page.js';
 
@@ -65,10 +66,14 @@ const SESSION: UiSession = {
 };
 
 // The bridge stands in for the shell: the test decides when the native picker
-// returns, and when the shell reports that a valid file is being prepared.
+// returns, when the shell reports that a valid file is being prepared, and how
+// the preparation progresses.
 function installBridge() {
   const pending: Array<(result: PickResult) => void> = [];
-  const listeners: { preparing?: () => void } = {};
+  const listeners: {
+    preparing?: () => void;
+    progress?: (progress: PrepareProgress) => void;
+  } = {};
   const bridge = {
     getSettings: vi.fn(async () => DEFAULT_CONFIG),
     getSession: vi.fn(async () => SESSION),
@@ -84,6 +89,12 @@ function installBridge() {
         listeners.preparing = undefined;
       };
     }),
+    onPrepareProgress: vi.fn((cb: (progress: PrepareProgress) => void) => {
+      listeners.progress = cb;
+      return () => {
+        listeners.progress = undefined;
+      };
+    }),
   };
   (window as { neo2flightpath?: unknown }).neo2flightpath = bridge;
   return {
@@ -91,6 +102,11 @@ function installBridge() {
     prepare: () => {
       act(() => {
         listeners.preparing?.();
+      });
+    },
+    report: (progress: PrepareProgress) => {
+      act(() => {
+        listeners.progress?.(progress);
       });
     },
     settle: async (result: PickResult) => {
@@ -135,8 +151,25 @@ describe('Open flow on the landing', () => {
     fireEvent.click(await openLanding());
     expect(screen.queryByText(/Preparing/)).toBeNull();
     harness.prepare();
-    expect(screen.getByText('Preparing the recording (telemetry and map tiles)…')).toBeTruthy();
+    expect(screen.getByText('Probing the recording…')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Preparing…' }) as HTMLButtonElement).disabled).toBe(true);
+    await harness.settle({ ok: true });
+  });
+
+  it('tracks the preparation progress on the loading bar', async () => {
+    const harness = installBridge();
+    fireEvent.click(await openLanding());
+    harness.prepare();
+    harness.report({ stage: 'tiles', done: 3, total: 51, tilesDone: 0, tilesTotal: 48 });
+    expect(screen.getByText('Warming tiles… 0/48')).toBeTruthy();
+    expect(
+      screen.getByRole('progressbar', { name: 'Preparation progress' }).getAttribute('aria-valuenow'),
+    ).toBe('6');
+    harness.report({ stage: 'tiles', done: 15, total: 51, tilesDone: 12, tilesTotal: 48 });
+    expect(screen.getByText('Warming tiles… 12/48')).toBeTruthy();
+    expect(
+      screen.getByRole('progressbar', { name: 'Preparation progress' }).getAttribute('aria-valuenow'),
+    ).toBe('29');
     await harness.settle({ ok: true });
   });
 

@@ -7,6 +7,7 @@ import { DEFAULT_CONFIG } from '../../src/config.js';
 import type { RenderConfig } from '../../src/config.js';
 import type { Scene } from '../../src/renderer/scene.js';
 import { PlayerChrome } from '../../ui/components/PlayerChrome.js';
+import { START_PREPARE_PROGRESS } from '../../ui/lib/pickstate.js';
 import type { PickState } from '../../ui/lib/pickstate.js';
 
 const fakeScene = vi.hoisted((): Scene => ({
@@ -619,10 +620,11 @@ describe('PlayerChrome open notice', () => {
         settings={SETTINGS}
         onSettingsChange={() => {}}
         onOpen={() => {}}
-        openState={{ kind: 'preparing' }}
+        openState={{ kind: 'preparing', progress: START_PREPARE_PROGRESS }}
       />,
     );
-    expect(screen.getByText('Preparing the recording (telemetry and map tiles)…')).toBeTruthy();
+    expect(screen.getByText('Probing the recording…')).toBeTruthy();
+    expect(screen.getByRole('progressbar', { name: 'Preparation progress' })).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Open…' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

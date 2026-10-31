@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LandingPanel } from '../../ui/components/LandingPanel.js';
+import { START_PREPARE_PROGRESS } from '../../ui/lib/pickstate.js';
 import type { PickState } from '../../ui/lib/pickstate.js';
 
 afterEach(cleanup);
@@ -23,11 +24,33 @@ describe('LandingPanel', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('shows progress and blocks re-entry once the file is being prepared', () => {
-    render(<LandingPanel state={{ kind: 'preparing' }} onPick={() => {}} />);
+  it('shows the loading bar and the first stage once the file is being prepared', () => {
+    render(
+      <LandingPanel
+        state={{ kind: 'preparing', progress: START_PREPARE_PROGRESS }}
+        onPick={() => {}}
+      />,
+    );
     const button = screen.getByRole('button', { name: 'Preparing…' }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(screen.getByText('Preparing the recording (telemetry and map tiles)…')).toBeTruthy();
+    expect(screen.getByText('Probing the recording…')).toBeTruthy();
+    const bar = screen.getByRole('progressbar', { name: 'Preparation progress' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('0');
+  });
+
+  it('counts the warmed tiles during the pre-warm', () => {
+    render(
+      <LandingPanel
+        state={{
+          kind: 'preparing',
+          progress: { stage: 'tiles', done: 15, total: 51, tilesDone: 12, tilesTotal: 48 },
+        }}
+        onPick={() => {}}
+      />,
+    );
+    expect(screen.getByText('Warming tiles… 12/48')).toBeTruthy();
+    const bar = screen.getByRole('progressbar', { name: 'Preparation progress' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('29');
   });
 
   it('reports a cancel', () => {

@@ -72,7 +72,7 @@ select {
     transform var(--motion) var(--ease),
     opacity var(--motion) var(--ease);
 }
-.export-progress-fill {
+.progress-fill {
   transition: width 250ms var(--ease);
 }
 .scene-host,
@@ -86,7 +86,7 @@ select {
   input[type='radio'],
   input[type='number'],
   select,
-  .export-progress-fill {
+  .progress-fill {
     transition: none;
   }
 }
@@ -240,6 +240,17 @@ button.primary {
   padding: 0 8px;
 }
 
+/* Preparation status: the loading bar with the notice naming the stage. */
+.prepare-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+.prepare-status .notice {
+  margin-top: 0;
+}
+
 /* Player stage: the map and the video share it; the picture-in-picture pane
    floats above the main pane with a hairline and a soft shadow. */
 .stage {
@@ -289,6 +300,9 @@ button.primary {
 .player-notices .notice {
   margin-top: 0;
   box-shadow: var(--shadow-float);
+}
+.player-notices .prepare-status {
+  margin-top: 0;
 }
 
 .stats {
@@ -577,18 +591,18 @@ input[type='radio']:disabled {
 .export-progress {
   margin-top: 16px;
 }
-.export-progress-track {
+.progress-track {
   height: 8px;
   overflow: hidden;
   background: var(--surface-2);
   border-radius: var(--radius-pill);
 }
-.export-progress-fill {
+.progress-fill {
   height: 100%;
   background: var(--accent);
   border-radius: var(--radius-pill);
 }
-.export-progress-label {
+.progress-label {
   margin-top: 8px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;

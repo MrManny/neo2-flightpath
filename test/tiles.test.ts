@@ -193,5 +193,52 @@ describe('prefetchTiles', () => {
     expect(stats).toEqual({ downloaded: 0, failed: 0, total: 1 });
     expect(fetchStub).not.toHaveBeenCalled();
   });
+
+  it('reports every settled tile, whether cached, downloaded or failed', async () => {
+    const dir = tmpDir();
+    const cachePath = path.join(dir, 'esri-imagery', '1', '0', '0.png');
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, 'cached');
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200 }))
+      .mockResolvedValue(new Response('nope', { status: 500 }));
+    vi.stubGlobal('fetch', fetchStub);
+
+    const onTile = vi.fn();
+    await prefetchTiles({
+      style: 'satellite',
+      tiles: [
+        { z: 1, x: 0, y: 0 },
+        { z: 1, x: 0, y: 1 },
+        { z: 1, x: 0, y: 2 },
+      ],
+      cacheDir: dir,
+      onTile,
+    });
+
+    expect(onTile).toHaveBeenCalledTimes(3);
+    expect(onTile.mock.calls.flat().sort()).toEqual(['cached', 'downloaded', 'failed'].sort());
+  });
+
+  it('reports the cached tiles on the all-cached fast path too', async () => {
+    const dir = tmpDir();
+    const cachePath = path.join(dir, 'esri-imagery', '1', '0', '0.png');
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, 'cached');
+    vi.stubGlobal('fetch', vi.fn());
+
+    const onTile = vi.fn();
+    const stats = await prefetchTiles({
+      style: 'satellite',
+      tiles: [{ z: 1, x: 0, y: 0 }],
+      cacheDir: dir,
+      onTile,
+    });
+
+    expect(stats).toEqual({ downloaded: 0, failed: 0, total: 1 });
+    expect(onTile).toHaveBeenCalledTimes(1);
+    expect(onTile).toHaveBeenCalledWith('cached');
+  });
 });
 

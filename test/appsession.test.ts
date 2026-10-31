@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createAppSession, flightStatsFrom } from '../src/appsession.js';
-import type { UiSession } from '../src/appsession.js';
+import type { PrepareUiSession, UiSession } from '../src/appsession.js';
 import type { RenderConfig } from '../src/config.js';
+import type { PrepareProgress } from '../src/run.js';
 import { cleanupTmpDirs, probeFixture, statsTelemetry, tmpDir } from './fixtures.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -58,7 +59,7 @@ describe('createAppSession', () => {
     const session = createAppSession({ config: CONFIG, pickFile: async () => file, prepare });
 
     expect(await session.pick()).toEqual({ ok: true });
-    expect(prepare).toHaveBeenCalledWith(file, CONFIG, expect.any(Function));
+    expect(prepare).toHaveBeenCalledWith(file, CONFIG, expect.any(Function), expect.any(Function));
     expect(session.getSession()).toBe(SESSION);
     expect(session.videoPath()).toBe(file);
   });
@@ -193,5 +194,47 @@ describe('createAppSession onPreparing hook', () => {
     expect((await session.pick()).ok).toBe(false);
     expect(onPreparing).not.toHaveBeenCalled();
     expect(prepare).not.toHaveBeenCalled();
+  });
+});
+
+describe('createAppSession onPrepareProgress hook', () => {
+  const reported: PrepareProgress = {
+    stage: 'tiles',
+    done: 3,
+    total: 51,
+    tilesDone: 0,
+    tilesTotal: 48,
+  };
+
+  it('hands the hook to preparation and forwards its reports', async () => {
+    const file = mp4();
+    const onPrepareProgress = vi.fn();
+    const prepare = vi.fn<PrepareUiSession>(async (_file, _config, _log, onProgress) => {
+      onProgress?.(reported);
+      return SESSION;
+    });
+    const session = createAppSession({
+      config: CONFIG,
+      pickFile: async () => file,
+      prepare,
+      onPrepareProgress,
+    });
+
+    expect(await session.pick()).toEqual({ ok: true });
+    expect(prepare).toHaveBeenCalledWith(file, CONFIG, expect.any(Function), onPrepareProgress);
+    expect(onPrepareProgress).toHaveBeenCalledTimes(1);
+    expect(onPrepareProgress).toHaveBeenCalledWith(reported);
+  });
+
+  it('stays silent when the pick is rejected before preparation', async () => {
+    const onPrepareProgress = vi.fn();
+    const session = createAppSession({
+      config: CONFIG,
+      pickFile: async () => null,
+      prepare: vi.fn(),
+      onPrepareProgress,
+    });
+    expect(await session.pick()).toEqual({ ok: false, canceled: true });
+    expect(onPrepareProgress).not.toHaveBeenCalled();
   });
 });

@@ -12,7 +12,7 @@ import type { Bbox } from './geo.js';
 import { buildSceneData } from './page.js';
 import type { SceneData } from './renderer/scene.js';
 import { prepareSession, recordingPageOpts } from './run.js';
-import type { LogFn } from './run.js';
+import type { LogFn, PrepareProgressFn } from './run.js';
 import { telemetrySummary } from './summary.js';
 import type { TelemetrySummary } from './summary.js';
 import type { Telemetry } from './telemetry.js';
@@ -64,11 +64,17 @@ export type PrepareUiSession = (
   videoPath: string,
   config: RenderConfig,
   log: LogFn,
+  onProgress?: PrepareProgressFn,
 ) => Promise<UiSession>;
 
 // The shared pipeline preparation plus the scene data the UI drives.
-export const prepareUiSession: PrepareUiSession = async (videoPath, config, log) => {
-  const prep = await prepareSession(videoPath, config, log);
+export const prepareUiSession: PrepareUiSession = async (
+  videoPath,
+  config,
+  log,
+  onProgress,
+) => {
+  const prep = await prepareSession(videoPath, config, log, { onProgress });
   return {
     scene: buildSceneData(recordingPageOpts(prep, config), TILE_BASE),
     video: {
@@ -92,6 +98,8 @@ export interface AppSessionOptions {
   log?: (msg: string) => void;
   /** Fires once a picked file passes the checks, right before preparation starts. */
   onPreparing?: (videoPath: string) => void;
+  /** Loading progress of the preparation, for progress displays. */
+  onPrepareProgress?: PrepareProgressFn;
 }
 
 export interface AppSession {
@@ -114,6 +122,7 @@ export function createAppSession(options: AppSessionOptions): AppSession {
   const prepare = options.prepare ?? prepareUiSession;
   const log = options.log ?? ((): void => {});
   const onPreparing = options.onPreparing ?? ((): void => {});
+  const onPrepareProgress = options.onPrepareProgress ?? ((): void => {});
   let session: UiSession | null = null;
   let videoPath: string | null = null;
   let picking = false;
@@ -131,7 +140,7 @@ export function createAppSession(options: AppSessionOptions): AppSession {
           return { ok: false, error: `not a readable .mp4 file: ${resolved}` };
         }
         onPreparing(resolved);
-        session = await prepare(resolved, config, log);
+        session = await prepare(resolved, config, log, onPrepareProgress);
         videoPath = resolved;
         log(`loaded: ${resolved}`);
         return { ok: true };

@@ -13,8 +13,9 @@ import {
   recordingPageOpts,
   runBatch,
 } from '../src/run.js';
-import type { PipelineDeps, RecordingSummary } from '../src/run.js';
+import type { PipelineDeps, PrepareProgress, RecordingSummary } from '../src/run.js';
 import { loadTelemetry } from '../src/telemetry.js';
+import { START_PREPARE_PROGRESS } from '../ui/lib/pickstate.js';
 import {
   SRT_SAMPLE_MIXED,
   byName,
@@ -101,6 +102,75 @@ describe('prepareSession', () => {
     expect(opts.decimated.frame[0]).toBe(0);
     expect(opts.decimated.frame[opts.decimated.frame.length - 1]).toBe(2);
     expect(prep.hud).toEqual({ heading: true, alt: false, speed: false });
+  });
+});
+
+describe('prepareSession progress reports', () => {
+  it('advances one step per stage and one per planned tile, ending at the full count', async () => {
+    const events: PrepareProgress[] = [];
+    const deps = stubDeps({
+      prefetchTiles: async ({ tiles, onTile }) => {
+        tiles.forEach(() => onTile?.('downloaded'));
+        return { downloaded: tiles.length, failed: 0, total: tiles.length };
+      },
+    });
+    await prepareSession(VIDEO, testConfig(), () => {}, {
+      deps,
+      onProgress: (progress) => events.push(progress),
+    });
+
+    const tileCount = events[3].tilesTotal;
+    expect(tileCount).toBeGreaterThan(0);
+    expect(events[0]).toEqual(START_PREPARE_PROGRESS);
+    expect(events.slice(1, 3)).toEqual([
+      { stage: 'telemetry', done: 1, total: 3, tilesDone: 0, tilesTotal: 0 },
+      { stage: 'plan', done: 2, total: 3, tilesDone: 0, tilesTotal: 0 },
+    ]);
+    expect(events).toHaveLength(4 + tileCount);
+    events.slice(3).forEach((event, i) => {
+      expect(event).toEqual({
+        stage: 'tiles',
+        done: 3 + i,
+        total: 3 + tileCount,
+        tilesDone: i,
+        tilesTotal: tileCount,
+      });
+    });
+  });
+
+  it('counts cached and failed tiles as progress', async () => {
+    const events: PrepareProgress[] = [];
+    const deps = stubDeps({
+      prefetchTiles: async ({ tiles, onTile }) => {
+        onTile?.('cached');
+        for (let i = 1; i < tiles.length; i++) onTile?.('failed');
+        return { downloaded: 0, failed: tiles.length - 1, total: tiles.length };
+      },
+    });
+    await prepareSession(VIDEO, testConfig(), () => {}, {
+      deps,
+      onProgress: (progress) => events.push(progress),
+    });
+
+    const last = events[events.length - 1];
+    expect(last.tilesDone).toBe(last.tilesTotal);
+    expect(last.done).toBe(last.total);
+  });
+
+  it('stops reporting once a stage fails', async () => {
+    const events: PrepareProgress[] = [];
+    const deps = stubDeps({
+      loadTelemetry: async () => {
+        throw new Error('telemetry unreadable');
+      },
+    });
+    await expect(
+      prepareSession(VIDEO, testConfig(), () => {}, {
+        deps,
+        onProgress: (progress) => events.push(progress),
+      }),
+    ).rejects.toThrow('telemetry unreadable');
+    expect(events.map((e) => e.stage)).toEqual(['probe', 'telemetry']);
   });
 });
 

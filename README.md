@@ -72,7 +72,10 @@ For reviewing flights without the terminal, grab the packaged desktop app
 (Windows portable or Linux AppImage) from
 [GitHub Releases](https://github.com/MrManny/neo2-flightpath/releases), or run
 `npm run build && npm run app` from a checkout. Launching it opens a window where
-**Open…** picks a video through the native file dialog; the
+**Open…** picks a video through the native file dialog; while the recording is
+prepared (probe, telemetry, view plan and map tile pre-warm) a progress bar
+names the current stage and counts the warmed tiles
+(`Warming tiles… 12/48`). The
 screen then shows the footage and the map overlay (trail, heading arrow, HUD
 chips) in a swappable picture-in-picture layout on one shared timeline
 scrubber. Play, pause and scrub keep the video frame, trail, drone position
