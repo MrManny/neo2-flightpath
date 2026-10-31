@@ -194,8 +194,6 @@ export function normalizeOverrides(
   return out;
 }
 
-// Fixed zoom wins; zoom-out only ever applies to the auto-fit view. One home
-// for what the summary and the trace report as effective.
 export function effectiveZoomOut(config: Pick<RenderConfig, 'zoom' | 'zoomOut'>): number {
   return config.zoom > 0 ? 0 : config.zoomOut;
 }

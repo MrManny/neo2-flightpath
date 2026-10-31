@@ -93,7 +93,6 @@ export interface TileRef {
   tile: TileCoord;
 }
 
-/** The one tile route: /tiles/<style>/<z>/<x>/<y>.png. */
 export function parseTilePathname(pathname: string): TileRef | null {
   const m = /^\/tiles\/([a-z0-9_-]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(pathname);
   return m

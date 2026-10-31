@@ -2,8 +2,6 @@
 // (.cjs) because sandboxed preload scripts cannot use ESM.
 const { contextBridge, ipcRenderer } = require('electron');
 
-// One subscription shape for all three event channels: adapt the payload,
-// return the unsubscribe.
 function subscribe(channel, adapt) {
   const handler = (_event, payload) => adapt(payload);
   ipcRenderer.on(channel, handler);

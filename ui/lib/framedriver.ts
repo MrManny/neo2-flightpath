@@ -26,12 +26,10 @@ export function formatTime(sec: number): string {
   return Math.floor(total / 60) + ':' + ('0' + (total % 60)).slice(-2);
 }
 
-// Frames are the currency: time is frame index ÷ fps.
 export function timeAt(frame: number, fps: number): number {
   return frame / fps;
 }
 
-/** "0:10–0:12" over frame points; "?" marks an unset point. */
 export function formatFrameSpan(
   start: number | null,
   end: number | null,
@@ -42,7 +40,6 @@ export function formatFrameSpan(
   return `${at(start)}–${at(end)}`;
 }
 
-/** The segment label: "0:10–0:12 · 121 frames" (frames = out − in + 1). */
 export function formatFrameRange(points: LoopPoints, fps: number): string {
   return `${formatFrameSpan(points.in, points.out, fps)} · ${points.out - points.in + 1} frames`;
 }

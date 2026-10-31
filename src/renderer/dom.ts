@@ -121,7 +121,6 @@ ${hudMarkup(hud)}
 </div>`;
 }
 
-/** The drone marker's inner markup: the arrow glyph in the track color. */
 export function droneMarkerMarkup(coreColor: string): string {
   return (
     '<div class="drone-wrap"><div class="drone-arrow" id="drone-arrow">' +

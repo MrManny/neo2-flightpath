@@ -37,8 +37,6 @@ export interface ControlBarProps {
   maxFrame: number;
 }
 
-// The transport row: Open, playback, loop tools, timeline, readouts, speed,
-// view swap and the two dialogs it opens.
 export function ControlBar({
   onOpen,
   opening,

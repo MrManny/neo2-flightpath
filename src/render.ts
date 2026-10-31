@@ -221,7 +221,6 @@ interface StageTiming {
   emitMs: number;
 }
 
-// Everything the frame workers share: one capture run's explicit context.
 interface WorkerRun {
   active: Browser;
   url: string;
@@ -306,7 +305,6 @@ async function runWorkers(run: WorkerRun, workerCount: number): Promise<void> {
   if (rejected) throw rejected.reason;
 }
 
-// Ends the frame stream and holds the encoder to its exit code.
 async function finishEncode(
   encoder: Encoder,
   stream: OrderedFrameStream,

@@ -18,8 +18,6 @@ export interface PlayerStageProps {
   notice: ReactNode;
 }
 
-// The two panes and their picture-in-picture arrangement: the video is the
-// main pane and the map the pip one until the view is swapped.
 export function PlayerStage({
   video,
   sceneData,

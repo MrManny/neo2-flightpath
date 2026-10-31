@@ -230,9 +230,6 @@ function resolveRange(
   return range;
 }
 
-// Everything the shared renderer page needs after the I/O shell stages ran.
-// View planning (zoom, center, decimated trail) belongs to planPageOpts, the
-// one settings + telemetry -> page mapping.
 export interface PreparedRecording {
   width: number;
   height: number;
@@ -367,8 +364,6 @@ interface RenderContext extends PreparedRecording {
   frameRange: FrameRange | null;
 }
 
-// Everything the output stages share: one recording's context plus the
-// pipeline shell it runs in.
 interface RenderStageEnv {
   ctx: RenderContext;
   deps: PipelineDeps;
@@ -404,8 +399,6 @@ function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummar
   };
 }
 
-// What the render produced must match what was planned; the log says so in
-// user words.
 async function verifyRenderedOutput(env: RenderStageEnv): Promise<void> {
   const { ctx, deps, tracer, root } = env;
   await stage(tracer, 'output.verify', root, {}, async (span) => {
@@ -431,7 +424,6 @@ async function verifyRenderedOutput(env: RenderStageEnv): Promise<void> {
   );
 }
 
-// One recording's output: build the page, render through the encoder, verify.
 async function renderToOutput(env: RenderStageEnv): Promise<void> {
   const { ctx, deps, options, tracer, root } = env;
   const html = buildPageHtml(recordingPageOpts(ctx, ctx.config));

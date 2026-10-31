@@ -73,8 +73,6 @@ function hudEq(a: HudSpec, b: HudSpec): boolean {
   );
 }
 
-// One canvas-relative view of the map element: how big it is laid out and
-// where the center and scale bar land. layoutMap recomputes it as a whole.
 interface Layout {
   vw: number;
   vh: number;
@@ -85,9 +83,6 @@ interface Layout {
   mPerPx: number;
 }
 
-// Everything theme-dependent (colors, sizes): layered trail (ghost -> glow ->
-// casing -> core), start dot and the drone marker. Rebuilt as a whole when the
-// style or the decimated trail changes.
 interface Decor {
   layers: LayerHandle[];
   trailLayers: PolylineHandle[];
@@ -97,7 +92,6 @@ interface Decor {
   wrapEl: HTMLElement | null;
 }
 
-// The '--' fallback and the null guard, shared by the two HUD chips.
 function setChipText(
   chip: HTMLElement | null,
   value: number | null | undefined,
@@ -107,8 +101,6 @@ function setChipText(
   chip.textContent = value === null || value === undefined ? '--' : format(value);
 }
 
-// The scene's moving parts as one method object: every stage names the state
-// it moves instead of closing over two dozen loose variables.
 class SceneState implements Scene {
   readonly ready: Promise<void>;
 
@@ -239,7 +231,6 @@ class SceneState implements Scene {
     this.layout = { vw, vh, bigW, bigH, c0, bestM, mPerPx };
   }
 
-  // The ghost trail: the flown path behind the drone, dashed and dimmed.
   private buildGhostLayers(theme: Theme, ghostLatlngs: LatLngTuple[], ghostDash: string): LayerHandle[] {
     const s = this.scale();
     const layers: LayerHandle[] = [];
@@ -304,7 +295,6 @@ class SceneState implements Scene {
     return [trail, trailGlow, trailCasing];
   }
 
-  // The start dot and the drone marker.
   private buildMarker(theme: Theme, s: number): { startDot: LayerHandle; drone: MarkerHandle } {
     const startDot = this.L.circleMarker(this.latlngs[0], {
       radius: Math.round(7 * s),
@@ -371,7 +361,6 @@ class SceneState implements Scene {
     }
   }
 
-  // Marker, map slide and scale bar follow the frame and the intro/outro zoom.
   private updateTransform(i: number, k: number): void {
     const { data, layout, decor, mapEl } = this;
     let dx = 0;
