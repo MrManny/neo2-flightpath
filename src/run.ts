@@ -6,6 +6,7 @@ import type { Bbox } from './geo.js';
 import { outputMatchesSource, probeVideo, verifyOutput } from './ff.js';
 import type { VideoProbe } from './ff.js';
 import { videoBaseName } from './inputs.js';
+import { pathKey, uniquePath } from './paths.js';
 import { loadTelemetry } from './telemetry.js';
 import type { Telemetry } from './telemetry.js';
 import { prefetchTiles } from './tiles.js';
@@ -79,8 +80,9 @@ export function outputPathFor(videoPath: string, config: RenderConfig): string {
 }
 
 // Recordings with the same basename from different folders would otherwise
-// overwrite each other in a shared --out-dir; colliding names get a
-// deterministic -2, -3, ... suffix.
+// overwrite each other in a shared --out-dir; colliding names (identity per
+// the platform's case rule, see src/paths.ts) get a deterministic -2, -3,
+// ... suffix.
 export interface PlannedOutput {
   out: string;
   /** The plain path this run deviates from when a collision forced a suffix. */
@@ -91,21 +93,18 @@ export function planOutputs(videos: string[], config: RenderConfig): PlannedOutp
   const used = new Set<string>();
   return videos.map((video) => {
     const plain = outputPathFor(video, config);
-    const key = plain.toLowerCase();
+    const key = pathKey(plain);
     if (!used.has(key)) {
       used.add(key);
       return { out: plain, plain };
     }
     const ext = path.extname(plain);
     const stem = path.basename(plain, ext);
-    for (let n = 2; ; n++) {
-      const cand = path.join(path.dirname(plain), `${stem}-${n}${ext}`);
-      const candKey = cand.toLowerCase();
-      if (!used.has(candKey)) {
-        used.add(candKey);
-        return { out: cand, plain };
-      }
-    }
+    const out = uniquePath(path.dirname(plain), stem, ext, (candidate) =>
+      used.has(pathKey(candidate)),
+    );
+    used.add(pathKey(out));
+    return { out, plain };
   });
 }
 
