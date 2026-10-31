@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { UiSession } from '../../src/appsession.js';
 import { hasAltitude } from '../../src/config.js';
@@ -221,10 +221,12 @@ export function PlayerChrome({
     [clearLoop, exportBusy, exportOpen, onOpen, scrubTo, setLoopPoint, stepBy, swap, togglePlay, video.fps, video.frames],
   );
 
-  // Capture phase so claimed keys win over the map's keyboard pan/zoom; keys
-  // this player does not claim still reach whatever holds focus.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent): void => {
+  // Hotkeys must act on the latest committed state: when the handler lived
+  // inside the subscribing effect, a key landing between a commit and its
+  // passive effects ran a stale closure and silently no-oped (#62).
+  const hotkeyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  useLayoutEffect(() => {
+    hotkeyHandlerRef.current = (e: KeyboardEvent): void => {
       const action = mapKey(e, { modalOpen: settingsOpen || exportOpen });
       if (action === null) return;
       // No page scroll on Space, no double toggle on a focused button.
@@ -232,9 +234,17 @@ export function PlayerChrome({
       e.stopPropagation();
       dispatch(action);
     };
+  });
+
+  // Capture phase so claimed keys win over the map's keyboard pan/zoom; keys
+  // this player does not claim still reach whatever holds focus. Subscribed
+  // once: the handler ref keeps it current, so no key can arrive between a
+  // commit and a re-subscribe.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => hotkeyHandlerRef.current(e);
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [dispatch, settingsOpen, exportOpen]);
+  }, []);
 
   const maxFrame = Math.max(0, video.frames - 1);
   const loopReadout =

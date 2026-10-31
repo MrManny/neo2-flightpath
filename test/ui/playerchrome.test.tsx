@@ -351,8 +351,7 @@ describe('PlayerChrome keyboard shortcuts', () => {
     expect(screen.getByRole('button', { name: '3×' }).getAttribute('aria-pressed')).toBe('false');
   });
 
-  // Flaky on Node 24 CI; skipped until #62 finds the race and re-enables it.
-  it.skip('steps a frame and parks playback with the arrows', async () => {
+  it('steps a frame and parks playback with the arrows', async () => {
     const fake = await renderPlayer();
     key(window, { key: ' ' });
     key(window, { key: 'ArrowRight' });
@@ -362,6 +361,28 @@ describe('PlayerChrome keyboard shortcuts', () => {
     key(window, { key: 'ArrowLeft' });
     act(() => flushRaf());
     expect(fake.state.currentTime).toBeCloseTo(0);
+  });
+
+  it('claims keys that land before the post-commit effect flush', async () => {
+    render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
+    const fake = stubPlayback();
+    const warmup = screen.getByRole('button', { name: 'Warming tiles…' }) as HTMLButtonElement;
+    // The enabling commit's MutationObserver microtask runs before that
+    // commit's passive effects — the window where a stale handler swallowed
+    // keys (#62).
+    const pressed = new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (warmup.disabled) return;
+        observer.disconnect();
+        key(window, { key: ' ' });
+        key(window, { key: 'ArrowRight' });
+        resolve();
+      });
+      observer.observe(warmup, { attributes: true, attributeFilter: ['disabled'] });
+    });
+    await pressed;
+    expect(fake.play).toHaveBeenCalledTimes(1);
+    expect(fake.pause).toHaveBeenCalledTimes(1);
   });
 
   it('stacks rapid steps onto the head frame', async () => {
