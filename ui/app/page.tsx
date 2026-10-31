@@ -42,15 +42,23 @@ export default function Page() {
   }, []);
 
   // The backend reports preparation only after the picker returned a valid file,
-  // so the busy status never covers the native dialog.
+  // so the busy status never covers the native dialog; its progress events then
+  // drive the loading bar while preparation runs.
   useEffect(() => {
-    let off: (() => void) | null = null;
+    let offPreparing: (() => void) | null = null;
+    let offProgress: (() => void) | null = null;
     try {
-      off = appBridge().onPreparing(() => dispatch({ type: 'preparing' }));
+      offPreparing = appBridge().onPreparing(() => dispatch({ type: 'preparing' }));
+      offProgress = appBridge().onPrepareProgress((progress) =>
+        dispatch({ type: 'progress', progress }),
+      );
     } catch {
       // Outside the app shell there is no backend to report progress.
     }
-    return () => off?.();
+    return () => {
+      offPreparing?.();
+      offProgress?.();
+    };
   }, []);
 
   const handlePick = useCallback(() => {

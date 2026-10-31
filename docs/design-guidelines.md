@@ -42,13 +42,13 @@ Color tokens live in the `:root` block of `ui/app/globals.css` (section 1):
 | `--scrim` | Dialog backdrop |
 | `--hairline` / `--hairline-strong` / `--hairline-hover` | Decorative separators / control, dialog and PIP borders / hover borders |
 | `--text` / `--text-2` / `--text-3` | Primary text / labels, readouts, chips, paths / hints, legends, "Technical details" |
-| `--accent` (hover `--accent-hover`, pressed `--accent-press`) | Primary fill, selected speed, checked toggle, played timeline range, export fill |
+| `--accent` (hover `--accent-hover`, pressed `--accent-press`) | Primary fill, selected speed, checked toggle, played timeline range, progress fill |
 | `--accent-ink` | Text and check mark on accent |
 | `--focus` | Focus outline |
 | `--danger` / `--warning` / `--info` | Invalid fields and danger notices / warning and info notices only |
 | `--loop` / `--loop-text` | Loop band and ring / loop readout |
 
-- **Accent** marks the primary action, the selected speed segment, a checked toggle, the played part of the timeline and the export progress. It never marks loops, warnings or decoration. **Loop** colors mark only the loop band, its ring and the loop readout. **Warning** appears only in notices; **danger** appears in notices and on invalid fields and field messages.
+- **Accent** marks the primary action, the selected speed segment, a checked toggle, the played part of the timeline and the progress fills. It never marks loops, warnings or decoration. **Loop** colors mark only the loop band, its ring and the loop readout. **Warning** appears only in notices; **danger** appears in notices and on invalid fields and field messages.
 - **Never color alone:** every state also has text — a label, `aria-invalid` with a message, or notice wording.
 - **Contrast:** text needs 4.5:1 on its surface; focus, state fills and meaningful icons need 3:1. Disabled controls are exempt.
 - `--tone` is a local property set by `.notice-info`, `.notice-warning` and `.notice-danger`. Literal colors outside `:root`: `#000` (video and PIP backgrounds), `rgba(11, 16, 23, 0.82)` (stats strip), `#b9c6d6` (select chevron).
@@ -59,7 +59,7 @@ Color tokens live in the `:root` block of `ui/app/globals.css` (section 1):
 - **Type scale** (every size and weight in `ui/app/globals.css`): 28/600 landing title, 18/600 dialog titles, 16/600 landing primary button, 14/400 body and controls, 13/400 hints, legends and readouts, 12/400 mono details and paths.
 - **Weights:** 400 and 600; 600 also on `h1`, `h2`, `button.primary`, `button.export-primary` and the pressed speed segment. Headings use `letter-spacing: -0.01em`.
 - **Line height:** 1 for buttons; 1.5 for notice text, hints, landing copy and mono text.
-- **Tabular numerals** (`font-variant-numeric: tabular-nums`): readouts, stats chips, number fields, export progress label.
+- **Tabular numerals** (`font-variant-numeric: tabular-nums`): readouts, stats chips, number fields, the progress label and the preparation's tile count.
 - **Case:** sentence case; capitals only for names and acronyms (ALT, SPD, HUD, SRT).
 - **Characters:** "…" (U+2026), never three periods, for actions that open a dialog or picker (Open…, Export…) and for work in progress (Preparing…, Warming tiles…, Canceling…); "×" in sizes and speed ("1280×720", "1×"); "–" in ranges; " · " between parts of a summary; straight quotes inside error sentences.
 
@@ -89,7 +89,7 @@ Spacing values are literals on this scale; use nothing else:
 - **Scrim:** `--scrim` with `backdrop-filter: blur(2px)` on `.settings-overlay`. Blur belongs only behind dialogs; never on the bar, the stats strip or other surfaces.
 - **Stacking:** dialog overlay 2000; player notices 3; PIP 2 (`ui/lib/pipstyle.ts`); the map host isolates its internal layers.
 - **Motion tokens:** `--motion` 140ms; `--ease` `cubic-bezier(0.2, 0, 0, 1)`.
-- **What moves:** buttons, checkboxes, radios, number fields and selects transition `background-color`, `border-color`, `color`, `transform` and `opacity`; the press shift (`translateY(1px)`) moves with its button. The export progress fill animates `width` over 250ms.
+- **What moves:** buttons, checkboxes, radios, number fields and selects transition `background-color`, `border-color`, `color`, `transform` and `opacity`; the press shift (`translateY(1px)`) moves with its button. The progress fill animates `width` over 250ms.
 - **What never moves:** the map (`.scene-host` and children set `animation: none` and `transition: none`), the video, the stage panes and the PIP swap (instant), the control bar, the timeline and loop band, the stats strip, notices, and dialog open and close. A toggle's check mark is a pseudo-element and does not transition.
 - **Reduced motion:** `prefers-reduced-motion: reduce` sets `transition: none` on the transitioning controls and the progress fill; the press shift becomes instant.
 
@@ -164,8 +164,10 @@ Spacing values are literals on this scale; use nothing else:
 
 ### 8.6 Progress
 
-- **Determinate:** `.export-progress-track` (8px high, `--surface-2`, pill) holds `.export-progress-fill` (`--accent`, width = rounded percent). `role="progressbar"`, `aria-label="Export progress"`, `aria-valuemin="0"`, `aria-valuemax="100"`, `aria-valuenow` = the percent. The label below (13px, `--text-2`) reads "Rendering 83%" from the `frames: N/M captured` log lines (`ui/lib/exportstate.ts`).
-- **Unknown amount:** no indeterminate bar exists. The label reads "Preparing…" and the fill stays at 0%; while canceling it reads "Canceling…".
+- **Determinate:** one component, `ProgressBar` (`ui/components/ProgressBar.tsx`), carries the pattern: `.progress-track` (8px high, `--surface-2`, pill) holds `.progress-fill` (`--accent`, width = rounded percent). `role="progressbar"`, `aria-valuemin="0"`, `aria-valuemax="100"`, `aria-valuenow` = the percent; the `aria-label` names the work ("Export progress", "Preparation progress").
+- **Export:** the label below (13px, `--text-2`, `.progress-label`) reads "Rendering 83%" from the `frames: N/M captured` log lines (`ui/lib/exportstate.ts`).
+- **Loading:** while a recording is prepared, the bar sits above the status notice (`.prepare-status`, 8px gap) on the landing card and in the player's Open overlay. Steps: one per preparation stage (probe → telemetry → view plan) and one per planned tile during the map pre-warm — 3 + tile count steps in all (`PrepareProgress`, `src/run.ts`) — so every fetched tile (downloaded, cached or failed) advances the bar and it fills completely before the player opens. The notice names the running stage: "Probing the recording…" (probe), "Loading telemetry…" (telemetry), "Planning the view…" (view plan), "Warming tiles… 12/48" (tile pre-warm, with the running count; `ui/lib/preparetext.ts`).
+- **Unknown amount:** no indeterminate bar exists. The export label reads "Preparing…" and the fill stays at 0%; while canceling it reads "Canceling…".
 - **Busy controls:** the landing Open… reads "Preparing…" and is disabled while the recording is prepared; the player's Open… is disabled; Play reads "Warming tiles…" and is disabled until the map is ready.
 
 ## 9. Layout and responsiveness
@@ -189,6 +191,7 @@ Spacing values are literals on this scale; use nothing else:
 | Where | Labels |
 |---|---|
 | Landing and player bar | Open…, Preparing…, Play / Pause, Warming tiles…, In, Out, Clear (`aria-label` "Set loop in", "Set loop out", "Clear loop"), Swap view, Export…, Settings |
+| Preparation status | Probing the recording…, Loading telemetry…, Planning the view…, Warming tiles… 12/48 (running tile count) |
 | Export dialog | Start export, Cancel, Cancel export / Canceling…, Reveal in folder, Open video, Close; progress "Rendering N%" / "Preparing…" |
 | Export "What" | Full recording (0:34); In–Out segment (0:10–0:12 · 121 frames) — shown only when a loop is set |
 | Export "How" | Width, Height; hint "px"; message "Must be at least 64 px." |

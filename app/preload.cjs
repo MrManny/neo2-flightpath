@@ -20,4 +20,5 @@ contextBridge.exposeInMainWorld('neo2flightpath', {
   onExportProgress: (cb) => subscribe('neo2flightpath:export:progress', cb),
   onExportDone: (cb) => subscribe('neo2flightpath:export:done', cb),
   onPreparing: (cb) => subscribe('neo2flightpath:preparing', () => cb()),
+  onPrepareProgress: (cb) => subscribe('neo2flightpath:preparing:progress', cb),
 });

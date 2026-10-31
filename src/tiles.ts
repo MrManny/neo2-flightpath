@@ -164,10 +164,12 @@ function placeholderPng(style: Style): Buffer {
   return png;
 }
 
+export type TileStatus = 'cached' | 'downloaded' | 'failed';
+
 export interface TileFetchResult {
   /** The file to serve: the real tile, or its placeholder after a failure. */
   file: string;
-  status: 'cached' | 'downloaded' | 'failed';
+  status: TileStatus;
 }
 
 // The full cache dance for one tile: hit, download, or placeholder. The
@@ -195,21 +197,27 @@ export interface PrefetchStats {
   total: number;
 }
 
-// Polite bulk fetching: 2 concurrent workers, 2.0 req/s.
+// Polite bulk fetching: 2 concurrent workers, 2.0 req/s. onTile fires once per
+// tile as it settles (cached, downloaded or failed) so callers can track the
+// pre-warm's running progress.
 export async function prefetchTiles({
   style,
   tiles,
   cacheDir,
   log = () => {},
+  onTile = () => {},
 }: {
   style: Style;
   tiles: TileCoord[];
   cacheDir: string;
   log?: (msg: string) => void;
+  onTile?: (status: TileStatus) => void;
 }): Promise<PrefetchStats> {
-  const missing = tiles
-    .map((tile) => ({ tile, file: tilePaths(cacheDir, style, tile).file }))
-    .filter(({ file }) => !fs.existsSync(file));
+  const missing: { tile: TileCoord }[] = [];
+  for (const tile of tiles) {
+    if (fs.existsSync(tilePaths(cacheDir, style, tile).file)) onTile('cached');
+    else missing.push({ tile });
+  }
   if (missing.length === 0) {
     return { downloaded: 0, failed: 0, total: tiles.length };
   }
@@ -226,6 +234,7 @@ export async function prefetchTiles({
       const result = await fetchTileToCache(cacheDir, style, tile, gate);
       if (result.status === 'downloaded') downloaded++;
       else if (result.status === 'failed') failed++;
+      onTile(result.status);
     }
   }
 

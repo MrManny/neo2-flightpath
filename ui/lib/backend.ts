@@ -5,6 +5,7 @@
 import type { PickResult, UiSession } from '../../src/appsession.js';
 import type { ExportRequest, RenderConfig } from '../../src/config.js';
 import type { ExportOutcome } from '../../src/exportjob.js';
+import type { PrepareProgress } from '../../src/run.js';
 
 export interface PickOutputResult {
   ok: boolean;
@@ -31,6 +32,8 @@ export interface AppBridge {
   onExportDone(cb: (outcome: ExportOutcome) => void): () => void;
   /** The picked recording passed its checks and is being prepared (the picker has closed). */
   onPreparing(cb: () => void): () => void;
+  /** The preparation's loading steps, so the busy status can show its progress. */
+  onPrepareProgress(cb: (progress: PrepareProgress) => void): () => void;
 }
 
 declare global {

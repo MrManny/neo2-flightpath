@@ -15,6 +15,7 @@ import type { LoopState } from '../lib/framedriver.js';
 import { DialogShell } from './DialogShell.js';
 import { Notice } from './Notice.js';
 import { NumberField } from './NumberField.js';
+import { ProgressBar } from './ProgressBar.js';
 
 // The modal's dimensions go through the same rule the CLI and pipeline apply.
 function dimensionsValid(width: number, height: number): boolean {
@@ -245,20 +246,8 @@ export function ExportModal({
       {phase === 'running' ? (
         <>
           <div className="export-progress">
-            <div
-              className="export-progress-track"
-              role="progressbar"
-              aria-label="Export progress"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={percent}
-            >
-              <div
-                className="export-progress-fill"
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-            <div className="export-progress-label">
+            <ProgressBar label="Export progress" percent={percent} />
+            <div className="progress-label">
               {canceling
                 ? 'Canceling…'
                 : fraction === null

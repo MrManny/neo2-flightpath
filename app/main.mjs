@@ -154,6 +154,8 @@ app.whenReady().then(async () => {
       pickFile: pickRecording,
       log,
       onPreparing: () => sendToWindow('neo2flightpath:preparing'),
+      onPrepareProgress: (progress) =>
+        sendToWindow('neo2flightpath:preparing:progress', progress),
     });
 
     exportRunner = createExportRunner({
