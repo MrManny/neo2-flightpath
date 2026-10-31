@@ -62,8 +62,9 @@ UI tokens, components, copy and error text.
 
 ## Definition of done
 
-- `npm run lint`, `npm test`, `npm run build` green (CI gates on lint + test,
-  then adds `npm pack --dry-run` on Node 24 + 26 and a desktop packaging smoke).
+- `npm run lint`, `npm test`, `npm run build` green (CI gates on lint + test
+  over Node 24 + 26, then adds `npm pack --dry-run` and a desktop packaging
+  smoke on Node 24).
 - Behavior changes ship with tests; docs updated (README: user-visible, here:
   commands and standards).
 - PRs titled `feat:`/`fix:` add a `.changeset/*.md` fragment, `release:` PRs

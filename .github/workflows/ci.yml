@@ -27,18 +27,15 @@ jobs:
       - run: npm test
 
   build:
-    name: Build and pack (Node ${{ matrix.node-version }})
+    name: Build and pack
     needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      matrix:
-        node-version: [24, 26]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: '24'
           cache: npm
       - run: npm ci
       - run: npm run build
