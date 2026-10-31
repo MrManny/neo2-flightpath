@@ -3,9 +3,9 @@ import { Command, Option } from 'commander';
 
 import { ERROR_PREFIX, errorMessage } from './errors.js';
 import { VERSION } from './version.js';
-import { asNumber, parseHud } from './config.js';
+import { CONFIG_OPTIONS, cliDefaultOf } from './config.js';
 import { resolveConfig } from './configfile.js';
-import type { Capture, ConfigOverrides, Preset, Style, View } from './config.js';
+import type { ConfigOverrides } from './config.js';
 import { collectRecordings } from './inputs.js';
 import { requireTools } from './ff.js';
 import { runBatch } from './run.js';
@@ -16,30 +16,6 @@ export interface ParsedCli {
   inputs: string[];
   cli: ConfigOverrides;
   configPath: string | null;
-}
-
-interface RawOpts {
-  outDir?: string;
-  outSuffix: string;
-  width: string;
-  height: string;
-  style: Style;
-  view: View;
-  zoom: string;
-  zoomOut: string;
-  introSec: string;
-  outroSec: string;
-  hud: string;
-  workers: string;
-  capture: Capture;
-  preset: Preset;
-  tileCache: string;
-  browser?: string;
-  skipExisting?: boolean;
-  recurse?: boolean;
-  json?: boolean;
-  quiet?: boolean;
-  config?: string;
 }
 
 export function buildProgram(): Command {
@@ -55,67 +31,20 @@ export function buildProgram(): Command {
     .argument(
       '<inputs...>',
       'video files and/or folders (folders are scanned for *.mp4)',
-    )
-    .option('--out-dir <dir>', 'output folder (default: beside each source video)')
-    .option(
-      '--out-suffix <suffix>',
-      'output name = <basename><suffix>.mp4',
-      '_map',
-    )
-    .option('--width <px>', 'canvas width in pixels (rounded down to even)', '768')
-    .option('--height <px>', 'canvas height in pixels (rounded down to even)', '768')
-    .addOption(
-      new Option('--style <name>', 'map look')
-        .choices(['satellite', 'topo'])
-        .default('satellite'),
-    )
-    .addOption(
-      new Option(
-        '--view <mode>',
-        'follow: drone stays centered and the map slides under it; overview: static whole-track map',
-      )
-        .choices(['follow', 'overview'])
-        .default('follow'),
-    )
-    .option('--zoom <n>', 'fixed view zoom level (0 = auto-fit to the track)', '0')
-    .option('--zoom-out <n>', 'auto-fit only: pull back n zoom levels', '1')
-    .option('--intro-sec <s>', 'intro: zoom in from one level out over s seconds', '2')
-    .option('--outro-sec <s>', 'outro: zoom back out over s seconds', '2')
-    .option(
-      '--hud <list>',
-      'comma list of heading,alt,speed - or none (alt hides when unavailable)',
-      'heading',
-    )
-    .option('--workers <n>', 'parallel browser pages', '4')
-    .addOption(
-      new Option('--capture <mode>', 'frame capture mode (canvas is parked)')
-        .choices(['jpeg', 'png'])
-        .default('jpeg'),
-    )
-    .addOption(
-      new Option('--preset <name>', 'x264 preset')
-        .choices(['medium', 'veryfast'])
-        .default('medium'),
-    )
-    .option(
-      '--tile-cache <dir>',
-      'tile cache directory (default: per-user cache dir)',
-    )
-    .option(
-      '--browser <path>',
-      'Chromium/Chrome/Edge executable (default: system Chrome/Edge)',
-    )
-    .option(
-      '--skip-existing',
-      'skip recordings whose output already exists and matches the source',
-    )
-    .option('--recurse', 'scan input folders recursively')
-    .option('--json', 'print one NDJSON summary line per recording on stdout')
-    .option(
-      '--config <path>',
-      'config file (default: .neo2flightpath.json discovered upward from the working directory)',
-    )
-    .option('-q, --quiet', 'suppress progress output');
+    );
+  for (const row of CONFIG_OPTIONS) {
+    const option = new Option(row.cli.flags, row.cli.help);
+    if (row.cli.choices) option.choices([...row.cli.choices]);
+    // An empty CLI default means "not set"; commander would print a noisy
+    // (default: "") for it, and the override layer reads only given flags.
+    const defaultValue = cliDefaultOf(row.key);
+    if (defaultValue !== '') option.default(defaultValue);
+    program.addOption(option);
+  }
+  program.option(
+    '--config <path>',
+    'config file (default: .neo2flightpath.json discovered upward from the working directory)',
+  );
   return program;
 }
 
@@ -130,29 +59,16 @@ function givenOnCommandLine(
   return program.getOptionValueSource(name) === 'cli';
 }
 
-function collectOverrides(program: Command, opts: RawOpts): ConfigOverrides {
-  const given = (name: string): boolean => givenOnCommandLine(program, name);
+// Collect only the flags the user actually set, each through its table
+// normalizer, so a config-file value can still win over a CLI default.
+function collectOverrides(program: Command): ConfigOverrides {
+  const opts = program.opts<Record<string, unknown>>();
   const cli: ConfigOverrides = {};
-  if (given('outDir') && opts.outDir !== undefined) cli.outDir = opts.outDir;
-  if (given('outSuffix')) cli.outSuffix = opts.outSuffix;
-  if (given('width')) cli.width = asNumber(opts.width, '--width');
-  if (given('height')) cli.height = asNumber(opts.height, '--height');
-  if (given('style')) cli.style = opts.style;
-  if (given('view')) cli.view = opts.view;
-  if (given('zoom')) cli.zoom = asNumber(opts.zoom, '--zoom');
-  if (given('zoomOut')) cli.zoomOut = asNumber(opts.zoomOut, '--zoom-out');
-  if (given('introSec')) cli.introSec = asNumber(opts.introSec, '--intro-sec');
-  if (given('outroSec')) cli.outroSec = asNumber(opts.outroSec, '--outro-sec');
-  if (given('hud')) cli.hud = parseHud(opts.hud);
-  if (given('workers')) cli.workers = asNumber(opts.workers, '--workers');
-  if (given('capture')) cli.capture = opts.capture;
-  if (given('preset')) cli.preset = opts.preset;
-  if (given('tileCache')) cli.tileCache = opts.tileCache;
-  if (given('browser')) cli.browser = opts.browser ?? null;
-  if (given('skipExisting')) cli.skipExisting = opts.skipExisting ?? false;
-  if (given('recurse')) cli.recurse = opts.recurse ?? false;
-  if (given('json')) cli.json = opts.json ?? false;
-  if (given('quiet')) cli.quiet = opts.quiet ?? false;
+  for (const row of CONFIG_OPTIONS) {
+    if (!givenOnCommandLine(program, row.key)) continue;
+    const flag = row.cli.flags.split(/[ ,|]+/)[0];
+    Object.assign(cli, row.normalize(opts[row.key], flag));
+  }
   return cli;
 }
 
@@ -160,12 +76,12 @@ export function parseCliArgs(argv: string[]): ParsedCli {
   const program = buildProgram();
   program.exitOverride();
   program.parse(argv, { from: 'user' });
-  const opts = program.opts<RawOpts>();
+  const opts = program.opts<Record<string, unknown>>();
 
   return {
     inputs: [...program.args],
-    cli: collectOverrides(program, opts),
-    configPath: opts.config ?? null,
+    cli: collectOverrides(program),
+    configPath: typeof opts.config === 'string' ? opts.config : null,
   };
 }
 

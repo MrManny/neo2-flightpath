@@ -1,7 +1,9 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
+  CONFIG_OPTIONS,
   DEFAULT_CONFIG,
+  cliDefaultOf,
   formatHud,
   normalizeOverrides,
   parseExportRequest,
@@ -76,6 +78,58 @@ describe('validateRenderConfig', () => {
     expect(() =>
       validateRenderConfig({ ...DEFAULT_CONFIG, ...patch }),
     ).toThrow();
+  });
+});
+
+describe('CONFIG_OPTIONS', () => {
+  const CONFIG_KEYS = Object.keys(DEFAULT_CONFIG) as (keyof typeof DEFAULT_CONFIG)[];
+
+  it('covers every config key exactly once', () => {
+    const keys = CONFIG_OPTIONS.map((row) => row.key);
+    expect([...keys].sort()).toEqual([...CONFIG_KEYS].sort());
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('derives DEFAULT_CONFIG from the table', () => {
+    for (const row of CONFIG_OPTIONS) {
+      expect(DEFAULT_CONFIG[row.key]).toEqual(row.default);
+    }
+  });
+
+  it('produces a default config that passes validation', () => {
+    expect(() => validateRenderConfig({ ...DEFAULT_CONFIG })).not.toThrow();
+  });
+
+  it('round-trips every default through its own normalizer', () => {
+    for (const row of CONFIG_OPTIONS) {
+      const cliValue = cliDefaultOf(row.key);
+      // tileCache's empty default is the "use the per-user cache dir" sentinel,
+      // which the normalizer deliberately rejects as a value.
+      if (row.key === 'tileCache') {
+        expect(() => row.normalize(cliValue, row.key)).toThrow();
+        continue;
+      }
+      expect(row.normalize(cliValue, row.key)).toEqual({ [row.key]: row.default });
+    }
+  });
+  it('spells each flag as a long option with a help text', () => {
+    for (const row of CONFIG_OPTIONS) {
+      expect(row.cli.flags).toMatch(/--[a-z-]+/);
+      expect(row.cli.help.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps the enum defaults inside the accepted choices', () => {
+    for (const row of CONFIG_OPTIONS) {
+      if (!row.cli.choices) continue;
+      expect(row.cli.choices).toContain(row.default);
+    }
+  });
+
+  it('rejects an unknown key', () => {
+    expect(() => cliDefaultOf('bogus' as keyof typeof DEFAULT_CONFIG)).toThrow(
+      /unknown config key/,
+    );
   });
 });
 
