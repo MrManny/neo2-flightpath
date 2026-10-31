@@ -5,7 +5,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { main, parseCliArgs } from '../src/cli.js';
-import { DEFAULT_CONFIG, resolveConfig } from '../src/config.js';
+import { DEFAULT_CONFIG } from '../src/config.js';
+import { defaultTileCache, resolveConfig } from '../src/configfile.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(cleanupTmpDirs);
@@ -48,6 +49,10 @@ describe('parseCliArgs', () => {
     expect(() => parseCliArgs(['x.mp4', '--capture', 'canvas'])).toThrow();
   });
 
+  it('rejects the removed --trail flag', () => {
+    expect(() => parseCliArgs(['x.mp4', '--trail', 'full'])).toThrow(/unknown option/);
+  });
+
   it('rejects invalid numbers', () => {
     expect(() => parseCliArgs(['x.mp4', '--width', 'wide'])).toThrow(
       /invalid number/,
@@ -57,7 +62,7 @@ describe('parseCliArgs', () => {
   it('does not clobber defaults with absent optional flags', () => {
     const { cli } = parseCliArgs(['clip.mp4']);
     const { config } = resolveConfig({ cli, configPath: null, cwd: os.tmpdir() });
-    expect(config.tileCache).toBe(DEFAULT_CONFIG.tileCache);
+    expect(config.tileCache).toBe(defaultTileCache());
     // default outDir is 'out', resolved against the working directory
     expect(config.outDir).toBe(path.resolve(os.tmpdir(), 'out'));
     expect(config.browser).toBeNull();
@@ -116,10 +121,13 @@ describe('main tracing wiring', () => {
   it('fails fast on an unsupported protocol before touching the pipeline', async () => {
     vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://127.0.0.1:4318');
     vi.stubEnv('OTEL_EXPORTER_OTLP_PROTOCOL', 'grpc');
+    // An explicit empty config keeps ambient config discovery out of the test.
+    const configPath = path.join(tmpDir(), 'config.json');
+    fs.writeFileSync(configPath, '{}');
     const stderr = vi
       .spyOn(process.stderr, 'write')
       .mockImplementation(() => true);
-    await main(['node', 'neo2-flightpath', 'clip.mp4']);
+    await main(['node', 'neo2-flightpath', 'clip.mp4', '--config', configPath]);
     expect(stderr.mock.calls.map((c) => String(c[0])).join('')).toContain(
       '[neo2-flightpath] ERROR: unsupported OTEL_EXPORTER_OTLP_PROTOCOL: grpc (only http/protobuf is supported)',
     );
@@ -162,9 +170,12 @@ describe('main tracing wiring', () => {
       .spyOn(process.stderr, 'write')
       .mockImplementation(() => true);
     try {
+      const configPath = path.join(tmpDir(), 'config.json');
+      fs.writeFileSync(configPath, '{}');
       const { main: mockedMain } = await import('../src/cli.js');
       await mockedMain([
         'node', 'neo2-flightpath', 'clip.mp4', '--out-dir', tmpDir(),
+        '--config', configPath,
       ]);
       return {
         stderr: stderr.mock.calls.map((c) => String(c[0])).join(''),

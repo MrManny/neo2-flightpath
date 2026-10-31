@@ -2,10 +2,7 @@
 // exact frame order (no scratch frame files on disk). The headless browser is
 // the system Chrome/Edge via playwright-core - no browser download.
 
-import fs from 'node:fs';
 import http from 'node:http';
-import path from 'node:path';
-import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import type { Writable } from 'node:stream';
@@ -13,20 +10,10 @@ import type { Writable } from 'node:stream';
 import type { Browser } from 'playwright-core';
 
 import { errorMessage } from './errors.js';
-import { TILE_SOURCES } from './tiles.js';
+import { MIME, RENDERER_DIR, serveAsset } from './serve.js';
 import type { Capture, Preset, Style } from './config.js';
 import { NOOP_TRACER, stage } from './tracing.js';
 import type { Span, Tracer, TraceContext } from './tracing.js';
-
-const require_ = createRequire(import.meta.url);
-const LEAFLET_DIR = path.dirname(require_.resolve('leaflet/dist/leaflet.js'));
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.png': 'image/png',
-};
 
 const PAGE_LOAD_TIMEOUT_MS = 60000;
 const SCREENSHOT_TIMEOUT_MS = 60000;
@@ -57,38 +44,14 @@ export function startServer({
       res.end('bad request');
       return;
     }
-    let file: string | null = null;
     if (url === '/' || url === '/index.html') {
       res.writeHead(200, { 'Content-Type': MIME['.html'] });
       res.end(html);
       return;
     }
-    if (url.startsWith('/leaflet/')) {
-      const rel = url.slice('/leaflet/'.length);
-      if (/^(leaflet\.(js|css|js\.map|css\.map)|images\/[a-z0-9_-]+\.png)$/.test(rel)) {
-        file = path.join(LEAFLET_DIR, rel);
-      }
-    } else if (url.startsWith('/tiles/')) {
-      const m = /^\/tiles\/([a-z0-9_-]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(url);
-      const src = m ? TILE_SOURCES[m[1] as Style] : null;
-      if (m && src && m[1] === style) {
-        const key = src.cacheKey || m[1];
-        file = path.join(tileCache, key, m[2], m[3], `${m[4]}.png`);
-        if (!fs.existsSync(file)) {
-          const alt = path.join(tileCache, key, m[2], m[3], `${m[4]}.placeholder.png`);
-          if (fs.existsSync(alt)) file = alt;
-        }
-      }
-    }
-    if (file && fs.existsSync(file) && fs.statSync(file).isFile()) {
-      res.writeHead(200, {
-        'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
-      });
-      res.end(fs.readFileSync(file));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('not found');
-    }
+    if (serveAsset(url, res, { style, tileCache, rendererDir: RENDERER_DIR })) return;
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('not found');
   });
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
@@ -231,6 +194,8 @@ export interface RenderOpts {
   width: number;
   height: number;
   frames: number;
+  /** First source frame to capture; a segment export starts mid-recording. */
+  frameStart?: number;
   fpsStr: string;
   workers: number;
   outPath: string;
@@ -238,6 +203,8 @@ export interface RenderOpts {
   browserPath?: string | null;
   capture: Capture;
   preset: Preset;
+  /** Aborting kills the encoder and stops the workers at the next frame. */
+  signal?: AbortSignal;
   trace?: TraceContext;
 }
 
@@ -252,6 +219,115 @@ interface StageTiming {
   evalMs: number;
   captureMs: number;
   emitMs: number;
+}
+
+interface WorkerRun {
+  active: Browser;
+  url: string;
+  width: number;
+  height: number;
+  frames: number;
+  frameStart: number;
+  capture: Capture;
+  signal: AbortSignal | undefined;
+  log: (msg: string) => void;
+  stream: OrderedFrameStream;
+  batches: FrameBatchRecorder;
+  timing: StageTiming;
+  captureSpan: Span;
+}
+
+// The frame loop: workers race for frame indices and stream every capture
+// into ffmpeg in exact order. allSettled, not all: the batch spans and the
+// captured-frame count must be final before the capture span is wound down.
+async function runWorkers(run: WorkerRun, workerCount: number): Promise<void> {
+  let captureCursor = 0;
+  let capturesDone = 0;
+  let failed = false;
+
+  async function worker(workerId: number): Promise<void> {
+    const page = await run.active.newPage({
+      viewport: { width: run.width, height: run.height },
+      deviceScaleFactor: 1,
+    });
+    try {
+      await page.goto(run.url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
+      await page.waitForFunction('window.__READY === true', null, { timeout: PAGE_LOAD_TIMEOUT_MS });
+      for (;;) {
+        // A doomed render stops at the next frame: survivors have to settle
+        // before the spans below are wound down.
+        if (failed) return;
+        if (run.signal?.aborted) throw new Error('render canceled');
+        const idx = captureCursor++;
+        if (idx >= run.frames) break;
+        let t0 = Date.now();
+        // __setFrame resolves after the canvas painted (canvas drawing is
+        // deferred to requestAnimationFrame); awaiting it keeps every
+        // screenshot on the current frame.
+        await page.evaluate(
+          (frame: number) =>
+            (globalThis as unknown as { __setFrame: (n: number) => Promise<void> }).__setFrame(frame),
+          run.frameStart + idx,
+        );
+        run.timing.evalMs += Date.now() - t0;
+        t0 = Date.now();
+        const buf = await page.screenshot(screenshotOptions(run.capture));
+        const captureMs = Date.now() - t0;
+        run.timing.captureMs += captureMs;
+        capturesDone++;
+        run.batches.recordFrame(capturesDone, captureMs);
+        t0 = Date.now();
+        await run.stream.submit(idx, buf);
+        run.timing.emitMs += Date.now() - t0;
+        if (capturesDone % 100 === 0 || capturesDone === run.frames) {
+          run.log(`frames: ${capturesDone}/${run.frames} captured`);
+        }
+      }
+    } finally {
+      await page.close().catch(() => {});
+    }
+    run.log(`worker ${workerId} done`);
+  }
+
+  const settled = await Promise.allSettled(
+    Array.from({ length: workerCount }, (_, i) =>
+      worker(i + 1).catch((e) => {
+        failed = true;
+        throw e;
+      }),
+    ),
+  );
+  const rejected = settled.find(
+    (r): r is PromiseRejectedResult => r.status === 'rejected',
+  );
+  run.batches.close(rejected?.reason);
+  run.captureSpan.setAttribute('render.frames.captured', capturesDone);
+  if (rejected) throw rejected.reason;
+}
+
+async function finishEncode(
+  encoder: Encoder,
+  stream: OrderedFrameStream,
+  encodeSpan: Span,
+  log: (msg: string) => void,
+  outPath: string,
+): Promise<void> {
+  await stream.flushReady();
+  stream.end();
+  // `closed` (not `once(ffmpeg, 'close')`): ffmpeg may already have exited.
+  const code = await encoder.closed;
+  encodeSpan.setAttribute('render.ffmpeg.exitCode', code ?? -1);
+  if (code !== 0) {
+    throw new Error(`ffmpeg exited with code ${code}: ${encoder.stderrText().trim()}`);
+  }
+  log(`encoded: ${outPath}`);
+}
+
+function formatProfile(profile: RenderProfile, workerCount: number): string {
+  return (
+    `profile: eval=${(profile.evalMs / 1000).toFixed(1)}s capture=${(profile.captureMs / 1000).toFixed(1)}s ` +
+    `encode-backpressure=${(profile.emitMs / 1000).toFixed(1)}s (summed over ${workerCount} workers)`
+  );
 }
 
 // One `render.capture.batch` subspan per cadence of captured frames, carrying
@@ -319,7 +395,7 @@ export async function renderVideo(
   const {
     html, style, tileCache, width, height, frames, fpsStr,
     workers, outPath, log = () => {}, browserPath = null,
-    capture = 'jpeg', preset = 'medium', trace,
+    capture = 'jpeg', preset = 'medium', frameStart = 0, signal, trace,
   } = opts;
 
   const tracer = trace?.tracer ?? NOOP_TRACER;
@@ -334,6 +410,7 @@ export async function renderVideo(
       'render.preset': preset,
     },
     async (renderSpan) => {
+      if (signal?.aborted) throw new Error('render canceled');
       const presetAttributes = { 'render.preset': preset };
       const timing: StageTiming = { evalMs: 0, captureMs: 0, emitMs: 0 };
       const { server, url } = await startServer({ html, style, tileCache });
@@ -343,84 +420,40 @@ export async function renderVideo(
       // show that overlap.
       async function captureAndEncode(active: Browser): Promise<void> {
         const encoder = spawnEncoder(fpsStr, preset, outPath);
+        // A cancel must reach the encoder directly: a worker parked on stdin
+        // backpressure would otherwise never notice the abort.
+        const killOnAbort = (): void => encoder.kill();
+        signal?.addEventListener('abort', killOnAbort, { once: true });
         const stream = new OrderedFrameStream(encoder);
         try {
           await stage(tracer, 'render.encode', renderSpan, { ...presetAttributes }, async (encodeSpan) => {
             await stage(tracer, 'render.capture', renderSpan, {}, async (captureSpan) => {
-              const batches = new FrameBatchRecorder(tracer, captureSpan, frames);
-
-              let captureCursor = 0;
-              let capturesDone = 0;
-              let failed = false;
-
-              async function worker(workerId: number): Promise<void> {
-                const page = await active.newPage({
-                  viewport: { width, height },
-                  deviceScaleFactor: 1,
-                });
-                try {
-                  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
-                  await page.waitForFunction('window.__READY === true', null, { timeout: PAGE_LOAD_TIMEOUT_MS });
-                  for (;;) {
-                    // A doomed render stops at the next frame: survivors have
-                    // to settle before the spans below are wound down.
-                    if (failed) return;
-                    const idx = captureCursor++;
-                    if (idx >= frames) break;
-                    let t0 = Date.now();
-                    await page.evaluate((i: number) => {
-                      (globalThis as unknown as { __setFrame: (n: number) => void }).__setFrame(i);
-                    }, idx);
-                    timing.evalMs += Date.now() - t0;
-                    t0 = Date.now();
-                    const buf = await page.screenshot(screenshotOptions(capture));
-                    const captureMs = Date.now() - t0;
-                    timing.captureMs += captureMs;
-                    capturesDone++;
-                    batches.recordFrame(capturesDone, captureMs);
-                    t0 = Date.now();
-                    await stream.submit(idx, buf);
-                    timing.emitMs += Date.now() - t0;
-                    if (capturesDone % 100 === 0 || capturesDone === frames) {
-                      log(`frames: ${capturesDone}/${frames} captured`);
-                    }
-                  }
-                } finally {
-                  await page.close().catch(() => {});
-                }
-                log(`worker ${workerId} done`);
-              }
-
-              // allSettled, not all: the batch spans and the captured-frame
-              // count must be final before the capture span is wound down.
-              const settled = await Promise.allSettled(
-                Array.from({ length: workerCount }, (_, i) =>
-                  worker(i + 1).catch((e) => {
-                    failed = true;
-                    throw e;
-                  }),
-                ),
+              await runWorkers(
+                {
+                  active,
+                  url,
+                  width,
+                  height,
+                  frames,
+                  frameStart,
+                  capture,
+                  signal,
+                  log,
+                  stream,
+                  batches: new FrameBatchRecorder(tracer, captureSpan, frames),
+                  timing,
+                  captureSpan,
+                },
+                workerCount,
               );
-              const rejected = settled.find(
-                (r): r is PromiseRejectedResult => r.status === 'rejected',
-              );
-              batches.close(rejected?.reason);
-              captureSpan.setAttribute('render.frames.captured', capturesDone);
-              if (rejected) throw rejected.reason;
             });
-            await stream.flushReady();
-            stream.end();
-            // `closed` (not `once(ffmpeg, 'close')`): ffmpeg may already have exited.
-            const code = await encoder.closed;
-            encodeSpan.setAttribute('render.ffmpeg.exitCode', code ?? -1);
-            if (code !== 0) {
-              throw new Error(`ffmpeg exited with code ${code}: ${encoder.stderrText().trim()}`);
-            }
-            log(`encoded: ${outPath}`);
+            await finishEncode(encoder, stream, encodeSpan, log, outPath);
           });
         } catch (e) {
           encoder.kill();
           throw e;
+        } finally {
+          signal?.removeEventListener('abort', killOnAbort);
         }
       }
 
@@ -445,10 +478,7 @@ export async function renderVideo(
         'render.captureMs': profile.captureMs,
         'render.emitMs': profile.emitMs,
       });
-      log(
-        `profile: eval=${(profile.evalMs / 1000).toFixed(1)}s capture=${(profile.captureMs / 1000).toFixed(1)}s ` +
-          `encode-backpressure=${(profile.emitMs / 1000).toFixed(1)}s (summed over ${workerCount} workers)`,
-      );
+      log(formatProfile(profile, workerCount));
       return { profile };
     },
   );

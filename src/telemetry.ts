@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { bearingDeg, circularMeanDeg, haversineM } from './geo.js';
+import { bearingDeg, circularMeanDeg, haversineM, isGpsFix } from './geo.js';
 import type { Bbox, LatLon } from './geo.js';
 import { parseSrt } from './srt.js';
 import { parseCamMeta } from './cammeta.js';
+import { videoBaseName } from './inputs.js';
 
 export interface FrameData {
   lat: number | null;
@@ -21,6 +22,12 @@ export interface Telemetry {
   sampleCount: number;
   /** Samples carrying a GPS fix; other samples are neither fixes nor no-locks. */
   fixCount: number;
+  /**
+   * No-lock positions (the placeholder is not a fix, see isGpsFix). Every
+   * source counts them the same way - SRT as no-lock cues, the CAM meta
+   * packet path as no-lock packets - except the raw byte-scan fallback,
+   * which sees fix pairs only and reports 0.
+   */
   noLock: number;
   /** Index-aligned to video frames. */
   frames: FrameData[];
@@ -46,18 +53,25 @@ interface Position {
 const MAX_INTERPOLATION_GAP_S = 3; // hold the earlier fix across longer gaps
 const SPEED_SMOOTHING_SPAN = 5; // +-N samples moving average for the HUD
 const HEADING_MIN_MOVE_M = 1.5; // ignore bearings from sub-meter displacement
-const HEADING_HALF_WINDOW_S = 0.35;
+const HEADING_HALF_WINDOW_S = 0.35; // preferred course baseline half-width
+const HEADING_MAX_BASELINE_S = 3; // widened baseline for slow flights
 const HEADING_MIN_SPEED_MPS = 0.5; // below this the course is meaningless
 const HEADING_SMOOTHING_SPAN = 4; // +-N samples circular mean
 
-function hasGpsFix(sample: TelSample): boolean {
-  return sample.lat !== null;
+// A sample carries a fix only when both coordinates are present and pass
+// the one GPS-fix rule; parsers set lat and lon together or not at all.
+function hasGpsFix(
+  sample: TelSample,
+): sample is TelSample & { lat: number; lon: number } {
+  return (
+    sample.lat !== null && sample.lon !== null && isGpsFix(sample.lat, sample.lon)
+  );
 }
 
 // Sidecar lookup matches the video basename, case-insensitively (.SRT vs .srt).
 export function findSrtSidecar(videoPath: string): string | null {
   const dir = path.dirname(videoPath);
-  const base = path.basename(videoPath).replace(/\.[^.]+$/, '');
+  const base = videoBaseName(videoPath);
   for (const f of fs.readdirSync(dir)) {
     if (f.toLowerCase() === `${base.toLowerCase()}.srt`) {
       return path.join(dir, f);
@@ -102,7 +116,7 @@ function nearestFix(
 
 // Narrow a sample that is known to carry a GPS fix.
 function fixOf(sample: TelSample): LatLon {
-  if (sample.lat === null || sample.lon === null) {
+  if (!hasGpsFix(sample)) {
     throw new Error('internal: sample without GPS fix');
   }
   return { lat: sample.lat, lon: sample.lon };
@@ -193,7 +207,7 @@ async function loadSamples(
       'no telemetry found: no .SRT sidecar and no GPS pairs in the CAM meta stream',
     );
   }
-  return { samples: cam.samples, source: 'cammeta', method: cam.method, noLock: 0 };
+  return { samples: cam.samples, source: 'cammeta', method: cam.method, noLock: cam.noLock };
 }
 
 function indicesOfFixes(samples: TelSample[]): number[] {
@@ -275,9 +289,9 @@ interface HeadingResult {
 }
 
 // Preferred source: drone body yaw (DVTM EulerAngle, deci-degrees) - valid
-// even while hovering. Fallback: course over ground measured across a ~0.7 s
+// even while hovering. Fallback: course over ground measured across a moving
 // baseline (consecutive fixes are only centimeters apart at 60 fps, so
-// neighbor bearings are pure GPS jitter). Held while nearly stationary.
+// neighbor bearings are pure GPS jitter). Held while truly stationary.
 function computeHeadingBySample(
   samples: TelSample[],
   fixIndices: number[],
@@ -330,16 +344,22 @@ function fillCourseOverGroundHeadings(
   for (let k = 0; k < fixIndices.length; k++) {
     const ik = fixIndices[k];
     const tk = samples[ik].tSec;
+    if ((speedBySample[ik] ?? 0) < HEADING_MIN_SPEED_MPS) continue;
+    // Grow the baseline until the pair clears the GPS jitter floor: slow
+    // flights get a wider window instead of losing their heading to holds.
     let ka = k;
     let kb = k;
-    while (ka > 0 && samples[fixIndices[ka]].tSec > tk - HEADING_HALF_WINDOW_S) ka--;
-    while (kb < fixIndices.length - 1 && samples[fixIndices[kb]].tSec < tk + HEADING_HALF_WINDOW_S) kb++;
-    const a = samples[fixIndices[ka]];
-    const b = samples[fixIndices[kb]];
-    const displacement = haversineM(fixOf(a), fixOf(b));
-    const speed = speedBySample[ik] ?? 0;
-    if (displacement >= HEADING_MIN_MOVE_M && speed >= HEADING_MIN_SPEED_MPS) {
-      rawHeading[ik] = bearingDeg(fixOf(a), fixOf(b));
+    let displacement = 0;
+    for (const half of [HEADING_HALF_WINDOW_S, HEADING_MAX_BASELINE_S]) {
+      ka = k;
+      kb = k;
+      while (ka > 0 && samples[fixIndices[ka]].tSec > tk - half) ka--;
+      while (kb < fixIndices.length - 1 && samples[fixIndices[kb]].tSec < tk + half) kb++;
+      displacement = haversineM(fixOf(samples[fixIndices[ka]]), fixOf(samples[fixIndices[kb]]));
+      if (displacement >= HEADING_MIN_MOVE_M) break;
+    }
+    if (displacement >= HEADING_MIN_MOVE_M) {
+      rawHeading[ik] = bearingDeg(fixOf(samples[fixIndices[ka]]), fixOf(samples[fixIndices[kb]]));
     }
   }
 }

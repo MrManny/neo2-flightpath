@@ -56,13 +56,21 @@ export async function ffprobeJson(
   return JSON.parse(stdout || '{}') as Record<string, unknown>;
 }
 
-// ffprobe rate strings look like "30" or "30000/1001"; null when unusable.
-function parseFpsRate(str?: string): Fps | null {
-  if (!str || str === '0/0') return null;
+// One split of ffprobe's rate wire format ("30" or "30000/1001"), with each
+// consumer's own policy on top: the probe needs a usable rate, the output
+// verification only reads a value.
+function parseRate(str: string): { num: number; den?: number } | null {
   const [num, den] = str.split('/').map(Number);
-  if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0 || num === 0) {
+  return Number.isFinite(num) ? { num, den } : null;
+}
+
+function parseFpsRate(str?: string): Fps | null {
+  const rate = str ? parseRate(str) : null;
+  if (!rate || !Number.isFinite(rate.den) || rate.den === 0 || rate.num === 0) {
     return null;
   }
+  const { num } = rate;
+  const den = rate.den as number;
   return {
     num,
     den,
@@ -145,15 +153,14 @@ export async function verifyOutput(
   ]);
   const stream = firstStream(j);
   const gotFrames = parseCount(stream.nb_frames);
-  const gotRate = stream.r_frame_rate ?? '0/0';
-  const [num, den] = gotRate.split('/').map(Number);
-  const gotValue = den ? num / den : num;
+  const rate = parseRate(stream.r_frame_rate ?? '0/0');
+  const gotValue = rate ? (rate.den ? rate.num / rate.den : rate.num) : null;
   return {
     frames: gotFrames,
     fps: stream.r_frame_rate ?? null,
     ok:
       gotFrames === frames &&
-      Number.isFinite(gotValue) &&
+      gotValue !== null &&
       Math.abs(gotValue - fpsValue) < 1e-6,
   };
 }

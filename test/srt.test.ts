@@ -54,3 +54,35 @@ describe('parseSrtText', () => {
     expect(r.noLock).toBe(1);
   });
 });
+
+function cueText(lat: number, lon: number): string {
+  return [
+    '1',
+    '00:00:00,000 --> 00:00:00,033',
+    `[latitude: ${lat}] [longitude: ${lon}]`,
+  ].join('\n');
+}
+
+// One documented rule (src/geo.ts's isGpsFix) decides what counts as a fix;
+// anything else on a lat/lon line is one no-lock event.
+describe('cue fix classification', () => {
+  it.for([
+    { name: 'regular fix', lat: 46.61307, lon: 14.262388, fix: true },
+    { name: 'prime meridian crossing', lat: 10.2, lon: 0.2, fix: true },
+    { name: 'equator crossing', lat: 0.2, lon: 10.2, fix: true },
+    {
+      name: 'near-null-island fix (the disagreement regression)',
+      lat: 0.1,
+      lon: 0.1,
+      fix: true,
+    },
+    { name: 'the 0.5 boundary', lat: 0.5, lon: 0.5, fix: true },
+    { name: 'the 0/0 placeholder', lat: 0, lon: 0, fix: false },
+    { name: 'out-of-range latitude', lat: 91, lon: 0, fix: false },
+    { name: 'out-of-range longitude', lat: 0, lon: 181, fix: false },
+  ])('$name -> fix:$fix', ({ lat, lon, fix }) => {
+    const r = parseSrtText(cueText(lat, lon));
+    expect(r.noLock).toBe(fix ? 0 : 1);
+    expect(r.cues[0].lat !== null).toBe(fix);
+  });
+});

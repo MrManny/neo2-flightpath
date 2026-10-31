@@ -3,8 +3,18 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { decodePacketSamples } from '../src/cammeta.js';
+import type { PacketInfo } from '../src/cammeta.js';
+import { parseSrtText } from '../src/srt.js';
 import { loadTelemetry } from '../src/telemetry.js';
-import { SRT_SAMPLE, SRT_SAMPLE_MIXED, cleanupTmpDirs, tmpDir } from './fixtures.js';
+import {
+  SRT_SAMPLE,
+  SRT_SAMPLE_MIXED,
+  cleanupTmpDirs,
+  productMetaPacket,
+  tmpDir,
+  writeSrt,
+} from './fixtures.js';
 
 afterEach(cleanupTmpDirs);
 
@@ -13,7 +23,7 @@ describe('loadTelemetry (SRT source)', () => {
     const dir = tmpDir();
     const video = path.join(dir, 'clip.mp4');
     fs.writeFileSync(video, '');
-    fs.writeFileSync(path.join(dir, 'clip.srt'), SRT_SAMPLE);
+    writeSrt(video, SRT_SAMPLE);
 
     const tel = await loadTelemetry(video, {
       frames: 3,
@@ -47,7 +57,7 @@ describe('loadTelemetry (SRT source)', () => {
     const dir = tmpDir();
     const video = path.join(dir, 'clip.mp4');
     fs.writeFileSync(video, '');
-    fs.writeFileSync(path.join(dir, 'clip.srt'), SRT_SAMPLE_MIXED);
+    writeSrt(video, SRT_SAMPLE_MIXED);
 
     const tel = await loadTelemetry(video, {
       frames: 4,
@@ -104,7 +114,7 @@ describe('loadTelemetry (heading)', () => {
     const dir = tmpDir();
     const video = path.join(dir, 'turn.mp4');
     fs.writeFileSync(video, '');
-    fs.writeFileSync(path.join(dir, 'turn.srt'), turnSrt());
+    writeSrt(video, turnSrt());
 
     const tel = await loadTelemetry(video, {
       frames: 71,
@@ -119,5 +129,151 @@ describe('loadTelemetry (heading)', () => {
     // The final frames face east - the turn is real and was detected.
     const last = tel.frames[70].headingDeg;
     expect(Math.abs(last - 90)).toBeLessThan(30);
+  });
+
+  // A slow eastbound crawl (~1 m/s): a fixed 0.7 s course baseline never
+  // clears the jitter floor here, so earlier versions held one stale heading
+  // for the whole flight. The baseline must widen instead.
+  it('tracks course over ground on slow flights instead of holding one value', async () => {
+    const cues: string[] = [];
+    for (let i = 0; i <= 124; i++) {
+      const ms = i * 40;
+      const lon = 14.262 + i * 0.00000052;
+      cues.push(
+        `${i + 1}`,
+        `00:00:${String(Math.floor(ms / 1000)).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')} --> ` +
+          `00:00:${String(Math.floor((ms + 40) / 1000)).padStart(2, '0')},${String((ms + 40) % 1000).padStart(3, '0')}`,
+        '2026-05-25 09:18:11.708',
+        `[latitude: 46.613000] [longitude: ${lon.toFixed(7)}]`,
+        '[rel_alt: 3.300 abs_alt: 313.227]',
+        '',
+      );
+    }
+    const dir = tmpDir();
+    const video = path.join(dir, 'slow.mp4');
+    fs.writeFileSync(video, '');
+    writeSrt(video, cues.join('\n'));
+
+    const tel = await loadTelemetry(video, {
+      frames: 125,
+      fpsValue: 25,
+      durationSec: 5,
+    });
+
+    expect(tel.headingMode).toBe('cog');
+    for (const frame of [30, 60, 90, 120]) {
+      expect(Math.abs(tel.frames[frame].headingDeg - 90)).toBeLessThan(25);
+    }
+  });
+});
+
+// The same coordinates must land on the same fixes/no-lock counts whether
+// they arrive as SRT cues or as CAM meta packets: one rule (src/geo.ts's
+// isGpsFix) judges both pipelines.
+describe('cross-source fix classification', () => {
+  function srtCueText(coords: Array<[number, number]>): string {
+    return coords
+      .map(([lat, lon], i) =>
+        [
+          `${i + 1}`,
+          `00:00:00,${String(i * 33).padStart(3, '0')} --> ` +
+            `00:00:00,${String(i * 33 + 33).padStart(3, '0')}`,
+          `[latitude: ${lat}] [longitude: ${lon}]`,
+        ].join('\n'),
+      )
+      .join('\n');
+  }
+
+  function srtCounts(coords: Array<[number, number]>): {
+    fixes: number;
+    noLock: number;
+  } {
+    const r = parseSrtText(srtCueText(coords));
+    return { fixes: r.cues.filter((c) => c.lat !== null).length, noLock: r.noLock };
+  }
+
+  function camCounts(coords: Array<[number, number]>): {
+    fixes: number;
+    noLock: number;
+  } {
+    const parts = coords.map(([lat, lon]) => productMetaPacket(lat, lon));
+    const packets: PacketInfo[] = [];
+    let tSec = 0;
+    for (const part of parts) {
+      packets.push({ tSec, size: part.length });
+      tSec += 1 / 30;
+    }
+    const { samples, noLock } = decodePacketSamples(
+      Buffer.concat(parts),
+      packets,
+      false,
+    );
+    return { fixes: samples.length, noLock };
+  }
+
+  const CASES: Array<{
+    name: string;
+    coords: Array<[number, number]>;
+    fixes: number;
+    noLock: number;
+  }> = [
+    {
+      name: 'regular fixes',
+      coords: [[46.6, 14.3], [46.61, 14.31]],
+      fixes: 2,
+      noLock: 0,
+    },
+    {
+      name: 'the 0/0 placeholder',
+      coords: [[0, 0], [46.6, 14.3], [46.61, 14.31]],
+      fixes: 2,
+      noLock: 1,
+    },
+    {
+      name: 'near-null-island fixes (the disagreement regression)',
+      coords: [[0.1, 0.1], [0.5, 0.5], [46.6, 14.3]],
+      fixes: 3,
+      noLock: 0,
+    },
+    {
+      name: 'equator and prime meridian crossings',
+      coords: [[0.2, 10.2], [10.2, 0.2], [0, 0]],
+      fixes: 2,
+      noLock: 1,
+    },
+    {
+      name: 'out-of-range coordinates',
+      coords: [[91, 0], [0, 181], [46.6, 14.3]],
+      fixes: 1,
+      noLock: 2,
+    },
+    {
+      name: 'mixed fixes, placeholders and boundaries',
+      coords: [[0, 0], [0.1, 0.1], [0.5, 0.5], [0, 0], [46.6, 14.3], [46.61, 14.31]],
+      fixes: 4,
+      noLock: 2,
+    },
+  ];
+
+  it.for(CASES)('$name: SRT and CAM meta agree', ({ coords, fixes, noLock }) => {
+    expect(srtCounts(coords)).toEqual({ fixes, noLock });
+    expect(camCounts(coords)).toEqual({ fixes, noLock });
+  });
+
+  it('counts near-null-island fixes through loadTelemetry', async () => {
+    // End-to-end: the old 0.5-degree box dropped these cues and loadTelemetry
+    // failed with fewer than 2 GPS fixes.
+    const dir = tmpDir();
+    const video = path.join(dir, 'coast.mp4');
+    fs.writeFileSync(video, '');
+    writeSrt(video, srtCueText([[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]));
+
+    const tel = await loadTelemetry(video, {
+      frames: 3,
+      fpsValue: 30,
+      durationSec: 0.1,
+    });
+    expect(tel.fixCount).toBe(3);
+    expect(tel.noLock).toBe(0);
   });
 });

@@ -1,18 +1,13 @@
-// Precedence: CLI flags > config file > built-in defaults. The config file is
-// discovered upward from the working directory unless --config names one.
-//
-// This module is the vocabulary home for the option types (Style, View,
-// Capture, Preset, Trail, HudSpec); feature modules import them from here.
-
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+// The option vocabulary: the option types (Style, View, Capture, Preset,
+// HudSpec), their defaults and the parsing/normalizing rules. Feature modules
+// import them from here, and this module stays free of I/O so the app UI can
+// share the vocabulary in its browser bundle. File discovery and the
+// precedence of the config layers live in src/configfile.ts.
 
 export type Style = 'satellite' | 'topo';
 export type View = 'follow' | 'overview';
 export type Capture = 'jpeg' | 'png';
 export type Preset = 'medium' | 'veryfast';
-export type Trail = 'full' | 'incr';
 
 export interface HudSpec {
   heading: boolean;
@@ -37,7 +32,7 @@ export interface RenderConfig {
   workers: number;
   capture: Capture;
   preset: Preset;
-  trail: Trail;
+  /** Empty = the per-user cache directory; resolveConfig fills it in. */
   tileCache: string;
   browser: string | null;
   skipExisting: boolean;
@@ -49,14 +44,6 @@ export interface RenderConfig {
 export type ConfigOverrides = Partial<RenderConfig>;
 
 export const CONFIG_FILE_NAME = '.neo2flightpath.json';
-
-// NEO2_FLIGHTPATH_TILE_CACHE overrides the per-user cache directory.
-export function defaultTileCache(): string {
-  const override = process.env['NEO2_FLIGHTPATH_TILE_CACHE'];
-  if (override) return path.resolve(override);
-  const base = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), '.cache');
-  return path.join(base, 'neo2-flightpath', 'tiles');
-}
 
 export const DEFAULT_CONFIG: RenderConfig = {
   outDir: 'out',
@@ -73,8 +60,7 @@ export const DEFAULT_CONFIG: RenderConfig = {
   workers: 4,
   capture: 'jpeg',
   preset: 'medium',
-  trail: 'full',
-  tileCache: defaultTileCache(),
+  tileCache: '',
   browser: null,
   skipExisting: false,
   recurse: false,
@@ -82,11 +68,10 @@ export const DEFAULT_CONFIG: RenderConfig = {
   quiet: false,
 };
 
-const STYLE_VALUES: Style[] = ['satellite', 'topo'];
-const VIEW_VALUES: View[] = ['follow', 'overview'];
+export const STYLE_VALUES: readonly Style[] = ['satellite', 'topo'];
+export const VIEW_VALUES: readonly View[] = ['follow', 'overview'];
 const CAPTURE_VALUES: Capture[] = ['jpeg', 'png'];
 const PRESET_VALUES: Preset[] = ['medium', 'veryfast'];
-const TRAIL_VALUES: Trail[] = ['full', 'incr'];
 
 export function parseHud(list: string): HudSpec {
   const hud: HudSpec = { heading: false, alt: false, speed: false };
@@ -106,7 +91,28 @@ export function parseHud(list: string): HudSpec {
   return hud;
 }
 
-function asNumber(value: unknown, name: string): number {
+// The "alt hides when unavailable" rule, one home for the pipeline and the UI.
+export function resolveHudSpec(hud: HudSpec, hasAlt: boolean): HudSpec {
+  return hud.alt && !hasAlt ? { ...hud, alt: false } : hud;
+}
+
+// What "unavailable" means for the rule above: no altitude sample at all in
+// the telemetry.
+export function hasAltitude(alt: readonly (number | null)[]): boolean {
+  return alt.some((a) => a !== null);
+}
+
+// The CLI-string form of a HUD spec ("none" when no chip is on), the inverse
+// of parseHud.
+export function formatHud(hud: HudSpec): string {
+  const parts: string[] = [];
+  if (hud.heading) parts.push('heading');
+  if (hud.alt) parts.push('alt');
+  if (hud.speed) parts.push('speed');
+  return parts.length ? parts.join(',') : 'none';
+}
+
+export function asNumber(value: unknown, name: string): number {
   const n = typeof value === 'string' ? Number(value) : value;
   if (typeof n !== 'number' || !Number.isFinite(n)) {
     throw new Error(`invalid number for ${name}: ${String(value)}`);
@@ -131,7 +137,7 @@ function asBool(value: unknown, name: string): boolean {
 function asEnum<T extends string>(
   value: unknown,
   name: string,
-  allowed: T[],
+  allowed: readonly T[],
 ): T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) {
     throw new Error(`invalid value for ${name}: ${String(value)} (use ${allowed.join(' | ')})`);
@@ -163,7 +169,6 @@ const OVERRIDE_NORMALIZERS: Record<keyof RenderConfig, OverrideNormalizer> = {
   workers: (v, name) => ({ workers: asNumber(v, name) }),
   capture: (v, name) => ({ capture: asEnum(v, name, CAPTURE_VALUES) }),
   preset: (v, name) => ({ preset: asEnum(v, name, PRESET_VALUES) }),
-  trail: (v, name) => ({ trail: asEnum(v, name, TRAIL_VALUES) }),
   tileCache: (v, name) => ({ tileCache: asString(v, name) }),
   browser: (v, name) => ({ browser: asNullableString(v, name) }),
   skipExisting: (v, name) => ({ skipExisting: asBool(v, name) }),
@@ -189,64 +194,23 @@ export function normalizeOverrides(
   return out;
 }
 
-export function discoverConfigFile(startDir: string): string | null {
-  let dir = path.resolve(startDir);
-  for (;;) {
-    const candidate = path.join(dir, CONFIG_FILE_NAME);
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
+export function effectiveZoomOut(config: Pick<RenderConfig, 'zoom' | 'zoomOut'>): number {
+  return config.zoom > 0 ? 0 : config.zoomOut;
 }
 
-export function loadConfigFile(file: string): ConfigOverrides {
-  let text: string;
-  try {
-    text = fs.readFileSync(file, 'utf8');
-  } catch (e) {
-    throw new Error(`cannot read config file ${file}: ${(e as Error).message}`, {
-      cause: e,
-    });
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (e) {
-    throw new Error(
-      `config file is not valid JSON: ${file}: ${(e as Error).message}`,
-      { cause: e },
-    );
-  }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error(`config file must contain a JSON object: ${file}`);
-  }
-  return normalizeOverrides(raw as Record<string, unknown>, file);
-}
-
-export interface ResolvedConfig {
-  config: RenderConfig;
-  configPath: string | null;
-}
-
-function mergeConfigLayers(
-  fileCfg: ConfigOverrides,
-  cli: ConfigOverrides,
-): RenderConfig {
-  return {
-    ...DEFAULT_CONFIG,
-    ...fileCfg,
-    ...cli,
-    // hud is an object; Partial spread replaces it wholesale, which is what we want.
-    hud: cli.hud ?? fileCfg.hud ?? DEFAULT_CONFIG.hud,
-  };
-}
+// The smallest canvas the renderer and the app's dimension fields accept, in
+// one home so the CLI, the pipeline and the export modal cannot disagree.
+export const MIN_DIMENSION = 64;
 
 // The negated comparisons are NaN-safe: they also reject NaN sneak-ins.
-function validateRenderConfig(config: RenderConfig): void {
-  if (!(config.width >= 64) || !(config.height >= 64)) {
-    throw new Error('width and height must be at least 64');
+export function validateDimensions(width: number, height: number): void {
+  if (!(width >= MIN_DIMENSION) || !(height >= MIN_DIMENSION)) {
+    throw new Error(`width and height must be at least ${MIN_DIMENSION}`);
   }
+}
+
+export function validateRenderConfig(config: RenderConfig): void {
+  validateDimensions(config.width, config.height);
   if (!Number.isInteger(config.workers) || config.workers < 1) {
     throw new Error('workers must be a positive integer');
   }
@@ -258,26 +222,107 @@ function validateRenderConfig(config: RenderConfig): void {
   if (!config.outSuffix) throw new Error('out-suffix must not be empty');
 }
 
-function resolveConfigPaths(config: RenderConfig, cwd: string): void {
-  config.tileCache = path.resolve(cwd, config.tileCache);
-  if (config.outDir) config.outDir = path.resolve(cwd, config.outDir);
+// ---- export vocabulary (the UI's export modal -> the app's export job) ----
+
+/** Inclusive source-frame range, e.g. the loop's In/Out points. */
+export interface FrameRange {
+  start: number;
+  end: number;
 }
 
-export function resolveConfig(opts: {
-  cli?: ConfigOverrides;
-  configPath?: string | null;
-  cwd?: string;
-}): ResolvedConfig {
-  const cwd = opts.cwd ?? process.cwd();
-  const configPath =
-    opts.configPath != null
-      ? path.resolve(cwd, opts.configPath)
-      : discoverConfigFile(cwd);
-  const fileCfg = configPath ? loadConfigFile(configPath) : {};
-  const merged = mergeConfigLayers(fileCfg, opts.cli ?? {});
+export interface ExportRequest {
+  /** Destination path; the .mp4 extension fixes the container. */
+  outPath: string;
+  /** The settings snapshot (panel look + export dimensions), frozen at confirm. */
+  config: RenderConfig;
+  /** Source-frame segment to export, or null for the full recording. */
+  range: FrameRange | null;
+}
 
-  validateRenderConfig(merged);
-  resolveConfigPaths(merged, cwd);
+// One rule for a usable frame range, shared by the request parser and the
+// pipeline's range guard so they cannot drift.
+export function assertValidFrameRange(range: FrameRange, name = 'frame range'): void {
+  if (!Number.isInteger(range.start) || !Number.isInteger(range.end)) {
+    throw new Error(`invalid ${name}: start and end must be integer frame indices`);
+  }
+  if (range.start < 0 || range.start >= range.end) {
+    throw new Error(`invalid ${name}: expected 0 <= start < end, got ${range.start}-${range.end}`);
+  }
+}
 
-  return { config: merged, configPath };
+export function parseFrameRange(raw: unknown, name = 'frame range'): FrameRange {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`invalid ${name}`);
+  }
+  const r = raw as Record<string, unknown>;
+  for (const key of Object.keys(r)) {
+    if (key !== 'start' && key !== 'end') {
+      throw new Error(`unknown ${name} key ${key}`);
+    }
+  }
+  const start = asNumber(r.start, `${name}: start`);
+  const end = asNumber(r.end, `${name}: end`);
+  assertValidFrameRange({ start, end }, name);
+  return { start, end };
+}
+
+function parseHudObject(value: unknown, name: string): HudSpec {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`invalid value for ${name}`);
+  }
+  const h = value as Record<string, unknown>;
+  for (const key of Object.keys(h)) {
+    if (key !== 'heading' && key !== 'alt' && key !== 'speed') {
+      throw new Error(`unknown key ${key} in ${name}`);
+    }
+  }
+  return {
+    heading: asBool(h.heading, `${name}: heading`),
+    alt: asBool(h.alt, `${name}: alt`),
+    speed: asBool(h.speed, `${name}: speed`),
+  };
+}
+
+// Machine-owned settings the renderer never chooses: the main process's
+// resolved values stay authoritative, so a snapshot cannot redirect the tile
+// cache, the browser, the worker count or the CLI-only switches.
+const MAIN_OWNED_KEYS = [
+  'outDir', 'outSuffix', 'tileCache', 'browser', 'workers', 'capture', 'preset',
+  'skipExisting', 'recurse', 'json', 'quiet',
+] as const;
+
+// The renderer sends the look and the export dimensions; everything else comes
+// from the main process. The HUD spec travels in its CLI string form so the
+// vocabulary's own normalizers stay the single validation home.
+function parseRequestConfig(raw: unknown, base: RenderConfig): RenderConfig {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('invalid export request: config');
+  }
+  const flat = { ...(raw as Record<string, unknown>) };
+  for (const key of MAIN_OWNED_KEYS) delete flat[key];
+  if (flat.hud !== undefined && flat.hud !== null) {
+    flat.hud = formatHud(parseHudObject(flat.hud, 'export request: config: hud'));
+  }
+  const config = { ...base, ...normalizeOverrides(flat, 'export request: config') };
+  validateRenderConfig(config);
+  return config;
+}
+
+export function parseExportRequest(raw: unknown, base: RenderConfig): ExportRequest {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('invalid export request');
+  }
+  const r = raw as Record<string, unknown>;
+  for (const key of Object.keys(r)) {
+    if (key !== 'outPath' && key !== 'config' && key !== 'range') {
+      throw new Error(`unknown export request key ${key}`);
+    }
+  }
+  const outPath = asString(r.outPath, 'export request: outPath');
+  if (!outPath.toLowerCase().endsWith('.mp4')) {
+    throw new Error(`export request: outPath must be an .mp4 file: ${outPath}`);
+  }
+  const range =
+    r.range === undefined || r.range === null ? null : parseFrameRange(r.range);
+  return { outPath, config: parseRequestConfig(r.config, base), range };
 }

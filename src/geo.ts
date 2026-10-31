@@ -21,6 +21,23 @@ const EARTH_RADIUS_M = 6371008.8; // mean Earth radius
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 
+// What counts as a real GPS fix - one rule for every telemetry source (SRT
+// sidecar and CAM meta alike): a finite WGS84 pair in range that is not
+// exactly the (0, 0) "no GPS lock" placeholder DJI writes before the first
+// fix. Near-equator and near-prime-meridian coordinates are real fixes;
+// out-of-range values never are.
+export function isGpsFix(lat: number, lon: number): boolean {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat > -90 &&
+    lat < 90 &&
+    lon > -180 &&
+    lon < 180 &&
+    !(lat === 0 && lon === 0)
+  );
+}
+
 export function haversineM(a: LatLon, b: LatLon): number {
   const deltaLatRad = (b.lat - a.lat) * DEG_TO_RAD;
   const deltaLonRad = (b.lon - a.lon) * DEG_TO_RAD;

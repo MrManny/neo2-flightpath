@@ -1,28 +1,32 @@
 import path from 'node:path';
-import fs from 'node:fs';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { SpanStatusCode } from '@opentelemetry/api';
 
 import { DEFAULT_CONFIG } from '../src/config.js';
 import type { RenderConfig } from '../src/config.js';
-import type { VideoProbe } from '../src/ff.js';
 import {
   outputPathFor,
   planOutputs,
+  prepareSession,
   processRecording,
+  recordingPageOpts,
   runBatch,
 } from '../src/run.js';
-import type { PipelineDeps, RecordingSummary } from '../src/run.js';
+import type { PipelineDeps, PrepareProgress, RecordingSummary } from '../src/run.js';
 import { loadTelemetry } from '../src/telemetry.js';
-import type { Telemetry } from '../src/telemetry.js';
+import { START_PREPARE_PROGRESS } from '../ui/lib/pickstate.js';
 import {
   SRT_SAMPLE_MIXED,
   byName,
   cleanupTmpDirs,
   durationMs,
+  probeFixture,
+  stubDeps,
+  testConfig,
   tmpDir,
   tracingHarness,
+  writeSrt,
 } from './fixtures.js';
 
 describe('planOutputs', () => {
@@ -58,11 +62,18 @@ describe('planOutputs', () => {
     expect(plans.map((p) => p.plain)).toEqual(videos.map((v) => outputPathFor(v, config)));
   });
 
-  it('treats names differing only in case as a collision', () => {
+  it('applies the platform case rule to names differing only in case', () => {
     const videos = [path.join('a', 'CLIP.mp4'), path.join('b', 'clip.mp4')];
     const plans = planOutputs(videos, config);
-    expect(plans[0].out.toLowerCase()).not.toBe(plans[1].out.toLowerCase());
-    expect(plans[1].out).not.toBe(plans[1].plain);
+    if (process.platform === 'win32') {
+      // Windows file names are case-insensitive: the outputs collide.
+      expect(plans[0].out).toBe(plans[0].plain);
+      expect(plans[1].out).not.toBe(plans[1].plain);
+    } else {
+      // POSIX file names are case-sensitive: both keep their plain names.
+      expect(plans[0].out).toBe(plans[0].plain);
+      expect(plans[1].out).toBe(plans[1].plain);
+    }
   });
 
   it('is deterministic across runs with the same input list', () => {
@@ -73,57 +84,95 @@ describe('planOutputs', () => {
 
 const VIDEO = path.join('clips', 'flight.mp4');
 
-const PROBE: VideoProbe = {
-  fps: { num: 30, den: 1, value: 30, str: '30' },
-  frames: 3,
-  durationSec: 0.1,
-  width: 1280,
-  height: 720,
-};
-
-function telemetryFixture(): Telemetry {
-  return {
-    source: 'srt',
-    method: 'srt-cues',
-    headingMode: 'cog',
-    sampleCount: 5,
-    fixCount: 3,
-    noLock: 2,
-    frames: [
-      { lat: 46.6, lon: 14.2, alt: 3.3, speed: 1.2, headingDeg: 90 },
-      { lat: 46.61, lon: 14.21, alt: 3.4, speed: 1.3, headingDeg: 91 },
-      { lat: 46.62, lon: 14.22, alt: 3.5, speed: 1.4, headingDeg: 92 },
-    ],
-    bbox: { minLat: 46.6, maxLat: 46.62, minLon: 14.2, maxLon: 14.22 },
-    trackDistanceM: 42,
-  };
-}
-
-function stubDeps(overrides: Partial<PipelineDeps> = {}): PipelineDeps {
-  return {
-    probeVideo: async () => PROBE,
-    loadTelemetry: async () => telemetryFixture(),
-    prefetchTiles: async () => ({ downloaded: 2, failed: 1, total: 5 }),
-    renderVideo: async () => ({ profile: { evalMs: 10, captureMs: 20, emitMs: 30 } }),
-    verifyOutput: async () => ({ frames: 3, fps: '30', ok: true }),
-    outputMatchesSource: async () => false,
-    ...overrides,
-  };
-}
-
-function testConfig(overrides: Partial<RenderConfig> = {}): RenderConfig {
-  return {
-    ...DEFAULT_CONFIG,
-    outDir: tmpDir(),
-    tileCache: tmpDir(),
-    ...overrides,
-  };
-}
+const PROBE = probeFixture();
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 afterEach(cleanupTmpDirs);
+
+describe('prepareSession', () => {
+  it('rounds the canvas to even sizes and lets the planner decimate once', async () => {
+    const config = testConfig({ width: 767, height: 500 });
+    const prep = await prepareSession(VIDEO, config, () => {}, { deps: stubDeps() });
+    expect(prep.width).toBe(766);
+    expect(prep.height).toBe(500);
+    expect(prep.frames.lat).toHaveLength(3);
+    const opts = recordingPageOpts(prep, config);
+    expect(opts.decimated.frame[0]).toBe(0);
+    expect(opts.decimated.frame[opts.decimated.frame.length - 1]).toBe(2);
+    expect(prep.hud).toEqual({ heading: true, alt: false, speed: false });
+  });
+});
+
+describe('prepareSession progress reports', () => {
+  it('advances one step per stage and one per planned tile, ending at the full count', async () => {
+    const events: PrepareProgress[] = [];
+    const deps = stubDeps({
+      prefetchTiles: async ({ tiles, onTile }) => {
+        tiles.forEach(() => onTile?.('downloaded'));
+        return { downloaded: tiles.length, failed: 0, total: tiles.length };
+      },
+    });
+    await prepareSession(VIDEO, testConfig(), () => {}, {
+      deps,
+      onProgress: (progress) => events.push(progress),
+    });
+
+    const tileCount = events[3].tilesTotal;
+    expect(tileCount).toBeGreaterThan(0);
+    expect(events[0]).toEqual(START_PREPARE_PROGRESS);
+    expect(events.slice(1, 3)).toEqual([
+      { stage: 'telemetry', done: 1, total: 3, tilesDone: 0, tilesTotal: 0 },
+      { stage: 'plan', done: 2, total: 3, tilesDone: 0, tilesTotal: 0 },
+    ]);
+    expect(events).toHaveLength(4 + tileCount);
+    events.slice(3).forEach((event, i) => {
+      expect(event).toEqual({
+        stage: 'tiles',
+        done: 3 + i,
+        total: 3 + tileCount,
+        tilesDone: i,
+        tilesTotal: tileCount,
+      });
+    });
+  });
+
+  it('counts cached and failed tiles as progress', async () => {
+    const events: PrepareProgress[] = [];
+    const deps = stubDeps({
+      prefetchTiles: async ({ tiles, onTile }) => {
+        onTile?.('cached');
+        for (let i = 1; i < tiles.length; i++) onTile?.('failed');
+        return { downloaded: 0, failed: tiles.length - 1, total: tiles.length };
+      },
+    });
+    await prepareSession(VIDEO, testConfig(), () => {}, {
+      deps,
+      onProgress: (progress) => events.push(progress),
+    });
+
+    const last = events[events.length - 1];
+    expect(last.tilesDone).toBe(last.tilesTotal);
+    expect(last.done).toBe(last.total);
+  });
+
+  it('stops reporting once a stage fails', async () => {
+    const events: PrepareProgress[] = [];
+    const deps = stubDeps({
+      loadTelemetry: async () => {
+        throw new Error('telemetry unreadable');
+      },
+    });
+    await expect(
+      prepareSession(VIDEO, testConfig(), () => {}, {
+        deps,
+        onProgress: (progress) => events.push(progress),
+      }),
+    ).rejects.toThrow('telemetry unreadable');
+    expect(events.map((e) => e.stage)).toEqual(['probe', 'telemetry']);
+  });
+});
 
 describe('processRecording span tree', () => {
   async function tracedRun(
@@ -266,7 +315,7 @@ describe('processRecording span tree', () => {
   it('reports the exact fix count of the telemetry source', async () => {
     const dir = tmpDir();
     const video = path.join(dir, 'clip.mp4');
-    fs.writeFileSync(path.join(dir, 'clip.srt'), SRT_SAMPLE_MIXED);
+    writeSrt(video, SRT_SAMPLE_MIXED);
     const { spans } = await tracedRun(stubDeps({ loadTelemetry }), undefined, video);
     expect(byName(spans, 'telemetry.load')?.attributes).toMatchObject({
       'telemetry.fix.count': 2,
@@ -332,5 +381,84 @@ describe('runBatch tracing', () => {
 
     expect(result).toEqual({ ok: 0, skipped: 1, failed: 0 });
     expect(spans).toHaveLength(0);
+  });
+});
+
+describe('processRecording frame ranges', () => {
+  function rangeDeps() {
+    const calls: { render?: { frames: number; frameStart?: number }; verify?: number } = {};
+    const deps = stubDeps({
+      probe: probeFixture({ frames: 40 }),
+      renderVideo: async (opts) => {
+        calls.render = { frames: opts.frames, frameStart: opts.frameStart };
+        return { profile: { evalMs: 0, captureMs: 0, emitMs: 0 } };
+      },
+      verifyOutput: async (_out, expected) => {
+        calls.verify = expected;
+        return { frames: expected, fps: '30', ok: true };
+      },
+    });
+    return { deps, calls };
+  }
+
+  it('renders only the segment, starting at the range start, and verifies its length', async () => {
+    const { deps, calls } = rangeDeps();
+    const out = path.join(tmpDir(), 'segment.mp4');
+    const summary = await processRecording(VIDEO, testConfig(), () => {}, out, {
+      deps,
+      range: { start: 10, end: 29 },
+    });
+    expect(calls.render).toEqual({ frames: 20, frameStart: 10 });
+    expect(calls.verify).toBe(20);
+    expect(summary.frames).toBe(20);
+    expect(summary.frameRange).toEqual({ start: 10, end: 29 });
+  });
+
+  it('renders the full recording from frame 0 when no range is given', async () => {
+    const { deps, calls } = rangeDeps();
+    const out = path.join(tmpDir(), 'full.mp4');
+    const summary = await processRecording(VIDEO, testConfig(), () => {}, out, { deps });
+    expect(calls.render).toEqual({ frames: 40, frameStart: 0 });
+    expect(calls.verify).toBe(40);
+    expect(summary.frames).toBe(40);
+    expect(summary.frameRange).toBeUndefined();
+  });
+
+  it('exports a range that ends on the last frame', async () => {
+    const { deps, calls } = rangeDeps();
+    const out = path.join(tmpDir(), 'tail.mp4');
+    await processRecording(VIDEO, testConfig(), () => {}, out, {
+      deps,
+      range: { start: 30, end: 39 },
+    });
+    expect(calls.render).toEqual({ frames: 10, frameStart: 30 });
+  });
+
+  it.each([
+    ['start equal to end', { start: 5, end: 5 }, /0 <= start < end/],
+    ['start after end', { start: 9, end: 2 }, /0 <= start < end/],
+    ['end beyond the recording', { start: 0, end: 40 }, /beyond the recording \(40 frames\)/],
+  ])('rejects %s before rendering anything', async (_label, range, pattern) => {
+    const { deps, calls } = rangeDeps();
+    await expect(
+      processRecording(VIDEO, testConfig(), () => {}, path.join(tmpDir(), 'x.mp4'), {
+        deps,
+        range,
+      }),
+    ).rejects.toThrow(pattern);
+    expect(calls.render).toBeUndefined();
+  });
+
+  it('refuses to start when the signal is already aborted', async () => {
+    const { deps, calls } = rangeDeps();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      processRecording(VIDEO, testConfig(), () => {}, path.join(tmpDir(), 'x.mp4'), {
+        deps,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow('render canceled');
+    expect(calls.render).toBeUndefined();
   });
 });

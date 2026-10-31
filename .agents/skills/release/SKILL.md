@@ -31,3 +31,5 @@ description: Release workflow. Use when preparing a release.
 10. When CI finished, let the user do a final inspection of the PR and merge it
 
 11. When the user has merged the PR, use the `gh` CLI tool to draft a new release (using the tag `vX.Y.Z`); take the new `CHANGELOG.md` section for `vX.Y.Z` as the change description (e.g. extract it to a file and pass it via `gh release create vX.Y.Z --draft --notes-file <file>`)
+
+12. When the user has published the release, watch the Release workflow: it attaches the desktop app artifacts (Windows portable exe, Linux AppImage) to the release after lint and test pass; verify both arrived (`gh release view vX.Y.Z --json assets`) and on a failed leg re-run it or upload a locally built artifact with `gh release upload vX.Y.Z <files> --clobber`
