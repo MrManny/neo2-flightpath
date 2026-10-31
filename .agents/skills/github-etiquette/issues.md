@@ -49,13 +49,13 @@ and useful. Keep the epic body lean (problem, decision summary, acceptance
 sketch) and let GitHub render sub-issues below it — don't list them in the body.
 
 - Structural sub-issues (not body checklists):
-  `gh api -X POST repos/<owner>/<repo>/issues/<parent-number>/sub_issues -f sub_issue_id=<int-id>`.
+  `gh api -X POST repos/<owner>/<repo>/issues/<parent-number>/sub_issues -F sub_issue_id=<int-id>`.
   The integer id comes from `gh api repos/<owner>/<repo>/issues/<n> --jq .id`.
+  Use `-F` (typed integer) for the id fields in these API calls; `-f` sends a string and gets a 422.
 - Dependencies (sidebar "Relationships"): "X blocked by Y" =
   `gh api -X POST repos/<owner>/<repo>/issues/<X>/dependencies/blocked_by -F issue_id=<Y-int-id>`,
   "X relates to Y" likewise with `.../relates_to`. There is no REST "blocking"
-  add endpoint — set it from the blocked side. Use `-F` (typed integer); `-f`
-  sends a string and gets a 422.
+  add endpoint — set it from the blocked side.
 - GraphQL alternative: `addBlockedBy(input:{issueId, blockingIssueId})` /
   `addRelatesTo(input:{issueId, relatedIssueId})` with node ids.
 - Needs >= triage on the repository; max 50 issues per relationship type.
