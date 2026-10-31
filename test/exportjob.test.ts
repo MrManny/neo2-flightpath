@@ -191,6 +191,27 @@ describe('export runner: guard rails', () => {
     );
   });
 
+  it('applies the platform case rule to the overwrite guard', async () => {
+    const dir = tmpDir();
+    const video = path.join(dir, 'Flight.mp4');
+    const out = path.join(dir, 'flight.mp4');
+    const { runner, settled } = harness(async (_v, _r, _log, _w, signal) => {
+      await new Promise<void>((resolve) =>
+        signal.addEventListener('abort', () => resolve(), { once: true }),
+      );
+      throw new Error('render canceled');
+    });
+    if (process.platform === 'win32') {
+      expect(() => runner.start(video, requestFor(out))).toThrow(
+        'must not overwrite the source recording',
+      );
+    } else {
+      expect(() => runner.start(video, requestFor(out))).not.toThrow();
+      runner.cancel();
+      await settled();
+    }
+  });
+
   it('refuses a relative destination path', () => {
     const { runner } = harness(async () => summaryFor(''));
     expect(() => runner.start(SOURCE, requestFor('relative/out.mp4'))).toThrow(
@@ -213,5 +234,52 @@ describe('export runner: guard rails', () => {
     await settled();
     expect(working).toBe(path.join(dir, 'flight_map.partial-2.mp4'));
     expect(fs.readFileSync(stray, 'utf8')).toBe('someone else');
+  });
+
+  it('names the working file <stem>.partial.mp4 when nothing is taken', async () => {
+    const dir = tmpDir();
+    const out = path.join(dir, 'flight_map.mp4');
+    let working = '';
+    const { runner, settled } = harness(async (_v, _r, _log, w) => {
+      working = w;
+      fs.writeFileSync(w, 'x');
+      return summaryFor(w);
+    });
+    runner.start(SOURCE, requestFor(out));
+    await settled();
+    expect(working).toBe(path.join(dir, 'flight_map.partial.mp4'));
+  });
+
+  it('walks .partial-2, .partial-3 past stray working names', async () => {
+    const dir = tmpDir();
+    const out = path.join(dir, 'flight_map.mp4');
+    for (const name of ['flight_map.partial.mp4', 'flight_map.partial-2.mp4']) {
+      fs.writeFileSync(path.join(dir, name), 'someone else');
+    }
+    let working = '';
+    const { runner, settled } = harness(async (_v, _r, _log, w) => {
+      working = w;
+      fs.writeFileSync(w, 'x');
+      return summaryFor(w);
+    });
+    runner.start(SOURCE, requestFor(out));
+    await settled();
+    expect(working).toBe(path.join(dir, 'flight_map.partial-3.mp4'));
+  });
+
+  it('never uses a .partial-1 name, strays or not', async () => {
+    const dir = tmpDir();
+    const out = path.join(dir, 'flight_map.mp4');
+    fs.writeFileSync(path.join(dir, 'flight_map.partial-1.mp4'), 'someone else');
+    let working = '';
+    const { runner, settled } = harness(async (_v, _r, _log, w) => {
+      working = w;
+      fs.writeFileSync(w, 'x');
+      return summaryFor(w);
+    });
+    runner.start(SOURCE, requestFor(out));
+    await settled();
+    expect(working).toBe(path.join(dir, 'flight_map.partial.mp4'));
+    expect(fs.existsSync(path.join(dir, 'flight_map.partial-1.mp4'))).toBe(true);
   });
 });

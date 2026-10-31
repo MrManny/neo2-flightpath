@@ -13,6 +13,7 @@ import {
   cleanupTmpDirs,
   productMetaPacket,
   tmpDir,
+  writeSrt,
 } from './fixtures.js';
 
 afterEach(cleanupTmpDirs);
@@ -22,7 +23,7 @@ describe('loadTelemetry (SRT source)', () => {
     const dir = tmpDir();
     const video = path.join(dir, 'clip.mp4');
     fs.writeFileSync(video, '');
-    fs.writeFileSync(path.join(dir, 'clip.srt'), SRT_SAMPLE);
+    writeSrt(video, SRT_SAMPLE);
 
     const tel = await loadTelemetry(video, {
       frames: 3,
@@ -56,7 +57,7 @@ describe('loadTelemetry (SRT source)', () => {
     const dir = tmpDir();
     const video = path.join(dir, 'clip.mp4');
     fs.writeFileSync(video, '');
-    fs.writeFileSync(path.join(dir, 'clip.srt'), SRT_SAMPLE_MIXED);
+    writeSrt(video, SRT_SAMPLE_MIXED);
 
     const tel = await loadTelemetry(video, {
       frames: 4,
@@ -113,7 +114,7 @@ describe('loadTelemetry (heading)', () => {
     const dir = tmpDir();
     const video = path.join(dir, 'turn.mp4');
     fs.writeFileSync(video, '');
-    fs.writeFileSync(path.join(dir, 'turn.srt'), turnSrt());
+    writeSrt(video, turnSrt());
 
     const tel = await loadTelemetry(video, {
       frames: 71,
@@ -151,7 +152,7 @@ describe('loadTelemetry (heading)', () => {
     const dir = tmpDir();
     const video = path.join(dir, 'slow.mp4');
     fs.writeFileSync(video, '');
-    fs.writeFileSync(path.join(dir, 'slow.srt'), cues.join('\n'));
+    writeSrt(video, cues.join('\n'));
 
     const tel = await loadTelemetry(video, {
       frames: 125,
@@ -265,10 +266,7 @@ describe('cross-source fix classification', () => {
     const dir = tmpDir();
     const video = path.join(dir, 'coast.mp4');
     fs.writeFileSync(video, '');
-    fs.writeFileSync(
-      path.join(dir, 'coast.srt'),
-      srtCueText([[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]),
-    );
+    writeSrt(video, srtCueText([[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]));
 
     const tel = await loadTelemetry(video, {
       frames: 3,
