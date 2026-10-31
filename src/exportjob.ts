@@ -5,10 +5,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import process from 'node:process';
 
 import type { ExportRequest } from './config.js';
 import { errorMessage } from './errors.js';
+import { samePath, uniquePath } from './paths.js';
 import { processRecording } from './run.js';
 import type { LogFn, RecordingSummary } from './run.js';
 
@@ -46,26 +46,14 @@ export interface ExportRunner {
   running(): boolean;
 }
 
-function samePath(a: string, b: string): boolean {
-  const na = path.resolve(a);
-  const nb = path.resolve(b);
-  return process.platform === 'win32'
-    ? na.toLowerCase() === nb.toLowerCase()
-    : na === nb;
-}
-
 // The working file must keep the .mp4 suffix (ffmpeg infers the container
 // from it) and share the destination's directory so the final rename stays
 // on one volume. Existing names are never reused or deleted: a stray file
 // there may belong to someone else.
 function workingPathFor(outPath: string): string {
   const dir = path.dirname(outPath);
-  const stem = path.basename(outPath, path.extname(outPath));
-  for (let n = 1; ; n++) {
-    const name = n === 1 ? `${stem}.partial.mp4` : `${stem}.partial-${n}.mp4`;
-    const candidate = path.join(dir, name);
-    if (!fs.existsSync(candidate)) return candidate;
-  }
+  const stem = `${path.basename(outPath, path.extname(outPath))}.partial`;
+  return uniquePath(dir, stem, '.mp4', (candidate) => fs.existsSync(candidate));
 }
 
 // Best-effort removal of our own working file; a cleanup failure must never

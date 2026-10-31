@@ -60,11 +60,18 @@ describe('planOutputs', () => {
     expect(plans.map((p) => p.plain)).toEqual(videos.map((v) => outputPathFor(v, config)));
   });
 
-  it('treats names differing only in case as a collision', () => {
+  it('applies the platform case rule to names differing only in case', () => {
     const videos = [path.join('a', 'CLIP.mp4'), path.join('b', 'clip.mp4')];
     const plans = planOutputs(videos, config);
-    expect(plans[0].out.toLowerCase()).not.toBe(plans[1].out.toLowerCase());
-    expect(plans[1].out).not.toBe(plans[1].plain);
+    if (process.platform === 'win32') {
+      // Windows file names are case-insensitive: the outputs collide.
+      expect(plans[0].out).toBe(plans[0].plain);
+      expect(plans[1].out).not.toBe(plans[1].plain);
+    } else {
+      // POSIX file names are case-sensitive: both keep their plain names.
+      expect(plans[0].out).toBe(plans[0].plain);
+      expect(plans[1].out).toBe(plans[1].plain);
+    }
   });
 
   it('is deterministic across runs with the same input list', () => {
