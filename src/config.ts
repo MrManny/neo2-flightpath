@@ -45,33 +45,14 @@ export type ConfigOverrides = Partial<RenderConfig>;
 
 export const CONFIG_FILE_NAME = '.neo2flightpath.json';
 
-export const DEFAULT_CONFIG: RenderConfig = {
-  outDir: 'out',
-  outSuffix: '_map',
-  width: 768,
-  height: 768,
-  style: 'satellite',
-  view: 'follow',
-  zoom: 0,
-  zoomOut: 1,
-  introSec: 2,
-  outroSec: 2,
-  hud: { heading: true, alt: false, speed: false },
-  workers: 4,
-  capture: 'jpeg',
-  preset: 'medium',
-  tileCache: '',
-  browser: null,
-  skipExisting: false,
-  recurse: false,
-  json: false,
-  quiet: false,
-};
-
 export const STYLE_VALUES: readonly Style[] = ['satellite', 'topo'];
 export const VIEW_VALUES: readonly View[] = ['follow', 'overview'];
 const CAPTURE_VALUES: Capture[] = ['jpeg', 'png'];
 const PRESET_VALUES: Preset[] = ['medium', 'veryfast'];
+
+// The normalizer column of the option key table: validation and conversion for
+// one key, taking the raw value and an error-context name.
+type OverrideNormalizer = (value: unknown, name: string) => ConfigOverrides;
 
 export function parseHud(list: string): HudSpec {
   const hud: HudSpec = { heading: false, alt: false, speed: false };
@@ -150,32 +131,184 @@ function asNullableString(value: unknown, name: string): string | null {
   return asString(value, name);
 }
 
-// One normalizer per config key: validation, conversion and the "known keys"
-// whitelist all live in this single table (previously three parallel lists).
-type OverrideNormalizer = (value: unknown, name: string) => ConfigOverrides;
+// How one option appears on the command line: the flags (with any value
+// placeholder), the help text, and the accepted choices for enum flags.
+interface CliOptionSpec {
+  flags: string;
+  help: string;
+  choices?: readonly string[];
+}
 
-const OVERRIDE_NORMALIZERS: Record<keyof RenderConfig, OverrideNormalizer> = {
-  outDir: (v, name) => ({ outDir: asNullableString(v, name) }),
-  outSuffix: (v, name) => ({ outSuffix: asString(v, name) }),
-  width: (v, name) => ({ width: asNumber(v, name) }),
-  height: (v, name) => ({ height: asNumber(v, name) }),
-  style: (v, name) => ({ style: asEnum(v, name, STYLE_VALUES) }),
-  view: (v, name) => ({ view: asEnum(v, name, VIEW_VALUES) }),
-  zoom: (v, name) => ({ zoom: asNumber(v, name) }),
-  zoomOut: (v, name) => ({ zoomOut: asNumber(v, name) }),
-  introSec: (v, name) => ({ introSec: asNumber(v, name) }),
-  outroSec: (v, name) => ({ outroSec: asNumber(v, name) }),
-  hud: (v, name) => ({ hud: parseHud(asString(v, name)) }),
-  workers: (v, name) => ({ workers: asNumber(v, name) }),
-  capture: (v, name) => ({ capture: asEnum(v, name, CAPTURE_VALUES) }),
-  preset: (v, name) => ({ preset: asEnum(v, name, PRESET_VALUES) }),
-  tileCache: (v, name) => ({ tileCache: asString(v, name) }),
-  browser: (v, name) => ({ browser: asNullableString(v, name) }),
-  skipExisting: (v, name) => ({ skipExisting: asBool(v, name) }),
-  recurse: (v, name) => ({ recurse: asBool(v, name) }),
-  json: (v, name) => ({ json: asBool(v, name) }),
-  quiet: (v, name) => ({ quiet: asBool(v, name) }),
-};
+// One row per config key: the key name, how the CLI spells it, the single
+// default, and the normalizer. This is the option vocabulary's one table: the
+// CLI's commander options and its override collection, the config-file layer
+// and DEFAULT_CONFIG are all derived from it, so adding an option is one edit.
+export interface ConfigOption<K extends keyof RenderConfig = keyof RenderConfig> {
+  key: K;
+  cli: CliOptionSpec;
+  default: RenderConfig[K];
+  normalize: OverrideNormalizer;
+}
+
+export const CONFIG_OPTIONS: readonly ConfigOption[] = [
+  {
+    key: 'outDir',
+    cli: { flags: '--out-dir <dir>', help: 'output folder' },
+    default: 'out',
+    normalize: (v, name) => ({ outDir: asNullableString(v, name) }),
+  },
+  {
+    key: 'outSuffix',
+    cli: { flags: '--out-suffix <suffix>', help: 'output name = <basename><suffix>.mp4' },
+    default: '_map',
+    normalize: (v, name) => ({ outSuffix: asString(v, name) }),
+  },
+  {
+    key: 'width',
+    cli: { flags: '--width <px>', help: 'canvas width in pixels (rounded down to even)' },
+    default: 768,
+    normalize: (v, name) => ({ width: asNumber(v, name) }),
+  },
+  {
+    key: 'height',
+    cli: { flags: '--height <px>', help: 'canvas height in pixels (rounded down to even)' },
+    default: 768,
+    normalize: (v, name) => ({ height: asNumber(v, name) }),
+  },
+  {
+    key: 'style',
+    cli: { flags: '--style <name>', help: 'map look', choices: STYLE_VALUES },
+    default: 'satellite',
+    normalize: (v, name) => ({ style: asEnum(v, name, STYLE_VALUES) }),
+  },
+  {
+    key: 'view',
+    cli: {
+      flags: '--view <mode>',
+      help:
+        'follow: drone stays centered and the map slides under it; overview: static whole-track map',
+      choices: VIEW_VALUES,
+    },
+    default: 'follow',
+    normalize: (v, name) => ({ view: asEnum(v, name, VIEW_VALUES) }),
+  },
+  {
+    key: 'zoom',
+    cli: { flags: '--zoom <n>', help: 'fixed view zoom level (0 = auto-fit to the track)' },
+    default: 0,
+    normalize: (v, name) => ({ zoom: asNumber(v, name) }),
+  },
+  {
+    key: 'zoomOut',
+    cli: { flags: '--zoom-out <n>', help: 'auto-fit only: pull back n zoom levels' },
+    default: 1,
+    normalize: (v, name) => ({ zoomOut: asNumber(v, name) }),
+  },
+  {
+    key: 'introSec',
+    cli: { flags: '--intro-sec <s>', help: 'intro: zoom in from one level out over s seconds' },
+    default: 2,
+    normalize: (v, name) => ({ introSec: asNumber(v, name) }),
+  },
+  {
+    key: 'outroSec',
+    cli: { flags: '--outro-sec <s>', help: 'outro: zoom back out over s seconds' },
+    default: 2,
+    normalize: (v, name) => ({ outroSec: asNumber(v, name) }),
+  },
+  {
+    key: 'hud',
+    cli: {
+      flags: '--hud <list>',
+      help: 'comma list of heading,alt,speed - or none (alt hides when unavailable)',
+    },
+    default: { heading: true, alt: false, speed: false },
+    normalize: (v, name) => ({ hud: parseHud(asString(v, name)) }),
+  },
+  {
+    key: 'workers',
+    cli: { flags: '--workers <n>', help: 'parallel browser pages' },
+    default: 4,
+    normalize: (v, name) => ({ workers: asNumber(v, name) }),
+  },
+  {
+    key: 'capture',
+    cli: { flags: '--capture <mode>', help: 'frame capture mode (canvas is parked)', choices: CAPTURE_VALUES },
+    default: 'jpeg',
+    normalize: (v, name) => ({ capture: asEnum(v, name, CAPTURE_VALUES) }),
+  },
+  {
+    key: 'preset',
+    cli: { flags: '--preset <name>', help: 'x264 preset', choices: PRESET_VALUES },
+    default: 'medium',
+    normalize: (v, name) => ({ preset: asEnum(v, name, PRESET_VALUES) }),
+  },
+  {
+    key: 'tileCache',
+    cli: { flags: '--tile-cache <dir>', help: 'tile cache directory (default: per-user cache dir)' },
+    default: '',
+    normalize: (v, name) => ({ tileCache: asString(v, name) }),
+  },
+  {
+    key: 'browser',
+    cli: { flags: '--browser <path>', help: 'Chromium/Chrome/Edge executable (default: system Chrome/Edge)' },
+    default: null,
+    normalize: (v, name) => ({ browser: asNullableString(v, name) }),
+  },
+  {
+    key: 'skipExisting',
+    cli: {
+      flags: '--skip-existing',
+      help: 'skip recordings whose output already exists and matches the source',
+    },
+    default: false,
+    normalize: (v, name) => ({ skipExisting: asBool(v, name) }),
+  },
+  {
+    key: 'recurse',
+    cli: { flags: '--recurse', help: 'scan input folders recursively' },
+    default: false,
+    normalize: (v, name) => ({ recurse: asBool(v, name) }),
+  },
+  {
+    key: 'json',
+    cli: { flags: '--json', help: 'print one NDJSON summary line per recording on stdout' },
+    default: false,
+    normalize: (v, name) => ({ json: asBool(v, name) }),
+  },
+  {
+    key: 'quiet',
+    cli: { flags: '-q, --quiet', help: 'suppress progress output' },
+    default: false,
+    normalize: (v, name) => ({ quiet: asBool(v, name) }),
+  },
+];
+
+// The CLI spells a default the way commander expects it. The config-native
+// default stays in the table's `default` column so DEFAULT_CONFIG is a straight
+// copy. Three kinds differ from their config form: a boolean default stays a
+// boolean (commander's presence flags), a null default becomes the empty string
+// ("not set") - "null" would read as a literal path - and the HUD spec becomes
+// its comma string.
+export function cliDefaultOf(key: keyof RenderConfig): string | boolean {
+  const row = CONFIG_OPTIONS.find((r) => r.key === key);
+  if (!row) throw new Error(`unknown config key ${String(key)}`);
+  const value = row.default as unknown;
+  if (typeof value === 'boolean') return value;
+  if (value === null || value === undefined) return '';
+  return key === 'hud' ? formatHud(value as HudSpec) : String(value);
+}
+
+export const DEFAULT_CONFIG: RenderConfig = Object.fromEntries(
+  CONFIG_OPTIONS.map((row) => [row.key, row.default]),
+) as unknown as RenderConfig;
+
+// Keyed lookup built from the option table; a key's normalizer is found by its
+// name, and an unknown key is a usage error naming the origin.
+const OVERRIDE_NORMALIZERS: Record<keyof RenderConfig, OverrideNormalizer> =
+  Object.fromEntries(
+    CONFIG_OPTIONS.map((row) => [row.key, row.normalize]),
+  ) as Record<keyof RenderConfig, OverrideNormalizer>;
 
 export function normalizeOverrides(
   raw: Record<string, unknown>,

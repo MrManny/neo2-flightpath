@@ -106,6 +106,30 @@ describe('parseCliArgs', () => {
     // flags not passed still take the file's values
     expect(config.skipExisting).toBe(true);
   });
+
+  it('resolves the default output folder to <cwd>/out', () => {
+    const dir = tmpDir();
+    const { cli } = parseCliArgs(['clip.mp4']);
+    const { config } = resolveConfig({ cli, configPath: null, cwd: dir });
+    expect(config.outDir).toBe(path.join(dir, 'out'));
+  });
+
+  it('leaves the override layer empty on a bare invocation', () => {
+    const { cli } = parseCliArgs(['clip.mp4']);
+    expect(cli).toEqual({});
+  });
+
+  it('names the offending flag when a value does not fit its option', () => {
+    expect(() => parseCliArgs(['x.mp4', '--width', 'wide'])).toThrow(/--width/);
+    expect(() => parseCliArgs(['x.mp4', '--workers', 'many'])).toThrow(/--workers/);
+    expect(() => parseCliArgs(['x.mp4', '--hud', 'heading,bogus'])).toThrow(/--hud/);
+  });
+
+  it('reports the allowed choices for an enum flag', () => {
+    expect(() => parseCliArgs(['x.mp4', '--style', 'nope'])).toThrow(
+      /Allowed choices are satellite, topo/,
+    );
+  });
 });
 
 describe('main tracing wiring', () => {

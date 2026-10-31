@@ -34,7 +34,7 @@ npx neo2-flightpath "my-flight.mp4"
 npx neo2-flightpath "my-flight.mp4" --style topo --hud heading,alt,speed
 ```
 
-Output lands beside the source video as `<basename>_map.mp4` (configurable).
+Output lands in the `out/` folder as `<basename>_map.mp4` (both configurable; `--out-dir` writes beside the source when given no folder).
 
 ### Example output
 
@@ -117,7 +117,7 @@ optionally with `--recurse`). Every recording is processed independently.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--out-dir <dir>` | beside source | output folder |
+| `--out-dir <dir>` | `out` | output folder (writes beside the source video when omitted) |
 | `--out-suffix <suffix>` | `_map` | output name = `<basename><suffix>.mp4` |
 | `--width <px>` / `--height <px>` | `768` / `768` | canvas size (rounded down to even) |
 | `--style <name>` | `satellite` | `satellite` (Esri World Imagery) or `topo` (OpenTopoMap) |
