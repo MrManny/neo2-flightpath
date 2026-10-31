@@ -4,9 +4,29 @@ import {
   bearingDeg,
   circularMeanDeg,
   haversineM,
+  isGpsFix,
   project,
   unproject,
 } from '../src/geo.js';
+
+describe('isGpsFix', () => {
+  it.for([
+    { name: 'regular fix', lat: 46.61307, lon: 14.262388, want: true },
+    { name: 'prime meridian crossing', lat: 10.2, lon: 0.2, want: true },
+    { name: 'equator crossing', lat: 0.2, lon: 10.2, want: true },
+    { name: 'near-null-island coordinates', lat: 0.1, lon: 0.1, want: true },
+    { name: 'the 0.5 boundary', lat: 0.5, lon: 0.5, want: true },
+    { name: 'exactly the 0/0 placeholder', lat: 0, lon: 0, want: false },
+    { name: 'negative-zero placeholder', lat: -0, lon: 0, want: false },
+    { name: 'out-of-range latitude', lat: 91, lon: 0, want: false },
+    { name: 'out-of-range longitude', lat: 0, lon: 181, want: false },
+    { name: 'north pole edge', lat: 90, lon: 0, want: false },
+    { name: 'NaN', lat: NaN, lon: 1, want: false },
+    { name: 'Infinity', lat: 1, lon: Infinity, want: false },
+  ])('$name -> $want', ({ lat, lon, want }) => {
+    expect(isGpsFix(lat, lon)).toBe(want);
+  });
+});
 
 describe('haversineM', () => {
   it('measures 0.01 degrees of latitude as ~1112 m', () => {
