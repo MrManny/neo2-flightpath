@@ -20,20 +20,11 @@ import {
 import { formatStats } from '../lib/flightstats.js';
 import type { HotkeyAction } from '../lib/hotkeys.js';
 import { mapKey } from '../lib/hotkeys.js';
-import { pipStyle } from '../lib/pipstyle.js';
 import type { PickState } from '../lib/pickstate.js';
-import { CloseIcon } from '../icons/CloseIcon.js';
-import { ExportIcon } from '../icons/ExportIcon.js';
-import { FolderOpenIcon } from '../icons/FolderOpenIcon.js';
-import { MarkInIcon } from '../icons/MarkInIcon.js';
-import { MarkOutIcon } from '../icons/MarkOutIcon.js';
-import { PauseIcon } from '../icons/PauseIcon.js';
-import { PlayIcon } from '../icons/PlayIcon.js';
-import { SettingsIcon } from '../icons/SettingsIcon.js';
-import { SwapIcon } from '../icons/SwapIcon.js';
+import { ControlBar } from './ControlBar.js';
 import { ExportModal } from './ExportModal.js';
-import { MapIsland } from './MapIsland.js';
 import { OpenNotice } from './OpenNotice.js';
+import { PlayerStage } from './PlayerStage.js';
 import { SettingsPanel } from './SettingsPanel.js';
 
 export interface PlayerChromeProps {
@@ -246,7 +237,6 @@ export function PlayerChrome({
   }, [dispatch, settingsOpen, exportOpen]);
 
   const maxFrame = Math.max(0, video.frames - 1);
-  const bandPct = (i: number): number => (maxFrame > 0 ? (i / maxFrame) * 100 : 0);
   const loopReadout =
     loop.in !== null || loop.out !== null
       ? `loop ${formatFrameSpan(loop.in, loop.out, video.fps)}`
@@ -259,29 +249,15 @@ export function PlayerChrome({
 
   return (
     <>
-      <div className="stage">
-        <div
-          className={`pane ${mapIsMain ? 'pane-pip' : 'pane-main'}`}
-          style={mapIsMain ? pipStyle(true, video.width, video.height) : undefined}
-        >
-          <video
-            ref={videoRef}
-            src={video.src}
-            preload="auto"
-            playsInline
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            onEnded={() => setPlaying(false)}
-          />
-        </div>
-        <div
-          className={`pane ${mapIsMain ? 'pane-main' : 'pane-pip'}`}
-          style={mapIsMain ? undefined : pipStyle(false)}
-        >
-          <MapIsland data={sceneData} onScene={handleScene} />
-        </div>
-        {openNotice ? <div className="player-notices">{openNotice}</div> : null}
-      </div>
+      <PlayerStage
+        video={video}
+        sceneData={sceneData}
+        mapIsMain={mapIsMain}
+        videoRef={videoRef}
+        onScene={handleScene}
+        onPlayState={setPlaying}
+        notice={openNotice}
+      />
       <div className="stats">
         {statsChips.map((chip) => (
           <span key={chip} className="stats-chip">
@@ -289,106 +265,26 @@ export function PlayerChrome({
           </span>
         ))}
       </div>
-      <div className="controls">
-        <div className="controls-left">
-          <button type="button" onClick={onOpen} disabled={opening}>
-            <FolderOpenIcon />
-            Open…
-          </button>
-        </div>
-        <div className="controls-center">
-          <button type="button" onClick={togglePlay} disabled={!ready}>
-            {ready && playing ? <PauseIcon /> : <PlayIcon />}
-            {ready ? (playing ? 'Pause' : 'Play') : 'Warming tiles…'}
-          </button>
-          <button
-            type="button"
-            aria-label="Set loop in"
-            title="Set loop in (I)"
-            onClick={() => dispatch({ type: 'setLoopIn' })}
-          >
-            <MarkInIcon />
-            In
-          </button>
-          <button
-            type="button"
-            aria-label="Set loop out"
-            title="Set loop out (O)"
-            onClick={() => dispatch({ type: 'setLoopOut' })}
-          >
-            <MarkOutIcon />
-            Out
-          </button>
-          <button
-            type="button"
-            aria-label="Clear loop"
-            title={loop.in === null && loop.out === null ? 'No loop to clear.' : 'Clear loop (Esc)'}
-            disabled={loop.in === null && loop.out === null}
-            onClick={() => dispatch({ type: 'clearLoop' })}
-          >
-            <CloseIcon />
-            Clear
-          </button>
-          <div className="scrubber">
-            {loopPoints ? (
-              <div
-                className="loop-band"
-                style={{
-                  left: `${bandPct(loopPoints.in)}%`,
-                  width: `${bandPct(loopPoints.out) - bandPct(loopPoints.in)}%`,
-                }}
-              />
-            ) : null}
-            <input
-              ref={scrubRef}
-              type="range"
-              aria-label="Playback position"
-              min={0}
-              max={maxFrame}
-              step={1}
-              defaultValue={0}
-              onChange={(e) => scrubTo(Number(e.target.value))}
-            />
-          </div>
-          <span className="readout" ref={timeRef}>
-            0:00 / {totalText}
-          </span>
-          {loopReadout ? <span className="readout loop-readout">{loopReadout}</span> : null}
-          <div className="speed-group" role="group" aria-label="Playback speed">
-            {([1, 2, 3, 4] as const).map((rate) => (
-              <button
-                key={rate}
-                type="button"
-                className="speed"
-                aria-pressed={speed === rate}
-                title={`Playback speed ${rate}× (${rate})`}
-                onClick={() => dispatch({ type: 'speed', rate })}
-              >
-                {rate}×
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="controls-right">
-          <button type="button" onClick={swap}>
-            <SwapIcon />
-            Swap view
-          </button>
-          <button type="button" onClick={() => setExportOpen(true)}>
-            <ExportIcon />
-            Export…
-          </button>
-          <button
-            type="button"
-            title="Settings"
-            aria-label="Settings"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <SettingsIcon />
-            Settings
-          </button>
-        </div>
-      </div>
+      <ControlBar
+        onOpen={onOpen}
+        opening={opening}
+        ready={ready}
+        playing={playing}
+        togglePlay={togglePlay}
+        dispatch={dispatch}
+        scrubTo={scrubTo}
+        loop={loop}
+        loopPoints={loopPoints}
+        scrubRef={scrubRef}
+        timeRef={timeRef}
+        totalText={totalText}
+        loopReadout={loopReadout}
+        speed={speed}
+        swap={swap}
+        onExport={() => setExportOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
+        maxFrame={maxFrame}
+      />
       {settingsOpen ? (
         <SettingsPanel
           config={settings}

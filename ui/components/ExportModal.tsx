@@ -75,31 +75,44 @@ export function ExportModal({
     };
   }, []);
 
-  // Export asks for the destination first: the native save dialog is the only
-  // place a path comes from, and cancelling it cancels the export.
-  const chooseAndExport = async (): Promise<void> => {
-    let outPath: string;
+  const { phase, form, result, error, canceling } = state;
+  // The one duration definition: the stats chip and the export form agree.
+  const totalText = formatTime(stats.durationSec);
+  const segment: { range: FrameRange; label: string } | null = loopPoints
+    ? {
+        range: { start: loopPoints.in, end: loopPoints.out },
+        label: formatFrameRange(loopPoints, video.fps),
+      }
+    : null;
+  const errorText = error === null ? null : describeError(error);
+
+  // The destination comes from the native save dialog; cancelling it
+  // cancels the export.
+  const pickDestination = async (): Promise<string | null> => {
     try {
       const picked = await appBridge().pickExportOutput();
       if (!picked.ok || !picked.path) {
         if (picked.error) dispatch({ type: 'failed', error: picked.error });
-        return;
+        return null;
       }
-      outPath = picked.path;
+      return picked.path;
     } catch (e) {
       dispatch({ type: 'failed', error: errorMessage(e) });
-      return;
+      return null;
     }
-    dispatch({ type: 'choose', path: outPath });
-    // The snapshot is frozen here: the job runs this request however the
-    // preview settings move afterwards.
-    const request: ExportRequest = {
-      outPath,
-      config: { ...settings, width: state.form.width, height: state.form.height },
-      // A segment only exists while its loop is engaged; a stale choice never
-      // exports frames the user can no longer see marked.
-      range: segment ? state.form.range : null,
-    };
+  };
+
+  // The snapshot is frozen here: the job runs this request however the
+  // preview settings move afterwards. A segment only exists while its loop is
+  // engaged; a stale choice never exports frames the user can no longer see
+  // marked.
+  const buildRequest = (outPath: string): ExportRequest => ({
+    outPath,
+    config: { ...settings, width: form.width, height: form.height },
+    range: segment ? form.range : null,
+  });
+
+  const startJob = async (request: ExportRequest): Promise<void> => {
     dispatch({ type: 'start', request });
     try {
       const ack = await appBridge().startExport(request);
@@ -109,6 +122,13 @@ export function ExportModal({
     } catch (e) {
       dispatch({ type: 'startFailed', error: errorMessage(e) });
     }
+  };
+
+  const chooseAndExport = async (): Promise<void> => {
+    const outPath = await pickDestination();
+    if (outPath === null) return;
+    dispatch({ type: 'choose', path: outPath });
+    await startJob(buildRequest(outPath));
   };
 
   const cancelExport = (): void => {
@@ -138,17 +158,6 @@ export function ExportModal({
       }
     })();
   };
-
-  const { phase, form, result, error, canceling } = state;
-  // The one duration definition: the stats chip and the export form agree.
-  const totalText = formatTime(stats.durationSec);
-  const segment: { range: FrameRange; label: string } | null = loopPoints
-    ? {
-        range: { start: loopPoints.in, end: loopPoints.out },
-        label: formatFrameRange(loopPoints, video.fps),
-      }
-    : null;
-  const errorText = error === null ? null : describeError(error);
 
   return (
     <DialogShell
