@@ -112,7 +112,7 @@ export function formatHud(hud: HudSpec): string {
   return parts.length ? parts.join(',') : 'none';
 }
 
-function asNumber(value: unknown, name: string): number {
+export function asNumber(value: unknown, name: string): number {
   const n = typeof value === 'string' ? Number(value) : value;
   if (typeof n !== 'number' || !Number.isFinite(n)) {
     throw new Error(`invalid number for ${name}: ${String(value)}`);
@@ -194,6 +194,10 @@ export function normalizeOverrides(
   return out;
 }
 
+export function effectiveZoomOut(config: Pick<RenderConfig, 'zoom' | 'zoomOut'>): number {
+  return config.zoom > 0 ? 0 : config.zoomOut;
+}
+
 // The smallest canvas the renderer and the app's dimension fields accept, in
 // one home so the CLI, the pipeline and the export modal cannot disagree.
 export const MIN_DIMENSION = 64;
@@ -235,6 +239,17 @@ export interface ExportRequest {
   range: FrameRange | null;
 }
 
+// One rule for a usable frame range, shared by the request parser and the
+// pipeline's range guard so they cannot drift.
+export function assertValidFrameRange(range: FrameRange, name = 'frame range'): void {
+  if (!Number.isInteger(range.start) || !Number.isInteger(range.end)) {
+    throw new Error(`invalid ${name}: start and end must be integer frame indices`);
+  }
+  if (range.start < 0 || range.start >= range.end) {
+    throw new Error(`invalid ${name}: expected 0 <= start < end, got ${range.start}-${range.end}`);
+  }
+}
+
 export function parseFrameRange(raw: unknown, name = 'frame range'): FrameRange {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new Error(`invalid ${name}`);
@@ -247,12 +262,7 @@ export function parseFrameRange(raw: unknown, name = 'frame range'): FrameRange 
   }
   const start = asNumber(r.start, `${name}: start`);
   const end = asNumber(r.end, `${name}: end`);
-  if (!Number.isInteger(start) || !Number.isInteger(end)) {
-    throw new Error(`invalid ${name}: start and end must be integer frame indices`);
-  }
-  if (start < 0 || start >= end) {
-    throw new Error(`invalid ${name}: expected 0 <= start < end, got ${start}-${end}`);
-  }
+  assertValidFrameRange({ start, end }, name);
   return { start, end };
 }
 

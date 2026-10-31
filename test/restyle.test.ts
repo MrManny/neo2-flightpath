@@ -101,7 +101,7 @@ describe('restyleSceneData', () => {
     });
 
     expect(fromFixes.zoom).toBe(prep.overview.zoom);
-    expect(fromFixes.center).toEqual(prep.center);
+    expect(fromFixes.center).toEqual(scene.center);
     // The fixture discriminates: frame-sample planning would fit tighter.
     expect(fromFrames.zoom).not.toBe(prep.overview.zoom);
   });

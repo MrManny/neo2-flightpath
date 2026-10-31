@@ -12,6 +12,7 @@ import {
   planOutputs,
   prepareSession,
   processRecording,
+  recordingPageOpts,
   runBatch,
 } from '../src/run.js';
 import type { PipelineDeps, RecordingSummary } from '../src/run.js';
@@ -127,18 +128,15 @@ const sleep = (ms: number): Promise<void> =>
 afterEach(cleanupTmpDirs);
 
 describe('prepareSession', () => {
-  it('rounds the canvas to even sizes and wires the decimated track', async () => {
-    const prep = await prepareSession(
-      VIDEO,
-      testConfig({ width: 767, height: 500 }),
-      () => {},
-      { deps: stubDeps() },
-    );
+  it('rounds the canvas to even sizes and lets the planner decimate once', async () => {
+    const config = testConfig({ width: 767, height: 500 });
+    const prep = await prepareSession(VIDEO, config, () => {}, { deps: stubDeps() });
     expect(prep.width).toBe(766);
     expect(prep.height).toBe(500);
     expect(prep.frames.lat).toHaveLength(3);
-    expect(prep.decimated.frame[0]).toBe(0);
-    expect(prep.decimated.frame[prep.decimated.frame.length - 1]).toBe(2);
+    const opts = recordingPageOpts(prep, config);
+    expect(opts.decimated.frame[0]).toBe(0);
+    expect(opts.decimated.frame[opts.decimated.frame.length - 1]).toBe(2);
     expect(prep.hud).toEqual({ heading: true, alt: false, speed: false });
   });
 });

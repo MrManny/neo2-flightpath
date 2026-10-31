@@ -73,6 +73,7 @@ describe.for([
     text: 'An export is already running. Wait for it to finish or cancel it.',
   },
   { raw: 'export could not start', text: 'The export could not start. Try again.' },
+  { raw: 'export could not be canceled', text: 'The export could not be canceled. Try again.' },
   {
     raw: 'the output must not overwrite the source recording',
     text: 'The export would replace the source recording. Choose another file name.',

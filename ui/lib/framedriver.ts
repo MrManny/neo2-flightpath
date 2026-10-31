@@ -7,7 +7,12 @@
 import type { PageVideo } from '../../src/appsession.js';
 
 export function frameFromMediaTime(mediaTime: number, fps: number, frames: number): number {
-  return Math.max(0, Math.min(frames - 1, Math.floor(mediaTime * fps + 1e-6)));
+  return clampFrame(Math.floor(mediaTime * fps + 1e-6), frames);
+}
+
+/** The one clamp rule for frame indices: 0..frames-1. */
+export function clampFrame(i: number, frames: number): number {
+  return Math.max(0, Math.min(frames - 1, i));
 }
 
 // Jumps stay frame-quantized: one second is round(fps) frames even for
@@ -19,6 +24,24 @@ export function framesForSeconds(fps: number, seconds: number): number {
 export function formatTime(sec: number): string {
   const total = Math.max(0, Math.round(sec));
   return Math.floor(total / 60) + ':' + ('0' + (total % 60)).slice(-2);
+}
+
+export function timeAt(frame: number, fps: number): number {
+  return frame / fps;
+}
+
+export function formatFrameSpan(
+  start: number | null,
+  end: number | null,
+  fps: number,
+): string {
+  const at = (f: number | null): string =>
+    f === null ? '?' : formatTime(timeAt(f, fps));
+  return `${at(start)}–${at(end)}`;
+}
+
+export function formatFrameRange(points: LoopPoints, fps: number): string {
+  return `${formatFrameSpan(points.in, points.out, fps)} · ${points.out - points.in + 1} frames`;
 }
 
 export interface FrameDriverOpts {
@@ -137,7 +160,7 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
 
   return {
     scrub(i: number): void {
-      pendingScrub = Math.max(0, Math.min(frames - 1, i));
+      pendingScrub = clampFrame(i, frames);
     },
     setLoop(state: LoopState | null): void {
       loop = state;

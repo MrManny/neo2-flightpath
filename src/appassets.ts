@@ -8,6 +8,7 @@ import { MEDIA_PATH } from './apppaths.js';
 import type { Style } from './config.js';
 import type { TileCoord } from './plan.js';
 import { MIME } from './serve.js';
+import { parseTilePathname, tilePaths } from './tiles.js';
 import { TILE_SOURCES } from './renderer/tilesources.js';
 
 export interface AppRoutes {
@@ -40,18 +41,16 @@ export function resolveAppAsset(pathname: string, routes: AppRoutes): AppAsset {
 
   // Every known style routes into the shared cache: live restyle switches
   // styles without a reload, so no single style owns the tile route.
-  const tile = /^\/tiles\/([a-z0-9_-]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(pathname);
-  if (tile) {
-    const style = tile[1] as Style;
-    const src = TILE_SOURCES[style];
-    if (!src) return { kind: 'not-found' };
-    const dir = path.join(routes.tileCache, src.cacheKey, tile[2], tile[3]);
+  const parsed = parseTilePathname(pathname);
+  if (parsed) {
+    if (!TILE_SOURCES[parsed.style]) return { kind: 'not-found' };
+    const paths = tilePaths(routes.tileCache, parsed.style, parsed.tile);
     return {
       kind: 'tile',
-      filePath: path.join(dir, `${tile[4]}.png`),
-      placeholderPath: path.join(dir, `${tile[4]}.placeholder.png`),
-      style,
-      tile: { z: Number(tile[2]), x: Number(tile[3]), y: Number(tile[4]) },
+      filePath: paths.file,
+      placeholderPath: paths.placeholder,
+      style: parsed.style,
+      tile: parsed.tile,
     };
   }
 

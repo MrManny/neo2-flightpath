@@ -2,6 +2,12 @@
 // (.cjs) because sandboxed preload scripts cannot use ESM.
 const { contextBridge, ipcRenderer } = require('electron');
 
+function subscribe(channel, adapt) {
+  const handler = (_event, payload) => adapt(payload);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 contextBridge.exposeInMainWorld('neo2flightpath', {
   pickRecording: () => ipcRenderer.invoke('neo2flightpath:pick'),
   getSession: () => ipcRenderer.invoke('neo2flightpath:session'),
@@ -11,19 +17,7 @@ contextBridge.exposeInMainWorld('neo2flightpath', {
   cancelExport: () => ipcRenderer.invoke('neo2flightpath:export:cancel'),
   revealExportOutput: (out) => ipcRenderer.invoke('neo2flightpath:export:reveal', out),
   openExportOutput: (out) => ipcRenderer.invoke('neo2flightpath:export:open', out),
-  onExportProgress: (cb) => {
-    const handler = (_event, message) => cb(message);
-    ipcRenderer.on('neo2flightpath:export:progress', handler);
-    return () => ipcRenderer.removeListener('neo2flightpath:export:progress', handler);
-  },
-  onExportDone: (cb) => {
-    const handler = (_event, outcome) => cb(outcome);
-    ipcRenderer.on('neo2flightpath:export:done', handler);
-    return () => ipcRenderer.removeListener('neo2flightpath:export:done', handler);
-  },
-  onPreparing: (cb) => {
-    const handler = () => cb();
-    ipcRenderer.on('neo2flightpath:preparing', handler);
-    return () => ipcRenderer.removeListener('neo2flightpath:preparing', handler);
-  },
+  onExportProgress: (cb) => subscribe('neo2flightpath:export:progress', cb),
+  onExportDone: (cb) => subscribe('neo2flightpath:export:done', cb),
+  onPreparing: (cb) => subscribe('neo2flightpath:preparing', () => cb()),
 });
