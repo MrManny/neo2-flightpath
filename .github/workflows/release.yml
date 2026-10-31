@@ -1,6 +1,9 @@
 name: Release
 
-# Publishes to npm when a GitHub release is published.
+# Lint and test gate the workflow; when they pass, two independent jobs run:
+# publishing to npm and attaching the desktop app artifacts (Windows portable
+# exe, Linux AppImage) to the GitHub Release. A failure in one does not block
+# the other; each job can be re-run on its own.
 #
 # Auth works in two phases (see README "Releasing"):
 #   1. Bootstrap: the package does not exist on npm yet, so OIDC trusted
@@ -24,9 +27,31 @@ permissions:
   id-token: write
 
 jobs:
+  check:
+    name: Lint and test
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
   publish:
     name: Publish to npm
-    if: github.event.release.prerelease == false
+    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -42,12 +67,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npm test
 
       - name: Build
         run: npm run build
@@ -70,3 +89,54 @@ jobs:
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  desktop:
+    name: Desktop app (${{ matrix.label }})
+    needs: check
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            label: win-x64
+            target: --win portable
+            artifact: dist-electron/*.exe
+          - os: ubuntu-latest
+            label: linux-x86_64
+            target: --linux AppImage
+            artifact: dist-electron/*.AppImage
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify tag matches package.json version
+        shell: bash
+        run: |
+          pkg_version="$(node -p "require('./package.json').version")"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$pkg_version" != "$tag_version" ]; then
+            echo "::error::Release tag '$GITHUB_REF_NAME' does not match package.json version '$pkg_version'"
+            exit 1
+          fi
+
+      - name: Build desktop app
+        run: npm run app:pack -- ${{ matrix.target }}
+
+      - name: Attach artifact to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" ${{ matrix.artifact }} --clobber
