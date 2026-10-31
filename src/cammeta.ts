@@ -33,6 +33,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { ffprobeJson } from './ff.js';
+import { isGpsFix } from './geo.js';
 import {
   firstDouble,
   firstFloat,
@@ -47,6 +48,8 @@ const execFileAsync = promisify(execFile);
 export interface ProductMeta {
   lat: number | null;
   lon: number | null;
+  /** Position pair present but not a real fix (see isGpsFix). */
+  noLock: boolean;
   relAlt: number | null;
   absAlt: number | null;
   yawDeg: number | null;
@@ -60,6 +63,8 @@ export interface CamSample extends ProductMeta {
 
 export interface CamMetaResult {
   samples: CamSample[];
+  /** No-lock positions; the byte-scan fallback reports 0 (fix pairs only). */
+  noLock: number;
   method: 'dvtm-packets' | 'cammeta-scan';
 }
 
@@ -89,6 +94,7 @@ function emptyProductMeta(): ProductMeta {
   return {
     lat: null,
     lon: null,
+    noLock: false,
     relAlt: null,
     absAlt: null,
     yawDeg: null,
@@ -155,7 +161,8 @@ function decodeAbsoluteAltitude(
 }
 
 // drone.4 GpsBasic: WGS84 lat/lon doubles plus gps_altitude_mm (used as the
-// absolute-altitude fallback when camera.11 is missing).
+// absolute-altitude fallback when camera.11 is missing). A position pair
+// that fails isGpsFix is the no-lock placeholder: counted, never a fix.
 function decodeGps(
   buf: Buffer,
   drone: ProtoFieldMap,
@@ -168,9 +175,13 @@ function decodeGps(
   if (coord) {
     const lat = firstDouble(coord, LAT);
     const lon = firstDouble(coord, LON);
-    if (lat !== null && lon !== null && isPlausibleFix(lat, lon)) {
-      out.lat = lat;
-      out.lon = lon;
+    if (lat !== null && lon !== null) {
+      if (isGpsFix(lat, lon)) {
+        out.lat = lat;
+        out.lon = lon;
+      } else {
+        out.noLock = true;
+      }
     }
   }
   if (out.absAlt === null) {
@@ -207,24 +218,9 @@ function decodeEulerAngles(
   if (yaw !== null) out.yawDeg = yaw / 10;
 }
 
-// Shared "real GPS fix" plausibility rule for the protobuf path and the
-// byte-scan fallback - both must agree, otherwise a genuine fix within 0.5
-// degrees of the equator or the prime meridian is accepted by one path and
-// silently dropped by the other. The 0/0 "no GPS lock" placeholder is the
-// only thing rejected by the threshold.
-export function isPlausibleFix(lat: number, lon: number): boolean {
-  return (
-    Number.isFinite(lat) &&
-    Number.isFinite(lon) &&
-    lat > -90 &&
-    lat < 90 &&
-    lon > -180 &&
-    lon < 180 &&
-    !(Math.abs(lat) < 0.5 && Math.abs(lon) < 0.5)
-  );
-}
-
-// Byte-scan fallback: the 0x11/0x19 fixed64 GPS double pair.
+// Byte-scan fallback: the 0x11/0x19 fixed64 GPS double pair. It judges
+// coordinates by src/geo.ts's isGpsFix - the same rule as the protobuf path,
+// so a genuine fix is never accepted by one path and dropped by the other.
 export function scanGpsPair(
   buf: Buffer,
   offset = 0,
@@ -234,7 +230,7 @@ export function scanGpsPair(
     if (buf[i] === 0x11 && buf[i + 9] === 0x19) {
       const lat = buf.readDoubleLE(i + 1);
       const lon = buf.readDoubleLE(i + 10);
-      if (isPlausibleFix(lat, lon)) {
+      if (isGpsFix(lat, lon)) {
         return { lat, lon, at: i };
       }
     }
@@ -242,7 +238,7 @@ export function scanGpsPair(
   return null;
 }
 
-interface PacketInfo {
+export interface PacketInfo {
   tSec: number;
   size: number;
 }
@@ -306,21 +302,25 @@ function toCamSample(meta: ProductMeta, tSec: number): CamSample {
 }
 
 // Primary path: walk the dump packet by packet so each ProductMeta message
-// aligns to its packet PTS.
-function decodePacketSamples(
+// aligns to its packet PTS. No-lock packets are counted like SRT counts
+// no-lock cues so summaries agree across telemetry sources; they join the
+// samples only under keepAll.
+export function decodePacketSamples(
   buf: Buffer,
   packets: PacketInfo[],
   keepAll: boolean,
-): CamSample[] {
+): { samples: CamSample[]; noLock: number } {
   const samples: CamSample[] = [];
+  let noLock = 0;
   let offset = 0;
   for (const packet of packets) {
     const end = offset + packet.size;
     let meta = decodeProductMeta(buf, offset, end);
     if (meta.lat === null) {
       const hit = scanGpsPair(buf, offset, end);
-      if (hit) meta = { ...meta, lat: hit.lat, lon: hit.lon };
+      if (hit) meta = { ...meta, lat: hit.lat, lon: hit.lon, noLock: false };
     }
+    if (meta.noLock) noLock++;
     if (meta.lat !== null || keepAll) {
       // No PTS: pretend "same time as the first sample" rather than
       // fabricating a timeline out of a sample count (unit mismatch).
@@ -329,7 +329,7 @@ function decodePacketSamples(
     }
     offset = end;
   }
-  return samples;
+  return { samples, noLock };
 }
 
 // Fallback path: no frame alignment.
@@ -382,14 +382,14 @@ export async function parseCamMeta(
     0,
   );
   if (packets.length > 0 && sizeSum === buf.length) {
-    return {
-      samples: decodePacketSamples(buf, packets, keepAll),
-      method: 'dvtm-packets',
-    };
+    const { samples, noLock } = decodePacketSamples(buf, packets, keepAll);
+    return { samples, noLock, method: 'dvtm-packets' };
   }
 
   const samples = scanBufferForGpsPairs(buf);
   if (samples.length === 0) return null;
   spreadSampleTimes(samples, durationSec);
-  return { samples, method: 'cammeta-scan' };
+  // The scan sees complete fix pairs only - a no-lock placeholder is
+  // indistinguishable from absent bytes in raw data.
+  return { samples, noLock: 0, method: 'cammeta-scan' };
 }

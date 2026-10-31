@@ -219,3 +219,33 @@ export function writeSrt(videoPath: string, text: string): string {
   fs.writeFileSync(srtPath, text);
   return srtPath;
 }
+
+// Smallest CAM meta packet carrying a position pair (field map per
+// src/cammeta.ts): ProductMeta { 3 frame_meta { 4 drone { 4 GpsBasic
+// { 1 PositionCoord { 2 lat, 3 lon } } } } }.
+function varint(value: number): Buffer {
+  const bytes: number[] = [];
+  let v = value;
+  do {
+    let b = v & 0x7f;
+    v >>>= 7;
+    if (v > 0) b |= 0x80;
+    bytes.push(b);
+  } while (v > 0);
+  return Buffer.from(bytes);
+}
+
+function fldDouble(num: number, value: number): Buffer {
+  const body = Buffer.alloc(8);
+  body.writeDoubleLE(value);
+  return Buffer.concat([varint((num << 3) | 1), body]);
+}
+
+function fldBytes(num: number, payload: Buffer): Buffer {
+  return Buffer.concat([varint((num << 3) | 2), varint(payload.length), payload]);
+}
+
+export function productMetaPacket(lat: number, lon: number): Buffer {
+  const coord = Buffer.concat([fldDouble(2, lat), fldDouble(3, lon)]);
+  return fldBytes(3, fldBytes(4, fldBytes(4, fldBytes(1, coord))));
+}

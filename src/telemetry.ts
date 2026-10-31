@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { bearingDeg, circularMeanDeg, haversineM } from './geo.js';
+import { bearingDeg, circularMeanDeg, haversineM, isGpsFix } from './geo.js';
 import type { Bbox, LatLon } from './geo.js';
 import { parseSrt } from './srt.js';
 import { parseCamMeta } from './cammeta.js';
@@ -22,6 +22,12 @@ export interface Telemetry {
   sampleCount: number;
   /** Samples carrying a GPS fix; other samples are neither fixes nor no-locks. */
   fixCount: number;
+  /**
+   * No-lock positions (the placeholder is not a fix, see isGpsFix). Every
+   * source counts them the same way - SRT as no-lock cues, the CAM meta
+   * packet path as no-lock packets - except the raw byte-scan fallback,
+   * which sees fix pairs only and reports 0.
+   */
   noLock: number;
   /** Index-aligned to video frames. */
   frames: FrameData[];
@@ -52,8 +58,14 @@ const HEADING_MAX_BASELINE_S = 3; // widened baseline for slow flights
 const HEADING_MIN_SPEED_MPS = 0.5; // below this the course is meaningless
 const HEADING_SMOOTHING_SPAN = 4; // +-N samples circular mean
 
-function hasGpsFix(sample: TelSample): boolean {
-  return sample.lat !== null;
+// A sample carries a fix only when both coordinates are present and pass
+// the one GPS-fix rule; parsers set lat and lon together or not at all.
+function hasGpsFix(
+  sample: TelSample,
+): sample is TelSample & { lat: number; lon: number } {
+  return (
+    sample.lat !== null && sample.lon !== null && isGpsFix(sample.lat, sample.lon)
+  );
 }
 
 // Sidecar lookup matches the video basename, case-insensitively (.SRT vs .srt).
@@ -104,7 +116,7 @@ function nearestFix(
 
 // Narrow a sample that is known to carry a GPS fix.
 function fixOf(sample: TelSample): LatLon {
-  if (sample.lat === null || sample.lon === null) {
+  if (!hasGpsFix(sample)) {
     throw new Error('internal: sample without GPS fix');
   }
   return { lat: sample.lat, lon: sample.lon };
@@ -195,7 +207,7 @@ async function loadSamples(
       'no telemetry found: no .SRT sidecar and no GPS pairs in the CAM meta stream',
     );
   }
-  return { samples: cam.samples, source: 'cammeta', method: cam.method, noLock: 0 };
+  return { samples: cam.samples, source: 'cammeta', method: cam.method, noLock: cam.noLock };
 }
 
 function indicesOfFixes(samples: TelSample[]): number[] {

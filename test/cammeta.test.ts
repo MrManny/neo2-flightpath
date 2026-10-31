@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeProductMeta, isPlausibleFix, scanGpsPair } from '../src/cammeta.js';
+import { decodePacketSamples, decodeProductMeta, scanGpsPair } from '../src/cammeta.js';
+import type { PacketInfo } from '../src/cammeta.js';
 
 function dbl(value: number): Buffer {
   const b = Buffer.alloc(8);
@@ -112,15 +113,25 @@ describe('decodeProductMeta', () => {
     expect(m.absAlt).toBeCloseTo(500.123, 3);
   });
 
-  it('treats near-zero coordinates as no GPS fix', () => {
+  it('keeps near-null-island coordinates as fixes (regression)', () => {
+    // The shared rule (src/geo.ts's isGpsFix) rejects only exactly 0/0;
+    // the old 0.5-degree box used to drop these genuine fixes.
     const buf = buildProductMeta({
       lat: 0.0000001,
       lon: 0.0000001,
       relAltMm: 0,
     });
     const m = decodeProductMeta(buf);
+    expect(m.lat).toBeCloseTo(0.0000001, 9);
+    expect(m.noLock).toBe(false);
+  });
+
+  it('marks the 0/0 placeholder as a no-lock position', () => {
+    const buf = buildProductMeta({ lat: 0, lon: 0, relAltMm: 0 });
+    const m = decodeProductMeta(buf);
     expect(m.lat).toBeNull();
     expect(m.lon).toBeNull();
+    expect(m.noLock).toBe(true);
   });
 
   it('accepts genuine fixes near the equator / prime meridian', () => {
@@ -155,40 +166,79 @@ describe('scanGpsPair', () => {
     expect(hit?.at).toBe(2);
   });
 
-  it('rejects implausible coordinates', () => {
-    const pair = Buffer.concat([
-      Buffer.from([0x11]),
-      (() => {
-        const b = Buffer.alloc(8);
-        b.writeDoubleLE(0.0000001);
-        return b;
-      })(),
-      Buffer.from([0x19]),
-      (() => {
-        const b = Buffer.alloc(8);
-        b.writeDoubleLE(0.0000001);
-        return b;
-      })(),
-    ]);
-    expect(scanGpsPair(pair)).toBeNull();
+  it('rejects the 0/0 placeholder and out-of-range pairs', () => {
+    for (const [lat, lon] of [
+      [0, 0],
+      [91, 0],
+    ]) {
+      const pair = Buffer.concat([
+        Buffer.from([0x11]),
+        dbl(lat),
+        Buffer.from([0x19]),
+        dbl(lon),
+      ]);
+      expect(scanGpsPair(pair)).toBeNull();
+    }
   });
 
-  it('applies the same fix plausibility rule as the protobuf path', () => {
-    // Within 0.5 degrees of the prime meridian (or the equator): a genuine
-    // fix the byte-scan must not drop while the protobuf path accepts it.
-    const pair = Buffer.concat([
-      Buffer.from([0x11]),
-      dbl(10.2),
-      Buffer.from([0x19]),
-      dbl(0.2),
-    ]);
-    const hit = scanGpsPair(pair);
-    expect(hit?.lat).toBeCloseTo(10.2, 9);
-    expect(hit?.lon).toBeCloseTo(0.2, 9);
+  it('applies the same GPS-fix rule as the protobuf path', () => {
+    // Near the prime meridian (or the equator) and near null island: the
+    // (0.1, 0.1) disagreement regression - genuine fixes neither path may
+    // drop; only exactly 0/0 is the placeholder.
+    for (const [lat, lon] of [
+      [10.2, 0.2],
+      [0.2, 10.2],
+      [0.1, 0.1],
+    ]) {
+      const pair = Buffer.concat([
+        Buffer.from([0x11]),
+        dbl(lat),
+        Buffer.from([0x19]),
+        dbl(lon),
+      ]);
+      const hit = scanGpsPair(pair);
+      expect(hit?.lat).toBeCloseTo(lat, 9);
+      expect(hit?.lon).toBeCloseTo(lon, 9);
 
-    expect(isPlausibleFix(10.2, 0.2)).toBe(true); // prime meridian
-    expect(isPlausibleFix(0.2, 10.2)).toBe(true); // equator
-    expect(isPlausibleFix(0.1, 0.1)).toBe(false); // 0/0 no-lock placeholder
-    expect(isPlausibleFix(91, 0)).toBe(false); // out of range
+      const m = decodeProductMeta(buildProductMeta({ lat, lon, relAltMm: 0 }));
+      expect(m.lat).toBeCloseTo(lat, 9);
+      expect(m.lon).toBeCloseTo(lon, 9);
+    }
+  });
+});
+
+describe('decodePacketSamples', () => {
+  function packetsOf(parts: Buffer[]): { buf: Buffer; packets: PacketInfo[] } {
+    const packets: PacketInfo[] = [];
+    let tSec = 0;
+    for (const part of parts) {
+      packets.push({ tSec, size: part.length });
+      tSec += 1 / 30;
+    }
+    return { buf: Buffer.concat(parts), packets };
+  }
+
+  it('counts no-lock packets and keeps only fix samples by default', () => {
+    const { buf, packets } = packetsOf([
+      buildProductMeta({ lat: 0, lon: 0, relAltMm: 0 }),
+      buildProductMeta({ lat: 46.6, lon: 14.3, relAltMm: 0 }),
+      buildProductMeta({ lat: 0.1, lon: 0.1, relAltMm: 0 }),
+    ]);
+    const { samples, noLock } = decodePacketSamples(buf, packets, false);
+    expect(noLock).toBe(1);
+    expect(samples.map((s) => s.lat)).toEqual([46.6, 0.1]);
+  });
+
+  it('keeps no-lock samples under keepAll but still counts them', () => {
+    const { buf, packets } = packetsOf([
+      buildProductMeta({ lat: 0, lon: 0, relAltMm: 0 }),
+      buildProductMeta({ lat: 46.6, lon: 14.3, relAltMm: 0 }),
+    ]);
+    const { samples, noLock } = decodePacketSamples(buf, packets, true);
+    expect(noLock).toBe(1);
+    expect(samples).toHaveLength(2);
+    expect(samples[0].noLock).toBe(true);
+    expect(samples[0].lat).toBeNull();
+    expect(samples[1].lat).toBe(46.6);
   });
 });
