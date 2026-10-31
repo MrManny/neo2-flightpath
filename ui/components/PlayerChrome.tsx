@@ -9,10 +9,13 @@ import type { Scene } from '../../src/renderer/scene.js';
 import { restyleSceneData } from '../../src/restyle.js';
 import type { LoopState } from '../lib/framedriver.js';
 import {
+  clampFrame,
   createFrameDriver,
   engagedLoop,
+  formatFrameSpan,
   formatTime,
   framesForSeconds,
+  timeAt,
 } from '../lib/framedriver.js';
 import { formatStats } from '../lib/flightstats.js';
 import type { HotkeyAction } from '../lib/hotkeys.js';
@@ -116,7 +119,7 @@ export function PlayerChrome({
         // Imperative like the scrubber: the time text changes every presented
         // frame and must not re-render the component tree at playback rate.
         if (timeRef.current) {
-          timeRef.current.textContent = `${formatTime(i / video.fps)} / ${totalText}`;
+          timeRef.current.textContent = `${formatTime(timeAt(i, video.fps))} / ${totalText}`;
         }
       },
     });
@@ -140,7 +143,7 @@ export function PlayerChrome({
 
   const scrubTo = useCallback(
     (i: number) => {
-      const clamped = Math.max(0, Math.min(video.frames - 1, i));
+      const clamped = clampFrame(i, video.frames);
       latestIndexRef.current = clamped;
       driverRef.current?.scrub(clamped);
     },
@@ -246,9 +249,7 @@ export function PlayerChrome({
   const bandPct = (i: number): number => (maxFrame > 0 ? (i / maxFrame) * 100 : 0);
   const loopReadout =
     loop.in !== null || loop.out !== null
-      ? `loop ${loop.in !== null ? formatTime(loop.in / video.fps) : '?'}–${
-          loop.out !== null ? formatTime(loop.out / video.fps) : '?'
-        }`
+      ? `loop ${formatFrameSpan(loop.in, loop.out, video.fps)}`
       : '';
   const opening = openState.kind === 'preparing';
   const openNotice =

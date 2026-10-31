@@ -14,7 +14,6 @@ export function DialogClose({ onClose, blockedReason }: DialogCloseProps) {
   return (
     <button
       type="button"
-      className="dialog-close"
       aria-label="Close"
       title={blockedReason}
       disabled={blockedReason !== undefined}

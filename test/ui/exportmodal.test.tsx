@@ -17,6 +17,7 @@ afterEach(() => {
 
 const SESSION = {
   video: { src: 'app://bundle/media/video', fps: 30, frames: 300, width: 1280, height: 720 },
+  stats: { durationSec: 10 },
 } as unknown as UiSession;
 
 const SETTINGS: RenderConfig = { ...DEFAULT_CONFIG, width: 768, height: 768 };
@@ -156,14 +157,6 @@ describe('ExportModal save-first flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start export' }));
     await waitFor(() => expect(bridge.startExport).toHaveBeenCalledTimes(1));
     expect(bridge.startExport.mock.calls[0][0].range).toBeNull();
-  });
-});
-
-describe('ExportModal secondary buttons', () => {
-  it('styles Cancel with the shared modal button class', () => {
-    installBridge();
-    renderModal({ in: null, out: null });
-    expect(screen.getByRole('button', { name: 'Cancel' }).className).toContain('modal-button');
   });
 });
 

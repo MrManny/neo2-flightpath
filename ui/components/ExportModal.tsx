@@ -10,9 +10,9 @@ import { appBridge } from '../lib/backend.js';
 import { describeError } from '../lib/errortext.js';
 import { captureFraction, exportReducer, initialExportState } from '../lib/exportstate.js';
 import { formatFrameRate } from '../lib/framerate.js';
-import { engagedLoop, formatTime } from '../lib/framedriver.js';
+import { engagedLoop, formatFrameRange, formatTime } from '../lib/framedriver.js';
 import type { LoopState } from '../lib/framedriver.js';
-import { DialogClose } from './DialogClose.js';
+import { DialogShell } from './DialogShell.js';
 import { Notice } from './Notice.js';
 import { NumberField } from './NumberField.js';
 
@@ -42,7 +42,7 @@ export function ExportModal({
   onClose,
   onBusyChange,
 }: ExportModalProps) {
-  const { video } = session;
+  const { video, stats } = session;
   const [state, dispatch] = useReducer(
     exportReducer,
     initialExportState(settings.width, settings.height),
@@ -50,6 +50,7 @@ export function ExportModal({
   const loopPoints = engagedLoop(loop);
   const busy = state.phase === 'running';
   const fraction = captureFraction(state.messages);
+  const percent = Math.round((fraction ?? 0) * 100);
 
   useEffect(() => {
     onBusyChange(busy);
@@ -139,213 +140,194 @@ export function ExportModal({
   };
 
   const { phase, form, result, error, canceling } = state;
-  const totalText = formatTime(video.frames / video.fps);
+  // The one duration definition: the stats chip and the export form agree.
+  const totalText = formatTime(stats.durationSec);
   const segment: { range: FrameRange; label: string } | null = loopPoints
     ? {
         range: { start: loopPoints.in, end: loopPoints.out },
-        label:
-          `${formatTime(loopPoints.in / video.fps)}–${formatTime(loopPoints.out / video.fps)}` +
-          ` · ${loopPoints.out - loopPoints.in + 1} frames`,
+        label: formatFrameRange(loopPoints, video.fps),
       }
     : null;
   const errorText = error === null ? null : describeError(error);
 
   return (
-    <div
-      className="settings-overlay"
-      onClick={() => {
-        if (!busy) onClose();
-      }}
+    <DialogShell
+      title="Export"
+      onClose={onClose}
+      closeOnBackdrop={!busy}
+      blockedReason={busy ? 'Export is running. Cancel it to close.' : undefined}
     >
-      <div
-        className="settings-panel"
-        role="dialog"
-        aria-label="Export"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="settings-header">
-          <h2>Export</h2>
-          <DialogClose
-            onClose={onClose}
-            blockedReason={busy ? 'Export is running. Cancel it to close.' : undefined}
-          />
-        </div>
-
-        {phase === 'form' ? (
-          <>
-            {/* With no engaged loop there is nothing to choose: the export is
-                the full recording and the choice stays out of the way. */}
-            {segment ? (
-              <fieldset className="settings-group">
-                <legend>What</legend>
-                <label className="settings-row">
-                  <input
-                    type="radio"
-                    name="export-range"
-                    checked={form.range === null}
-                    onChange={() => dispatch({ type: 'setRange', range: null })}
-                  />
-                  <span>Full recording ({totalText})</span>
-                </label>
-                <label className="settings-row">
-                  <input
-                    type="radio"
-                    name="export-range"
-                    checked={form.range !== null}
-                    onChange={() => dispatch({ type: 'setRange', range: segment.range })}
-                  />
-                  <span>In–Out segment ({segment.label})</span>
-                </label>
-              </fieldset>
-            ) : null}
-
+      {phase === 'form' ? (
+        <>
+          {/* With no engaged loop there is nothing to choose: the export is
+              the full recording and the choice stays out of the way. */}
+          {segment ? (
             <fieldset className="settings-group">
-              <legend>How</legend>
-              <NumberField
-                label="Width"
-                value={form.width}
-                min={MIN_DIMENSION}
-                rule={`at least ${MIN_DIMENSION} px`}
-                hint="px"
-                onValue={(width) => {
-                  if (!dimensionsValid(width, form.height)) return false;
-                  dispatch({ type: 'setWidth', width });
-                  return true;
-                }}
-              />
-              <NumberField
-                label="Height"
-                value={form.height}
-                min={MIN_DIMENSION}
-                rule={`at least ${MIN_DIMENSION} px`}
-                hint="px"
-                onValue={(height) => {
-                  if (!dimensionsValid(form.width, height)) return false;
-                  dispatch({ type: 'setHeight', height });
-                  return true;
-                }}
-              />
-            </fieldset>
-
-            {errorText ? (
-              <Notice tone="danger" details={errorText.technical}>
-                {errorText.text}
-              </Notice>
-            ) : null}
-            <div className="dialog-actions">
-              <button type="button" className="modal-button" onClick={onClose}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="export-primary"
-                onClick={() => void chooseAndExport()}
-              >
-                Start export
-              </button>
-            </div>
-          </>
-        ) : null}
-
-        {phase === 'running' ? (
-          <>
-            <div className="export-progress">
-              <div
-                className="export-progress-track"
-                role="progressbar"
-                aria-label="Export progress"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round((fraction ?? 0) * 100)}
-              >
-                <div
-                  className="export-progress-fill"
-                  style={{ width: `${Math.round((fraction ?? 0) * 100)}%` }}
+              <legend>What</legend>
+              <label className="settings-row">
+                <input
+                  type="radio"
+                  name="export-range"
+                  checked={form.range === null}
+                  onChange={() => dispatch({ type: 'setRange', range: null })}
                 />
-              </div>
-              <div className="export-progress-label">
-                {canceling
-                  ? 'Canceling…'
-                  : fraction === null
-                    ? 'Preparing…'
-                    : `Rendering ${Math.round(fraction * 100)}%`}
-              </div>
-            </div>
-            {errorText ? (
-              <Notice tone="danger" details={errorText.technical}>
-                {errorText.text}
-              </Notice>
-            ) : null}
-            <div className="dialog-actions">
-              <button
-                type="button"
-                className="modal-button"
-                onClick={cancelExport}
-                disabled={canceling}
-              >
-                Cancel export
-              </button>
-            </div>
-          </>
-        ) : null}
+                <span>Full recording ({totalText})</span>
+              </label>
+              <label className="settings-row">
+                <input
+                  type="radio"
+                  name="export-range"
+                  checked={form.range !== null}
+                  onChange={() => dispatch({ type: 'setRange', range: segment.range })}
+                />
+                <span>In–Out segment ({segment.label})</span>
+              </label>
+            </fieldset>
+          ) : null}
 
-        {phase === 'done' && result ? (
-          <>
-            {errorText ? (
-              <Notice tone="danger" details={errorText.technical}>
-                {errorText.text}
-              </Notice>
-            ) : null}
-            <Notice tone="info">
-              {`${result.frames} frames @ ${formatFrameRate(result.fps ?? '')} · ${Math.round(result.elapsedSec)} s · ${result.width}×${result.height}`}
-            </Notice>
-            <p className="export-path">{result.out}</p>
-            <div className="dialog-actions">
-              <button
-                type="button"
-                className="modal-button"
-                onClick={() => runOnBridge((b) => b.revealExportOutput(result.out))}
-              >
-                Reveal in folder
-              </button>
-              <button
-                type="button"
-                className="modal-button"
-                onClick={() => runOnBridge((b) => b.openExportOutput(result.out))}
-              >
-                Open video
-              </button>
-              <button type="button" className="modal-button" onClick={onClose}>
-                Close
-              </button>
-            </div>
-          </>
-        ) : null}
+          <fieldset className="settings-group">
+            <legend>How</legend>
+            <NumberField
+              label="Width"
+              value={form.width}
+              min={MIN_DIMENSION}
+              rule={`at least ${MIN_DIMENSION} px`}
+              hint="px"
+              onValue={(width) => {
+                if (!dimensionsValid(width, form.height)) return false;
+                dispatch({ type: 'setWidth', width });
+                return true;
+              }}
+            />
+            <NumberField
+              label="Height"
+              value={form.height}
+              min={MIN_DIMENSION}
+              rule={`at least ${MIN_DIMENSION} px`}
+              hint="px"
+              onValue={(height) => {
+                if (!dimensionsValid(form.width, height)) return false;
+                dispatch({ type: 'setHeight', height });
+                return true;
+              }}
+            />
+          </fieldset>
 
-        {phase === 'canceled' ? (
-          <>
-            <Notice tone="info">Export canceled; its working file was removed.</Notice>
-            <div className="dialog-actions">
-              <button type="button" className="modal-button" onClick={onClose}>
-                Close
-              </button>
-            </div>
-          </>
-        ) : null}
-
-        {phase === 'error' && errorText ? (
-          <>
+          {errorText ? (
             <Notice tone="danger" details={errorText.technical}>
-              {`${errorText.text} The destination file was left untouched.`}
+              {errorText.text}
             </Notice>
-            <div className="dialog-actions">
-              <button type="button" className="modal-button" onClick={onClose}>
-                Close
-              </button>
+          ) : null}
+          <div className="dialog-actions">
+            <button type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="export-primary"
+              onClick={() => void chooseAndExport()}
+            >
+              Start export
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {phase === 'running' ? (
+        <>
+          <div className="export-progress">
+            <div
+              className="export-progress-track"
+              role="progressbar"
+              aria-label="Export progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+            >
+              <div
+                className="export-progress-fill"
+                style={{ width: `${percent}%` }}
+              />
             </div>
-          </>
-        ) : null}
-      </div>
-    </div>
+            <div className="export-progress-label">
+              {canceling
+                ? 'Canceling…'
+                : fraction === null
+                  ? 'Preparing…'
+                  : `Rendering ${percent}%`}
+            </div>
+          </div>
+          {errorText ? (
+            <Notice tone="danger" details={errorText.technical}>
+              {errorText.text}
+            </Notice>
+          ) : null}
+          <div className="dialog-actions">
+            <button
+              type="button"
+              onClick={cancelExport}
+              disabled={canceling}
+            >
+              Cancel export
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {phase === 'done' && result ? (
+        <>
+          {errorText ? (
+            <Notice tone="danger" details={errorText.technical}>
+              {errorText.text}
+            </Notice>
+          ) : null}
+          <Notice tone="info">
+            {`${result.frames} frames @ ${formatFrameRate(result.fps ?? '')} · ${Math.round(result.elapsedSec)} s · ${result.width}×${result.height}`}
+          </Notice>
+          <p className="export-path">{result.out}</p>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              onClick={() => runOnBridge((b) => b.revealExportOutput(result.out))}
+            >
+              Reveal in folder
+            </button>
+            <button
+              type="button"
+              onClick={() => runOnBridge((b) => b.openExportOutput(result.out))}
+            >
+              Open video
+            </button>
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {phase === 'canceled' ? (
+        <>
+          <Notice tone="info">Export canceled; its working file was removed.</Notice>
+          <div className="dialog-actions">
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {phase === 'error' && errorText ? (
+        <>
+          <Notice tone="danger" details={errorText.technical}>
+            {`${errorText.text} The destination file was left untouched.`}
+          </Notice>
+          <div className="dialog-actions">
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </>
+      ) : null}
+    </DialogShell>
   );
 }
