@@ -71,7 +71,9 @@ UI tokens, components, copy and error text.
   change `CHANGELOG.md` (CI enforces this); releases fold the fragments into
   `CHANGELOG.md` (see `.changeset/README.md`).
 
-## Agent helper scripts
+## Agent helper
+
+### Scripts
 
 Deterministic helpers in `scripts/` for repetitive GitHub tasks; tooling only —
 never part of the application or its bundle, and not linted or unit-tested.
@@ -88,6 +90,10 @@ Project status steps run only when the `gh` login can edit the GitHub project an
 skipped silently otherwise. Every helper spawns external commands through
 `scripts/lib/exec.mjs` (one child-process policy: hidden windows on Windows) — do not
 call `node:child_process` directly.
+
+### Paths
+
+If you need to write temporary files, use `.scrap`. It is a git-ignored space.
 
 ## GitHub interactions
 
