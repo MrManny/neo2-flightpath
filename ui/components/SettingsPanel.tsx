@@ -1,13 +1,12 @@
 'use client';
 
-import { useId } from 'react';
-
 import { STYLE_VALUES, VIEW_VALUES } from '../../src/config.js';
 import type { RenderConfig, Style, View } from '../../src/config.js';
 import { patchConfig, setHudChip } from '../lib/settings.js';
 import { DialogShell } from './DialogShell.js';
 import { Notice } from './Notice.js';
 import { NumberField } from './NumberField.js';
+import { SelectField } from './SelectField.js';
 
 export interface SettingsPanelProps {
   config: RenderConfig;
@@ -15,33 +14,6 @@ export interface SettingsPanelProps {
   hasAltitude: boolean;
   onChange: (config: RenderConfig) => void;
   onClose: () => void;
-}
-
-function SelectField(props: {
-  label: string;
-  value: string;
-  options: ReadonlyArray<{ value: string; label: string }>;
-  onValue: (value: string) => void;
-}) {
-  const id = useId();
-  return (
-    <div className="settings-row">
-      <label className="settings-label" htmlFor={id}>
-        {props.label}
-      </label>
-      <select
-        id={id}
-        value={props.value}
-        onChange={(e) => props.onValue(e.target.value)}
-      >
-        {props.options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
 }
 
 // The config vocabulary holds raw values; the options show plain words.
