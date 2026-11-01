@@ -93,7 +93,7 @@ call `node:child_process` directly.
 
 ### Paths
 
-If you need to write temporary files, use `.scrap`. It is a git-ignored space.
+If you need to write temporary files, use `.scratch`. It is a git-ignored space.
 
 ## GitHub interactions
 
