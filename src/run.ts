@@ -8,7 +8,12 @@ import type { VideoProbe } from './ff.js';
 import { videoBaseName } from './inputs.js';
 import { pathKey, uniquePath } from './paths.js';
 import { loadTelemetry } from './telemetry.js';
-import type { Telemetry } from './telemetry.js';
+import type {
+  HeadingMode,
+  Telemetry,
+  TelemetryMethod,
+  TelemetrySource,
+} from './telemetry.js';
 import { prefetchTiles } from './tiles.js';
 import type { PrefetchStats } from './tiles.js';
 import { planIntroOutroFrames, planView } from './plan.js';
@@ -16,6 +21,7 @@ import type { IntroOutroFrames, Overview } from './plan.js';
 import { buildPageHtml, planPageOpts } from './page.js';
 import type { PageOpts } from './page.js';
 import { renderVideo } from './render.js';
+import type { CaptureProgress } from './render.js';
 import type { FrameRange, HudSpec, RenderConfig } from './config.js';
 import {
   assertValidFrameRange,
@@ -62,9 +68,9 @@ export interface RecordingSummary {
   introFrames?: number;
   outroFrames?: number;
   hud?: HudSpec;
-  source?: string;
-  method?: string;
-  headingMode?: string;
+  source?: TelemetrySource;
+  method?: TelemetryMethod;
+  headingMode?: HeadingMode;
   fixes?: number;
   noLock?: number;
   frames?: number;
@@ -239,6 +245,8 @@ export interface PipelineOptions {
   signal?: AbortSignal;
   /** Loading progress of the preparation stages, for progress displays. */
   onProgress?: PrepareProgressFn;
+  /** Typed capture progress, for progress displays. */
+  onCapture?: (progress: CaptureProgress) => void;
 }
 
 // A segment export renders source frames start..end inclusive; the guard
@@ -498,6 +506,7 @@ async function renderToOutput(env: RenderStageEnv): Promise<void> {
       signal: options.signal,
       log: ctx.log,
       trace: { tracer, parent: root },
+      onCapture: options.onCapture,
     });
     await verifyRenderedOutput(env);
   });

@@ -163,6 +163,8 @@ app.whenReady().then(async () => {
         log(msg);
         sendToWindow('neo2flightpath:export:progress', msg);
       },
+      onCapture: (progress) =>
+        sendToWindow('neo2flightpath:export:capture', progress),
       onDone: (outcome) => {
         if (outcome.status === 'ok') lastExportOut = outcome.summary.out;
         sendToWindow('neo2flightpath:export:done', outcome);

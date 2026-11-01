@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SpanStatusCode } from '@opentelemetry/api';
 
 import { FrameBatchRecorder, renderVideo } from '../src/render.js';
-import type { RenderOpts } from '../src/render.js';
+import type { CaptureProgress, RenderOpts } from '../src/render.js';
+import { DEFAULT_CONFIG } from '../src/config.js';
+import { captureFraction, exportReducer, initialExportState } from '../ui/lib/exportstate.js';
 import {
   byName,
   cleanupTmpDirs,
@@ -256,6 +258,33 @@ describe('renderVideo browser launch', () => {
       'no chromium here',
       'no chromium here',
     ]);
+  });
+});
+
+// The emitter's events must keep feeding the export UI's real consumer: a
+// change to either side's shape or cadence fails here instead of freezing the
+// progress bar.
+describe('capture progress events', () => {
+  it('pair the render emitter with the export UI consumer', async () => {
+    const events: CaptureProgress[] = [];
+    await renderVideo(renderOpts({ frames: 250, onCapture: (p) => events.push(p) }));
+
+    expect(events).toEqual([
+      { done: 100, total: 250 },
+      { done: 200, total: 250 },
+      { done: 250, total: 250 },
+    ]);
+
+    let state = exportReducer(initialExportState(768, 768), {
+      type: 'start',
+      request: { outPath: '/exports/a.mp4', config: { ...DEFAULT_CONFIG }, range: null },
+    });
+    const fractions: (number | null)[] = [];
+    for (const progress of events) {
+      state = exportReducer(state, { type: 'capture', progress });
+      fractions.push(captureFraction(state.capture));
+    }
+    expect(fractions).toEqual([0.4, 0.8, 1]);
   });
 });
 

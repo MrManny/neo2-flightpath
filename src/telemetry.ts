@@ -5,7 +5,14 @@ import { bearingDeg, circularMeanDeg, haversineM, isGpsFix } from './geo.js';
 import type { Bbox, LatLon } from './geo.js';
 import { parseSrt } from './srt.js';
 import { parseCamMeta } from './cammeta.js';
+import type { CamMetaMethod } from './cammeta.js';
 import { videoBaseName } from './inputs.js';
+
+// The closed telemetry vocabulary, one home so a typo cannot flow silently
+// into the --json output.
+export type TelemetrySource = 'srt' | 'cammeta';
+export type TelemetryMethod = 'srt-cues' | CamMetaMethod;
+export type HeadingMode = 'yaw' | 'cog';
 
 export interface FrameData {
   lat: number | null;
@@ -16,9 +23,9 @@ export interface FrameData {
 }
 
 export interface Telemetry {
-  source: 'srt' | 'cammeta';
-  method: string;
-  headingMode: 'yaw' | 'cog';
+  source: TelemetrySource;
+  method: TelemetryMethod;
+  headingMode: HeadingMode;
   sampleCount: number;
   /** Samples carrying a GPS fix; other samples are neither fixes nor no-locks. */
   fixCount: number;
@@ -172,8 +179,8 @@ function nearestSampleIndex(samples: TelSample[], t: number): number {
 
 interface LoadedSamples {
   samples: TelSample[];
-  source: 'srt' | 'cammeta';
-  method: string;
+  source: TelemetrySource;
+  method: TelemetryMethod;
   noLock: number;
 }
 
@@ -285,7 +292,7 @@ function computeSpeedBySample(
 
 interface HeadingResult {
   headingBySample: number[];
-  headingMode: 'yaw' | 'cog';
+  headingMode: HeadingMode;
 }
 
 // Preferred source: drone body yaw (DVTM EulerAngle, deci-degrees) - valid
@@ -298,7 +305,7 @@ function computeHeadingBySample(
   speedBySample: number[],
 ): HeadingResult {
   const hasYaw = samples.some((sample) => sample.yawDeg !== null);
-  const headingMode: 'yaw' | 'cog' = hasYaw ? 'yaw' : 'cog';
+  const headingMode: HeadingMode = hasYaw ? 'yaw' : 'cog';
 
   const rawHeading: (number | null)[] = new Array(samples.length).fill(null);
   if (hasYaw) {

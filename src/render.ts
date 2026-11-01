@@ -190,6 +190,13 @@ function screenshotOptions(capture: Capture) {
       };
 }
 
+// The typed capture-progress event, emitted beside the "frames: N/M
+// captured" log line so progress displays never scrape log text.
+export interface CaptureProgress {
+  done: number;
+  total: number;
+}
+
 export interface RenderOpts {
   html: string;
   style: Style;
@@ -209,6 +216,8 @@ export interface RenderOpts {
   /** Aborting kills the encoder and stops the workers at the next frame. */
   signal?: AbortSignal;
   trace?: TraceContext;
+  /** Typed capture progress at the log line's cadence. */
+  onCapture?: (progress: CaptureProgress) => void;
 }
 
 export interface RenderProfile {
@@ -234,6 +243,7 @@ interface WorkerRun {
   capture: Capture;
   signal: AbortSignal | undefined;
   log: (msg: string) => void;
+  onCapture: ((progress: CaptureProgress) => void) | undefined;
   stream: OrderedFrameStream;
   batches: FrameBatchRecorder;
   timing: StageTiming;
@@ -277,13 +287,16 @@ async function runWorkers(run: WorkerRun, workerCount: number): Promise<void> {
         const buf = await page.screenshot(screenshotOptions(run.capture));
         const captureMs = Date.now() - t0;
         run.timing.captureMs += captureMs;
-        capturesDone++;
-        run.batches.recordFrame(capturesDone, captureMs);
+        // The local count (not the shared one read after an await) keeps every
+        // boundary event exactly-once under worker races.
+        const done = ++capturesDone;
+        run.batches.recordFrame(done, captureMs);
         t0 = Date.now();
         await run.stream.submit(idx, buf);
         run.timing.emitMs += Date.now() - t0;
-        if (capturesDone % 100 === 0 || capturesDone === run.frames) {
-          run.log(`frames: ${capturesDone}/${run.frames} captured`);
+        if (done % 100 === 0 || done === run.frames) {
+          run.log(`frames: ${done}/${run.frames} captured`);
+          run.onCapture?.({ done, total: run.frames });
         }
       }
     } finally {
@@ -399,6 +412,7 @@ export async function renderVideo(
     html, style, tileCache, width, height, frames, fpsStr,
     workers, outPath, log = () => {}, browserPath = null,
     capture = 'jpeg', preset = 'medium', frameStart = 0, signal, trace,
+    onCapture,
   } = opts;
 
   const tracer = trace?.tracer ?? NOOP_TRACER;
@@ -442,6 +456,7 @@ export async function renderVideo(
                   capture,
                   signal,
                   log,
+                  onCapture,
                   stream,
                   batches: new FrameBatchRecorder(tracer, captureSpan, frames),
                   timing,

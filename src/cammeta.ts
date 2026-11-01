@@ -61,11 +61,13 @@ export interface CamSample extends ProductMeta {
   tSec: number;
 }
 
+export type CamMetaMethod = 'dvtm-packets' | 'cammeta-scan';
+
 export interface CamMetaResult {
   samples: CamSample[];
   /** No-lock positions; the byte-scan fallback reports 0 (fix pairs only). */
   noLock: number;
-  method: 'dvtm-packets' | 'cammeta-scan';
+  method: CamMetaMethod;
 }
 
 // DVTM field numbers (see the module comment for the message layout).
@@ -134,20 +136,23 @@ export function decodeProductMeta(
   start = 0,
   end = buf.length,
 ): ProductMeta {
-  const out = emptyProductMeta();
   const top = parseProtoFields(buf, start, end);
   const frameMeta = subMessage(buf, top, FRAME_META);
-  if (!frameMeta) return out;
-
-  out.absAlt = decodeAbsoluteAltitude(buf, frameMeta) ?? out.absAlt;
-
-  const drone = subMessage(buf, frameMeta, DRONE);
-  if (!drone) return out;
-
-  decodeGps(buf, drone, out);
-  out.relAlt = decodeRelativeAltitude(buf, drone) ?? out.relAlt;
-  decodeEulerAngles(buf, drone, out);
-  return out;
+  const absAlt = frameMeta ? decodeAbsoluteAltitude(buf, frameMeta) : null;
+  const drone = frameMeta ? subMessage(buf, frameMeta, DRONE) : null;
+  const gps = drone ? decodeGps(buf, drone) : null;
+  const euler = drone ? decodeEulerAngles(buf, drone) : null;
+  return {
+    lat: gps?.lat ?? null,
+    lon: gps?.lon ?? null,
+    noLock: gps?.noLock ?? false,
+    relAlt: drone ? decodeRelativeAltitude(buf, drone) : null,
+    // camera.11 is authoritative; gps_altitude_mm is its fallback.
+    absAlt: absAlt ?? gps?.gpsAltM ?? null,
+    yawDeg: euler?.yawDeg ?? null,
+    pitchDeg: euler?.pitchDeg ?? null,
+    rollDeg: euler?.rollDeg ?? null,
+  };
 }
 
 // camera.11 AbsoluteAltitude { 1 float32 meters MSL }.
@@ -160,16 +165,22 @@ function decodeAbsoluteAltitude(
   return absoluteAltitude ? firstFloat(absoluteAltitude, VALUE) : null;
 }
 
-// drone.4 GpsBasic: WGS84 lat/lon doubles plus gps_altitude_mm (used as the
+// drone.4 GpsBasic: WGS84 lat/lon doubles plus gps_altitude_mm (the
 // absolute-altitude fallback when camera.11 is missing). A position pair
 // that fails isGpsFix is the no-lock placeholder: counted, never a fix.
-function decodeGps(
-  buf: Buffer,
-  drone: ProtoFieldMap,
-  out: ProductMeta,
-): void {
+interface GpsDecode {
+  lat: number | null;
+  lon: number | null;
+  /** Position pair present but not a real fix (see isGpsFix). */
+  noLock: boolean;
+  /** gps_altitude_mm as meters; the absolute-altitude fallback. */
+  gpsAltM: number | null;
+}
+
+function decodeGps(buf: Buffer, drone: ProtoFieldMap): GpsDecode {
+  const out: GpsDecode = { lat: null, lon: null, noLock: false, gpsAltM: null };
   const gps = subMessage(buf, drone, GPS_BASIC);
-  if (!gps) return;
+  if (!gps) return out;
 
   const coord = subMessage(buf, gps, POSITION_COORD);
   if (coord) {
@@ -184,10 +195,9 @@ function decodeGps(
       }
     }
   }
-  if (out.absAlt === null) {
-    const altitudeMm = firstVarint(gps, GPS_ALTITUDE_MM);
-    if (altitudeMm !== null) out.absAlt = altitudeMm / 1000;
-  }
+  const altitudeMm = firstVarint(gps, GPS_ALTITUDE_MM);
+  if (altitudeMm !== null) out.gpsAltM = altitudeMm / 1000;
+  return out;
 }
 
 // drone.5 RelativeAltitude { 1 float32 millimeters above takeoff }.
@@ -203,19 +213,23 @@ function decodeRelativeAltitude(
 }
 
 // drone.3 EulerAngle { 1 pitch, 2 roll, 3 yaw } varint deci-degrees.
-function decodeEulerAngles(
-  buf: Buffer,
-  drone: ProtoFieldMap,
-  out: ProductMeta,
-): void {
+interface EulerDecode {
+  pitchDeg: number | null;
+  rollDeg: number | null;
+  yawDeg: number | null;
+}
+
+function decodeEulerAngles(buf: Buffer, drone: ProtoFieldMap): EulerDecode {
   const euler = subMessage(buf, drone, EULER_ANGLE);
-  if (!euler) return;
+  if (!euler) return { pitchDeg: null, rollDeg: null, yawDeg: null };
   const pitch = firstVarint(euler, PITCH);
   const roll = firstVarint(euler, ROLL);
   const yaw = firstVarint(euler, YAW);
-  if (pitch !== null) out.pitchDeg = pitch / 10;
-  if (roll !== null) out.rollDeg = roll / 10;
-  if (yaw !== null) out.yawDeg = yaw / 10;
+  return {
+    pitchDeg: pitch !== null ? pitch / 10 : null,
+    rollDeg: roll !== null ? roll / 10 : null,
+    yawDeg: yaw !== null ? yaw / 10 : null,
+  };
 }
 
 // Byte-scan fallback: the 0x11/0x19 fixed64 GPS double pair. It judges

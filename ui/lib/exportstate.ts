@@ -4,6 +4,7 @@
 
 import type { ExportRequest, FrameRange } from '../../src/config.js';
 import type { ExportOutcome } from '../../src/exportjob.js';
+import type { CaptureProgress } from '../../src/render.js';
 import type { RecordingSummary } from '../../src/run.js';
 
 export type ExportPhase = 'form' | 'running' | 'done' | 'error' | 'canceled';
@@ -12,20 +13,11 @@ export type ExportPhase = 'form' | 'running' | 'done' | 'error' | 'canceled';
 // of copying an ever-growing log on every progress line.
 export const LOG_CAP = 50;
 
-// The pipeline reports capture progress as "frames: N/M captured"; the bar
-// advances from exactly those counts so it never runs ahead of the render.
-const CAPTURE_LINE = /frames:\s*(\d+)\/(\d+)\s+captured/;
-
-export function captureFraction(messages: readonly string[]): number | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const match = CAPTURE_LINE.exec(messages[i]);
-    if (match) {
-      const done = Number(match[1]);
-      const total = Number(match[2]);
-      return total > 0 ? Math.min(1, done / total) : null;
-    }
-  }
-  return null;
+// The pipeline reports capture progress as typed counts (not log text), so
+// the bar cannot drift from the emitter's wording.
+export function captureFraction(capture: CaptureProgress | null): number | null {
+  if (!capture) return null;
+  return capture.total > 0 ? Math.min(1, capture.done / capture.total) : null;
 }
 
 export interface ExportForm {
@@ -42,6 +34,8 @@ export interface ExportState {
   /** Frozen at confirm; later preview changes cannot alter the running job. */
   request: ExportRequest | null;
   messages: string[];
+  /** The latest typed capture progress of the running job. */
+  capture: CaptureProgress | null;
   result: RecordingSummary | null;
   error: string | null;
   canceling: boolean;
@@ -56,6 +50,7 @@ export type ExportEvent =
   | { type: 'start'; request: ExportRequest }
   | { type: 'startFailed'; error: string }
   | { type: 'progress'; message: string }
+  | { type: 'capture'; progress: CaptureProgress }
   | { type: 'cancelRequested' }
   | { type: 'cancelFailed'; error: string }
   | { type: 'clearError' }
@@ -67,6 +62,7 @@ export function initialExportState(width: number, height: number): ExportState {
     form: { outPath: null, width, height, range: null },
     request: null,
     messages: [],
+    capture: null,
     result: null,
     error: null,
     canceling: false,
@@ -100,6 +96,7 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
             phase: 'running',
             request: event.request,
             messages: [],
+            capture: null,
             result: null,
             error: null,
             canceling: false,
@@ -115,6 +112,10 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
             ...state,
             messages: [...state.messages, event.message].slice(-LOG_CAP),
           }
+        : state;
+    case 'capture':
+      return state.phase === 'running'
+        ? { ...state, capture: event.progress }
         : state;
     case 'cancelRequested':
       return state.phase === 'running' ? { ...state, canceling: true, error: null } : state;

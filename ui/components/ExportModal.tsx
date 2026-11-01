@@ -54,7 +54,7 @@ export function ExportModal({
   );
   const loopPoints = engagedLoop(loop);
   const busy = state.phase === 'running';
-  const fraction = captureFraction(state.messages);
+  const fraction = captureFraction(state.capture);
   const percent = Math.round((fraction ?? 0) * 100);
 
   useEffect(() => {
@@ -66,11 +66,15 @@ export function ExportModal({
 
   useEffect(() => {
     let offProgress: (() => void) | null = null;
+    let offCapture: (() => void) | null = null;
     let offDone: (() => void) | null = null;
     try {
       const bridge = appBridge();
       offProgress = bridge.onExportProgress((message) =>
         dispatch({ type: 'progress', message }),
+      );
+      offCapture = bridge.onExportCapture((progress) =>
+        dispatch({ type: 'capture', progress }),
       );
       offDone = bridge.onExportDone((outcome) => dispatch({ type: 'finish', outcome }));
     } catch {
@@ -78,6 +82,7 @@ export function ExportModal({
     }
     return () => {
       offProgress?.();
+      offCapture?.();
       offDone?.();
     };
   }, []);

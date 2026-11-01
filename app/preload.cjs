@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('neo2flightpath', {
   revealExportOutput: (out) => ipcRenderer.invoke('neo2flightpath:export:reveal', out),
   openExportOutput: (out) => ipcRenderer.invoke('neo2flightpath:export:open', out),
   onExportProgress: (cb) => subscribe('neo2flightpath:export:progress', cb),
+  onExportCapture: (cb) => subscribe('neo2flightpath:export:capture', cb),
   onExportDone: (cb) => subscribe('neo2flightpath:export:done', cb),
   onPreparing: (cb) => subscribe('neo2flightpath:preparing', () => cb()),
   onPrepareProgress: (cb) => subscribe('neo2flightpath:preparing:progress', cb),

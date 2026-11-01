@@ -9,6 +9,7 @@ import path from 'node:path';
 import type { ExportRequest } from './config.js';
 import { errorMessage } from './errors.js';
 import { samePath, uniquePath } from './paths.js';
+import type { CaptureProgress } from './render.js';
 import { processRecording } from './run.js';
 import type { LogFn, RecordingSummary } from './run.js';
 
@@ -23,19 +24,23 @@ export type RunExportJob = (
   log: LogFn,
   workingPath: string,
   signal: AbortSignal,
+  onCapture?: (progress: CaptureProgress) => void,
 ) => Promise<RecordingSummary>;
 
 // The pipeline is called exactly like the CLI calls it: one job, the
 // snapshot's config, the frozen range.
-const runViaPipeline: RunExportJob = (videoPath, request, log, workingPath, signal) =>
+const runViaPipeline: RunExportJob = (videoPath, request, log, workingPath, signal, onCapture) =>
   processRecording(videoPath, request.config, log, workingPath, {
     range: request.range ?? undefined,
     signal,
+    onCapture,
   });
 
 export interface ExportRunnerOptions {
   log?: LogFn;
   onDone: (outcome: ExportOutcome) => void;
+  /** Typed capture progress, forwarded to progress displays. */
+  onCapture?: (progress: CaptureProgress) => void;
   run?: RunExportJob;
 }
 
@@ -94,7 +99,7 @@ export function createExportRunner(options: ExportRunnerOptions): ExportRunner {
   ): Promise<ExportOutcome> {
     let summary: RecordingSummary;
     try {
-      summary = await run(videoPath, request, log, working, controller.signal);
+      summary = await run(videoPath, request, log, working, controller.signal, options.onCapture);
     } catch (e) {
       removeQuietly(working);
       return controller.signal.aborted

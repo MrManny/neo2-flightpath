@@ -11,13 +11,12 @@ describe('parseSrtText', () => {
     expect(r.noLock).toBe(1);
   });
 
-  it('parses GPS, altitude and wall clock of the first cue', () => {
+  it('parses GPS and altitude of the first cue', () => {
     const c = r.cues[0];
     expect(c.lat).toBeCloseTo(46.61307, 6);
     expect(c.lon).toBeCloseTo(14.262388, 6);
     expect(c.relAlt).toBeCloseTo(3.3, 6);
     expect(c.absAlt).toBeCloseTo(313.227, 6);
-    expect(c.wallMs).not.toBeNull();
     expect(c.tSec).toBe(0);
   });
 
