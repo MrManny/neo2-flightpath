@@ -5,6 +5,7 @@
 import type { PickResult, UiSession } from '../../src/appsession.js';
 import type { ExportRequest, RenderConfig } from '../../src/config.js';
 import type { ExportOutcome } from '../../src/exportjob.js';
+import type { CaptureProgress } from '../../src/render.js';
 import type { PrepareProgress } from '../../src/run.js';
 
 export interface PickOutputResult {
@@ -29,6 +30,8 @@ export interface AppBridge {
   revealExportOutput(out: string): Promise<ExportAck>;
   openExportOutput(out: string): Promise<ExportAck>;
   onExportProgress(cb: (message: string) => void): () => void;
+  /** Typed capture progress, so the export bar needs no log scraping. */
+  onExportCapture(cb: (progress: CaptureProgress) => void): () => void;
   onExportDone(cb: (outcome: ExportOutcome) => void): () => void;
   /** The picked recording passed its checks and is being prepared (the picker has closed). */
   onPreparing(cb: () => void): () => void;

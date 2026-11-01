@@ -170,17 +170,47 @@ describe('cancel failures', () => {
   });
 });
 
-describe('captureFraction', () => {
-  it('reads the latest captured-frame count as a fraction', () => {
-    expect(captureFraction(['source: a.mp4', 'frames: 100/200 captured', 'frames: 150/200 captured'])).toBe(0.75);
+describe('capture progress', () => {
+  it('stores the latest typed capture progress while a job runs', () => {
+    let state = running();
+    state = exportReducer(state, { type: 'capture', progress: { done: 100, total: 200 } });
+    expect(captureFraction(state.capture)).toBe(0.5);
+    state = exportReducer(state, { type: 'capture', progress: { done: 150, total: 200 } });
+    expect(captureFraction(state.capture)).toBe(0.75);
   });
 
-  it('is null before any frame has been captured', () => {
-    expect(captureFraction(['source: a.mp4', 'telemetry: srt'])).toBeNull();
+  it('resets the capture progress when the next job starts', () => {
+    const withCapture = exportReducer(running(), {
+      type: 'capture',
+      progress: { done: 150, total: 200 },
+    });
+    const form = exportReducer(withCapture, { type: 'startFailed', error: 'already running' });
+    const restarted = exportReducer(form, { type: 'start', request: REQUEST });
+    expect(restarted.capture).toBeNull();
+  });
+
+  it('ignores capture progress that arrives after the job finished', () => {
+    const done = exportReducer(
+      exportReducer(running(), { type: 'capture', progress: { done: 150, total: 200 } }),
+      { type: 'finish', outcome: { status: 'canceled' } },
+    );
+    expect(exportReducer(done, { type: 'capture', progress: { done: 1, total: 2 } }).capture).toEqual(
+      { done: 150, total: 200 },
+    );
+  });
+});
+
+describe('captureFraction', () => {
+  it('derives the fraction from the structured counts', () => {
+    expect(captureFraction({ done: 150, total: 200 })).toBe(0.75);
+  });
+
+  it('is null before any capture progress arrives', () => {
+    expect(captureFraction(null)).toBeNull();
   });
 
   it('never exceeds 1 and tolerates a zero total', () => {
-    expect(captureFraction(['frames: 9/5 captured'])).toBe(1);
-    expect(captureFraction(['frames: 0/0 captured'])).toBeNull();
+    expect(captureFraction({ done: 9, total: 5 })).toBe(1);
+    expect(captureFraction({ done: 0, total: 0 })).toBeNull();
   });
 });

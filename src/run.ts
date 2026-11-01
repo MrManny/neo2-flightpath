@@ -16,6 +16,7 @@ import type { IntroOutroFrames, Overview } from './plan.js';
 import { buildPageHtml, planPageOpts } from './page.js';
 import type { PageOpts } from './page.js';
 import { renderVideo } from './render.js';
+import type { CaptureProgress } from './render.js';
 import type { FrameRange, HudSpec, RenderConfig } from './config.js';
 import {
   assertValidFrameRange,
@@ -239,6 +240,8 @@ export interface PipelineOptions {
   signal?: AbortSignal;
   /** Loading progress of the preparation stages, for progress displays. */
   onProgress?: PrepareProgressFn;
+  /** Typed capture progress, for progress displays. */
+  onCapture?: (progress: CaptureProgress) => void;
 }
 
 // A segment export renders source frames start..end inclusive; the guard
@@ -498,6 +501,7 @@ async function renderToOutput(env: RenderStageEnv): Promise<void> {
       signal: options.signal,
       log: ctx.log,
       trace: { tracer, parent: root },
+      onCapture: options.onCapture,
     });
     await verifyRenderedOutput(env);
   });
