@@ -126,6 +126,27 @@ describe('prepareSession', () => {
     expect(opts.decimated.frame[opts.decimated.frame.length - 1]).toBe(2);
     expect(prep.hud).toEqual({ heading: true, alt: false, speed: false });
   });
+
+  it('logs the intro/outro clamp note once when the clip forces clamping', async () => {
+    const lines: string[] = [];
+    const config = testConfig();
+    const prep = await prepareSession(VIDEO, config, (msg) => lines.push(msg), {
+      deps: stubDeps(),
+    });
+    // The page mapping reuses the prepared planning, so the note stays single.
+    recordingPageOpts(prep, config);
+    expect(lines.filter((l) => l.startsWith('intro/outro shortened'))).toEqual([
+      'intro/outro shortened to 1/1 frames for this clip',
+    ]);
+  });
+
+  it('stays silent about intro and outro when the clip fits the plan', async () => {
+    const lines: string[] = [];
+    await prepareSession(VIDEO, testConfig(), (msg) => lines.push(msg), {
+      deps: stubDeps({ probe: probeFixture({ frames: 3000 }) }),
+    });
+    expect(lines.some((l) => l.startsWith('intro/outro shortened'))).toBe(false);
+  });
 });
 
 describe('prepareSession progress reports', () => {

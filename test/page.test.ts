@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPageHtml, buildSceneData } from '../src/page.js';
+import { buildPageHtml, buildSceneData, planPageOpts } from '../src/page.js';
 import type { PageOpts } from '../src/page.js';
+import type { Bbox } from '../src/geo.js';
 
 function baseOpts(overrides: Partial<PageOpts> = {}): PageOpts {
   return {
@@ -45,6 +46,81 @@ describe('buildSceneData', () => {
     const data = buildSceneData(baseOpts({ introN: 25, outroN: 12 }), '/tiles');
     expect(data['introN']).toBe(25);
     expect(data['outroN']).toBe(12);
+  });
+});
+
+describe('planPageOpts', () => {
+  const BBOX: Bbox = {
+    minLat: 46.6129,
+    maxLat: 46.6132,
+    minLon: 14.2622,
+    maxLon: 14.2626,
+  };
+
+  const FRAMES = {
+    lat: [46.613, 46.6131],
+    lon: [14.2623, 14.2624],
+    alt: [3.3, 3.4],
+    speed: [1.2, 1.3],
+    headingDeg: [90, 91],
+  };
+
+  const CONFIG = {
+    style: 'satellite' as const,
+    view: 'overview' as const,
+    zoom: 0,
+    zoomOut: 0,
+    introSec: 2,
+    outroSec: 3,
+    hud: { heading: true, alt: true, speed: true },
+  };
+
+  it('computes the planning triple when none is passed', () => {
+    const opts = planPageOpts({
+      bbox: BBOX,
+      width: 768,
+      height: 768,
+      config: CONFIG,
+      source: { fps: 30, frames: 3000 },
+      frames: FRAMES,
+    });
+    expect(opts.introN).toBe(60);
+    expect(opts.outroN).toBe(90);
+    expect(opts.zoom).toBeGreaterThanOrEqual(2);
+    expect(opts.hud).toEqual({ heading: true, alt: true, speed: true });
+  });
+
+  it('uses precomputed planning values instead of recomputing', () => {
+    const planned = {
+      overview: { centerPx: { x: 1024, y: 2048 }, zoom: 12, tiles: [] },
+      introOutro: { introN: 5, outroN: 7, clamped: true },
+      hud: { heading: true, alt: false, speed: false },
+    };
+    const opts = planPageOpts({
+      bbox: BBOX,
+      width: 768,
+      height: 768,
+      config: CONFIG,
+      source: { fps: 30, frames: 3000 },
+      frames: FRAMES,
+      planned,
+    });
+    expect(opts.zoom).toBe(12);
+    expect(opts.introN).toBe(5);
+    expect(opts.outroN).toBe(7);
+    expect(opts.hud).toEqual({ heading: true, alt: false, speed: false });
+  });
+
+  it('drops the altitude chip without altitude data', () => {
+    const opts = planPageOpts({
+      bbox: BBOX,
+      width: 768,
+      height: 768,
+      config: CONFIG,
+      source: { fps: 30, frames: 3000 },
+      frames: { ...FRAMES, alt: [null, null] },
+    });
+    expect(opts.hud).toEqual({ heading: true, alt: false, speed: true });
   });
 });
 

@@ -316,11 +316,15 @@ export async function prepareSession(
   log(
     `source: ${path.basename(videoPath)}  ${probe.width}x${probe.height} @ ${probe.fps.str} fps, ${probe.frames} frames`,
   );
-  const introOutro = planIntroOutroFrames(
-    config,
-    { fps: probe.fps.value, frames: probe.frames },
-    log,
-  );
+  const introOutro = planIntroOutroFrames(config, {
+    fps: probe.fps.value,
+    frames: probe.frames,
+  });
+  if (introOutro.clamped) {
+    log(
+      `intro/outro shortened to ${introOutro.introN}/${introOutro.outroN} frames for this clip`,
+    );
+  }
 
   report('telemetry', 1);
   const tel = await stage(tracer, 'telemetry.load', parent, {}, async (span) => {
@@ -399,7 +403,9 @@ export async function prepareSession(
 
 // Maps a prepared recording onto the shared renderer page's inputs through
 // the same planning the app's live restyle uses; callers add the video option
-// when they drive the interactive variant.
+// when they drive the interactive variant. The planning triple is computed
+// once in prepareSession and passed down, so the summary and the rendered
+// page cannot drift apart.
 export function recordingPageOpts(
   prep: PreparedRecording,
   config: RenderConfig,
@@ -411,6 +417,11 @@ export function recordingPageOpts(
     config,
     source: { fps: prep.probe.fps.value, frames: prep.probe.frames },
     frames: prep.frames,
+    planned: {
+      overview: prep.overview,
+      introOutro: prep.introOutro,
+      hud: prep.hud,
+    },
   });
 }
 
