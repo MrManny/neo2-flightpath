@@ -20,6 +20,11 @@ export interface ExportAck {
   error?: string;
 }
 
+/** The done-phase actions name the one file the shell may reveal or open. */
+export interface ExportOutputPayload {
+  out: string;
+}
+
 export interface AppBridge {
   pickRecording(): Promise<PickResult>;
   getSession(): Promise<UiSession | null>;
@@ -27,8 +32,8 @@ export interface AppBridge {
   pickExportOutput(): Promise<PickOutputResult>;
   startExport(request: ExportRequest): Promise<ExportAck>;
   cancelExport(): Promise<ExportAck>;
-  revealExportOutput(out: string): Promise<ExportAck>;
-  openExportOutput(out: string): Promise<ExportAck>;
+  revealExportOutput(payload: ExportOutputPayload): Promise<ExportAck>;
+  openExportOutput(payload: ExportOutputPayload): Promise<ExportAck>;
   onExportProgress(cb: (message: string) => void): () => void;
   /** Typed capture progress, so the export bar needs no log scraping. */
   onExportCapture(cb: (progress: CaptureProgress) => void): () => void;

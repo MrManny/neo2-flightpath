@@ -292,6 +292,38 @@ describe('ExportModal outcomes', () => {
   });
 });
 
+describe('ExportModal done action payloads', () => {
+  it('sends Reveal in folder the exported path of the kept render', async () => {
+    const { bridge, emitDone } = installBridge();
+    await reachPhase('done', emitDone);
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal in folder' }));
+    expect(bridge.revealExportOutput.mock.calls[0][0]).toEqual({ out: '/exports/a.mp4' });
+  });
+
+  it('sends Open video the exported path of the kept render', async () => {
+    const { bridge, emitDone } = installBridge();
+    await reachPhase('done', emitDone);
+    fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    expect(bridge.openExportOutput.mock.calls[0][0]).toEqual({ out: '/exports/a.mp4' });
+  });
+
+  it('shows a failed reveal in place until a retry clears it', async () => {
+    const { bridge, emitDone } = installBridge({
+      revealExportOutput: vi.fn(async () => ({
+        ok: false,
+        error: "EACCES: permission denied, open '/exports/a.mp4'",
+      })),
+    });
+    await reachPhase('done', emitDone);
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal in folder' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Access to "a.mp4" was denied.');
+    bridge.revealExportOutput.mockResolvedValue({ ok: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal in folder' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+});
+
 describe('ExportModal rainy paths', () => {
   it('shows a start failure in the form and keeps the form usable', async () => {
     installBridge({

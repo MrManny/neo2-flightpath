@@ -192,8 +192,8 @@ export function ExportModal({
         <ExportDone
           result={result}
           error={error}
-          onReveal={() => runDoneAction((bridge) => bridge.revealExportOutput(result.out))}
-          onOpen={() => runDoneAction((bridge) => bridge.openExportOutput(result.out))}
+          onReveal={() => runDoneAction((bridge) => bridge.revealExportOutput({ out: result.out }))}
+          onOpen={() => runDoneAction((bridge) => bridge.openExportOutput({ out: result.out }))}
           onClose={onClose}
         />
       ) : null}
