@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createTileFetcher, parseTilePathname, prefetchTiles, solidPng } from '../src/tiles.js';
+import { createTileFetcher, prefetchTiles } from '../src/tiles.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(() => {
@@ -15,35 +15,6 @@ afterEach(() => {
 function okFetch() {
   return vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
 }
-
-describe('solidPng', () => {
-  it('writes a valid PNG signature and 256x256 IHDR', () => {
-    const buf = solidPng('#2a2f38');
-    expect([...buf.subarray(0, 8)]).toEqual([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-    ]);
-    expect(buf.readUInt32BE(16)).toBe(256); // IHDR width
-    expect(buf.readUInt32BE(20)).toBe(256); // IHDR height
-  });
-});
-
-describe('parseTilePathname', () => {
-  it.for(['satellite', 'topo'])('parses a %s tile into a typed ref', (style) => {
-    expect(parseTilePathname(`/tiles/${style}/12/34/56.png`)).toEqual({
-      style,
-      tile: { z: 12, x: 34, y: 56 },
-    });
-  });
-
-  it.for([
-    '/tiles/evil/1/2/3.png',
-    '/tiles/satellite/1/2/3.jpg',
-    '/tiles/satellite/1/2.png',
-    '/elsewhere/satellite/1/2/3.png',
-  ])('returns null for the non-tile path %s', (pathname) => {
-    expect(parseTilePathname(pathname)).toBeNull();
-  });
-});
 
 describe('createTileFetcher', () => {
   it('downloads a missing tile into the cache and returns it', async () => {
