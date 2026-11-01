@@ -7,6 +7,8 @@ export default tseslint.config(
     ignores: [
       'dist/',
       'node_modules/',
+      // Agent scratch space is git-ignored and not linted on purpose.
+      '.scratch/',
       // Generated output; rebuilt by npm run build and the issue-26 UI work.
       'out/',
       'ui/.next/',
