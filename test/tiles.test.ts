@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createTileFetcher, prefetchTiles, solidPng } from '../src/tiles.js';
+import { createTileFetcher, parseTilePathname, prefetchTiles, solidPng } from '../src/tiles.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(() => {
@@ -24,6 +24,24 @@ describe('solidPng', () => {
     ]);
     expect(buf.readUInt32BE(16)).toBe(256); // IHDR width
     expect(buf.readUInt32BE(20)).toBe(256); // IHDR height
+  });
+});
+
+describe('parseTilePathname', () => {
+  it.for(['satellite', 'topo'])('parses a %s tile into a typed ref', (style) => {
+    expect(parseTilePathname(`/tiles/${style}/12/34/56.png`)).toEqual({
+      style,
+      tile: { z: 12, x: 34, y: 56 },
+    });
+  });
+
+  it.for([
+    '/tiles/evil/1/2/3.png',
+    '/tiles/satellite/1/2/3.jpg',
+    '/tiles/satellite/1/2.png',
+    '/elsewhere/satellite/1/2/3.png',
+  ])('returns null for the non-tile path %s', (pathname) => {
+    expect(parseTilePathname(pathname)).toBeNull();
   });
 });
 

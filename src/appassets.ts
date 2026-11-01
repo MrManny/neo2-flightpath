@@ -9,7 +9,6 @@ import type { Style } from './config.js';
 import type { TileCoord } from './plan.js';
 import { MIME } from './serve.js';
 import { parseTilePathname, tilePaths } from './tiles.js';
-import { TILE_SOURCES } from './renderer/tilesources.js';
 
 export interface AppRoutes {
   /** Next.js static export root (ui/out), possibly inside app.asar. */
@@ -40,10 +39,10 @@ export function resolveAppAsset(pathname: string, routes: AppRoutes): AppAsset {
   }
 
   // Every known style routes into the shared cache: live restyle switches
-  // styles without a reload, so no single style owns the tile route.
+  // styles without a reload, so no single style owns the tile route. The
+  // parser only returns vocabulary styles; anything else is not a tile.
   const parsed = parseTilePathname(pathname);
   if (parsed) {
-    if (!TILE_SOURCES[parsed.style]) return { kind: 'not-found' };
     const paths = tilePaths(routes.tileCache, parsed.style, parsed.tile);
     return {
       kind: 'tile',

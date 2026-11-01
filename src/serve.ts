@@ -8,7 +8,6 @@ import { createRequire } from 'node:module';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
-import { TILE_SOURCES } from './renderer/tilesources.js';
 import type { Style } from './config.js';
 import { rangePlan } from './range.js';
 import { parseTilePathname, tilePaths } from './tiles.js';
@@ -54,8 +53,7 @@ export function serveAsset(
     }
   } else if (url.startsWith('/tiles/')) {
     const parsed = parseTilePathname(url);
-    const src = parsed ? TILE_SOURCES[parsed.style] : null;
-    if (parsed && src && parsed.style === routes.style) {
+    if (parsed && parsed.style === routes.style) {
       const paths = tilePaths(routes.tileCache, parsed.style, parsed.tile);
       file = paths.file;
       if (!fs.existsSync(file) && fs.existsSync(paths.placeholder)) file = paths.placeholder;
