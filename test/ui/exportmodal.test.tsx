@@ -10,7 +10,7 @@ import type { RenderConfig } from '../../src/config.js';
 import type { ExportOutcome } from '../../src/exportjob.js';
 import { canDismiss, dialogReducer } from '../../ui/lib/dialogstate.js';
 import type { DialogRunEvent } from '../../ui/lib/dialogstate.js';
-import type { LoopState } from '../../ui/lib/framedriver.js';
+import type { LoopState } from '../../ui/lib/loop.js';
 import { ExportModal } from '../../ui/components/ExportModal.js';
 
 afterEach(() => {

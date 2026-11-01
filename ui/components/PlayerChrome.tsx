@@ -7,16 +7,16 @@ import { hasAltitude } from '../../src/config.js';
 import type { RenderConfig } from '../../src/config.js';
 import type { Scene } from '../../src/renderer/scene.js';
 import { restyleSceneData } from '../../src/restyle.js';
-import type { LoopState } from '../lib/framedriver.js';
 import {
   clampFrame,
-  createFrameDriver,
-  engagedLoop,
   formatFrameSpan,
   formatTime,
   framesForSeconds,
   timeAt,
-} from '../lib/framedriver.js';
+} from '../lib/frametime.js';
+import { createFrameDriver } from '../lib/framedriver.js';
+import type { LoopState } from '../lib/loop.js';
+import { engagedLoop, hasLoop } from '../lib/loop.js';
 import { canDismiss, dialogReducer } from '../lib/dialogstate.js';
 import type { HotkeyAction } from '../lib/hotkeys.js';
 import { mapKey } from '../lib/hotkeys.js';
@@ -242,10 +242,9 @@ export function PlayerChrome({
   }, []);
 
   const maxFrame = Math.max(0, video.frames - 1);
-  const loopReadout =
-    loop.in !== null || loop.out !== null
-      ? `loop ${formatFrameSpan(loop.in, loop.out, video.fps)}`
-      : '';
+  const loopReadout = hasLoop(loop)
+    ? `loop ${formatFrameSpan(loop.in, loop.out, video.fps)}`
+    : '';
   const opening = openState.kind === 'preparing';
   const openNotice =
     openState.kind === 'preparing' || openState.kind === 'error' ? (

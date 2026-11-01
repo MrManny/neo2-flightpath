@@ -3,7 +3,7 @@
 import type { RefObject } from 'react';
 
 import type { HotkeyAction } from '../lib/hotkeys.js';
-import type { LoopPoints, LoopState } from '../lib/framedriver.js';
+import type { LoopPoints, LoopState } from '../lib/loop.js';
 import { CloseIcon } from '../icons/CloseIcon.js';
 import { ExportIcon } from '../icons/ExportIcon.js';
 import { FolderOpenIcon } from '../icons/FolderOpenIcon.js';
