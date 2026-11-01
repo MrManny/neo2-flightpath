@@ -144,9 +144,18 @@ export interface FrameArrays {
 }
 
 export function frameArrays(tel: Telemetry): FrameArrays {
+  const lat: number[] = [];
+  const lon: number[] = [];
+  tel.frames.forEach((frame, i) => {
+    if (frame.lat === null || frame.lon === null) {
+      throw new Error(`telemetry frame ${i} has no GPS position`);
+    }
+    lat.push(frame.lat);
+    lon.push(frame.lon);
+  });
   return {
-    lat: tel.frames.map((f) => f.lat as number),
-    lon: tel.frames.map((f) => f.lon as number),
+    lat,
+    lon,
     alt: tel.frames.map((f) => f.alt),
     speed: tel.frames.map((f) => f.speed),
     headingDeg: tel.frames.map((f) => f.headingDeg),

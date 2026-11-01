@@ -6,6 +6,7 @@ import { SpanStatusCode } from '@opentelemetry/api';
 import { DEFAULT_CONFIG } from '../src/config.js';
 import type { RenderConfig } from '../src/config.js';
 import {
+  frameArrays,
   outputPathFor,
   planOutputs,
   prepareSession,
@@ -23,6 +24,7 @@ import {
   durationMs,
   probeFixture,
   stubDeps,
+  telemetryFixture,
   testConfig,
   tmpDir,
   tracingHarness,
@@ -79,6 +81,27 @@ describe('planOutputs', () => {
   it('is deterministic across runs with the same input list', () => {
     const videos = [path.join('a', 'clip.mp4'), path.join('b', 'clip.mp4')];
     expect(planOutputs(videos, config)).toEqual(planOutputs(videos, config));
+  });
+});
+
+describe('frameArrays', () => {
+  it('collects positions and per-frame values into parallel arrays', () => {
+    const arrays = frameArrays(telemetryFixture());
+    expect(arrays.lat).toEqual([46.6, 46.61, 46.62]);
+    expect(arrays.lon).toEqual([14.2, 14.21, 14.22]);
+    expect(arrays.alt).toEqual([3.3, 3.4, 3.5]);
+    expect(arrays.speed).toEqual([1.2, 1.3, 1.4]);
+    expect(arrays.headingDeg).toEqual([90, 91, 92]);
+  });
+
+  it('fails fast naming the frame when a position is missing', () => {
+    const tel = telemetryFixture({
+      frames: [
+        { lat: 46.6, lon: 14.2, alt: 3.3, speed: 1.2, headingDeg: 90 },
+        { lat: null, lon: null, alt: 3.4, speed: 1.3, headingDeg: 91 },
+      ],
+    });
+    expect(() => frameArrays(tel)).toThrow('telemetry frame 1 has no GPS position');
   });
 });
 
