@@ -13,6 +13,24 @@ export interface TrailController {
   setFrame(i: number): void;
 }
 
+// Largest k with trailFrame[k] <= i (trailFrame is strictly increasing):
+// the textbook upper bound stepped back one; -1 when every point is later.
+export function lastIndexAtOrBefore(trailFrame: readonly number[], i: number): number {
+  let lo = 0;
+  let hi = trailFrame.length - 1;
+  let k = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (trailFrame[mid] <= i) {
+      k = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return k;
+}
+
 export function createTrailController(
   trailLat: readonly number[],
   trailLon: readonly number[],
@@ -31,36 +49,28 @@ export function createTrailController(
     cursor = k;
   }
 
-  return {
-    setFrame(i: number): void {
-      if (trailFrame.length === 0) return;
-      // Largest k with trailFrame[k] <= i (trailFrame is strictly increasing).
-      let lo = 0;
-      let hi = trailFrame.length - 1;
-      let k = -1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (trailFrame[mid] <= i) {
-          k = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
-      }
-      if (k > cursor) {
-        if (k - cursor <= APPEND_LIMIT) {
-          for (let j = cursor + 1; j <= k; j++) {
-            for (const layer of layers) {
-              layer.addLatLng([trailLat[j], trailLon[j]]);
-            }
+  // Forward growth appends in place; anything else (a backward jump or a
+  // long leap) rebuilds the prefix once.
+  function growOrRebuild(k: number): void {
+    if (k > cursor) {
+      if (k - cursor <= APPEND_LIMIT) {
+        for (let j = cursor + 1; j <= k; j++) {
+          for (const layer of layers) {
+            layer.addLatLng([trailLat[j], trailLon[j]]);
           }
-          cursor = k;
-        } else {
-          rebuild(k);
         }
-      } else if (k < cursor) {
+        cursor = k;
+      } else {
         rebuild(k);
       }
+    } else if (k < cursor) {
+      rebuild(k);
+    }
+  }
+
+  return {
+    setFrame(i: number): void {
+      growOrRebuild(lastIndexAtOrBefore(trailFrame, i));
     },
   };
 }

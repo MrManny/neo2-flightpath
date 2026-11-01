@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createTrailController } from '../../src/renderer/trail.js';
+import { createTrailController, lastIndexAtOrBefore } from '../../src/renderer/trail.js';
 import type { TrailLayer } from '../../src/renderer/trail.js';
 
 interface Call {
@@ -38,6 +38,23 @@ function track(points: number): { lat: number[]; lon: number[]; frame: number[] 
   }
   return { lat, lon, frame };
 }
+
+describe('lastIndexAtOrBefore', () => {
+  it.for([
+    { name: 'empty array has no index', frames: [], i: 5, want: -1 },
+    { name: 'all frames greater than i', frames: [2, 4, 6], i: 1, want: -1 },
+    { name: 'before the first frame', frames: [2, 4, 6], i: 0, want: -1 },
+    { name: 'exact hit lands on its index', frames: [2, 4, 6], i: 4, want: 1 },
+    { name: 'exact hit on the first frame', frames: [2, 4, 6], i: 2, want: 0 },
+    { name: 'exact hit on the last frame', frames: [2, 4, 6], i: 6, want: 2 },
+    { name: 'between hits lands on the earlier index', frames: [2, 4, 6], i: 3, want: 0 },
+    { name: 'between later hits lands on the earlier index', frames: [2, 4, 6], i: 5, want: 1 },
+    { name: 'past the last frame lands on it', frames: [2, 4, 6], i: 100, want: 2 },
+    { name: 'single point hit', frames: [7], i: 7, want: 0 },
+  ])('$name', ({ frames, i, want }) => {
+    expect(lastIndexAtOrBefore(frames, i)).toBe(want);
+  });
+});
 
 describe('createTrailController', () => {
   it('appends decimated points forward without any array copies', () => {
