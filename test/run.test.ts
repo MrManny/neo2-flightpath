@@ -506,3 +506,54 @@ describe('processRecording frame ranges', () => {
     expect(calls.render).toBeUndefined();
   });
 });
+
+describe('recording summary mapping', () => {
+  it('maps the telemetry summary fields explicitly into the flat --json shape', async () => {
+    const summary = await processRecording(VIDEO, testConfig(), () => {}, undefined, {
+      deps: stubDeps(),
+    });
+
+    expect(summary).toMatchObject({
+      source: 'srt',
+      method: 'srt-cues',
+      headingMode: 'cog',
+      fixes: 3,
+      noLock: 2,
+      trackDistanceM: 42,
+    });
+
+    // The NDJSON line stays flat: exactly the declared fields, nothing more.
+    const jsonKeys = Object.keys(
+      JSON.parse(JSON.stringify(summary)) as Record<string, unknown>,
+    ).sort();
+    expect(jsonKeys).toEqual(
+      [
+        'bbox',
+        'elapsedSec',
+        'fixes',
+        'fps',
+        'frames',
+        'headingMode',
+        'height',
+        'hud',
+        'introFrames',
+        'method',
+        'noLock',
+        'out',
+        'outroFrames',
+        'source',
+        'status',
+        'style',
+        'tilesDownloaded',
+        'trackDistanceM',
+        'verified',
+        'video',
+        'view',
+        'width',
+        'zoom',
+        'zoomFixed',
+        'zoomOut',
+      ].sort(),
+    );
+  });
+});

@@ -445,6 +445,7 @@ interface RenderStageEnv {
 
 function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummary {
   const { config, probe, tel, hud, introOutro, overview, tileStats } = ctx;
+  const telemetry = telemetrySummary(tel);
   return {
     video: ctx.videoPath,
     out: ctx.outPath,
@@ -456,7 +457,15 @@ function buildOkSummary(ctx: RenderContext, elapsedSec: number): RecordingSummar
     introFrames: introOutro.introN,
     outroFrames: introOutro.outroN,
     hud,
-    ...telemetrySummary(tel),
+    // Mapped field by field instead of spreading: a rename in
+    // TelemetrySummary must land here visibly, not silently drop a key
+    // from the --json line.
+    source: telemetry.source,
+    method: telemetry.method,
+    headingMode: telemetry.headingMode,
+    fixes: telemetry.fixes,
+    noLock: telemetry.noLock,
+    trackDistanceM: telemetry.trackDistanceM,
     frames: ctx.outFrames,
     fps: probe.fps.str,
     frameRange: ctx.frameRange ?? undefined,
