@@ -10,7 +10,7 @@ import type { RenderConfig } from '../src/config.js';
 import type { VideoProbe } from '../src/ff.js';
 import { videoBaseName } from '../src/inputs.js';
 import type { PipelineDeps } from '../src/run.js';
-import type { Telemetry } from '../src/telemetry.js';
+import type { Telemetry } from '../src/telemetry-math.js';
 import { createTracing } from '../src/tracing.js';
 import type { Tracer, Tracing } from '../src/tracing.js';
 

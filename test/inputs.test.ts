@@ -4,10 +4,48 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { collectRecordings } from '../src/inputs.js';
+import {
+  collectRecordings,
+  findSrtSidecar,
+  isRecordingName,
+} from '../src/inputs.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(cleanupTmpDirs);
+
+describe('isRecordingName', () => {
+  it.for([
+    { name: 'lowercase .mp4', fileName: 'clip.mp4', want: true },
+    { name: 'uppercase .MP4', fileName: 'CLIP.MP4', want: true },
+    { name: 'mixed-case extensions', fileName: 'clip.Mp4', want: true },
+    { name: 'a full path', fileName: path.join('videos', 'CLIP.MP4'), want: true },
+    { name: 'a QuickTime file', fileName: 'clip.mov', want: false },
+    { name: 'a sidecar', fileName: 'clip.srt', want: false },
+    { name: 'a lookalike suffix', fileName: 'clip.mp4.bak', want: false },
+    { name: 'an extensionless name', fileName: 'clip', want: false },
+  ])('recognizes $name', ({ fileName, want }) => {
+    expect(isRecordingName(fileName)).toBe(want);
+  });
+});
+
+describe('findSrtSidecar', () => {
+  it('matches the video basename case-insensitively', () => {
+    const root = tmpDir();
+    const video = path.join(root, 'clip.mp4');
+    fs.writeFileSync(video, '');
+    const srt = path.join(root, 'CLIP.SRT');
+    fs.writeFileSync(srt, '');
+    expect(findSrtSidecar(video)).toBe(srt);
+  });
+
+  it('returns null when the recording has no sidecar', () => {
+    const root = tmpDir();
+    const video = path.join(root, 'clip.mp4');
+    fs.writeFileSync(video, '');
+    fs.writeFileSync(path.join(root, 'other.srt'), '');
+    expect(findSrtSidecar(video)).toBeNull();
+  });
+});
 
 describe('collectRecordings', () => {
   it('collects .mp4 case-insensitively, non-recursively by default', () => {

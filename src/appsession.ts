@@ -9,6 +9,7 @@ import type { RenderConfig } from './config.js';
 import { errorMessage } from './errors.js';
 import type { VideoProbe } from './ff.js';
 import type { Bbox } from './geo.js';
+import { isRecordingName } from './inputs.js';
 import { buildSceneData } from './page.js';
 import type { SceneData } from './renderer/scene.js';
 import { prepareSession, recordingPageOpts } from './run.js';
@@ -96,7 +97,7 @@ export interface AppSession {
 }
 
 function isReadableVideo(filePath: string): boolean {
-  if (!filePath.toLowerCase().endsWith('.mp4')) return false;
+  if (!isRecordingName(filePath)) return false;
   try {
     return fs.statSync(filePath).isFile();
   } catch {

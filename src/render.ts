@@ -9,8 +9,9 @@ import type { Writable } from 'node:stream';
 
 import type { Browser } from 'playwright-core';
 
+import { MIME } from './assets.js';
 import { errorMessage } from './errors.js';
-import { MIME, RENDERER_DIR, serveAsset } from './serve.js';
+import { RENDERER_DIR, serveAsset } from './serve.js';
 import type { Capture, Preset, Style } from './config.js';
 import { NOOP_TRACER, stage } from './tracing.js';
 import type { Span, Tracer, TraceContext } from './tracing.js';

@@ -17,6 +17,7 @@ import type { DecimatedTrack } from './decimate.js';
 import { unproject } from './geo.js';
 import type { Bbox, LatLon } from './geo.js';
 import { planIntroOutroFrames, planView } from './plan.js';
+import type { IntroOutroFrames, Overview } from './plan.js';
 import type { SceneData } from './renderer/scene.js';
 import { TILE_SOURCES } from './renderer/tilesources.js';
 
@@ -54,12 +55,18 @@ export function planPageOpts(opts: {
   >;
   source: { fps: number; frames: number };
   frames: Pick<PageOpts, 'lat' | 'lon' | 'alt' | 'speed' | 'headingDeg'>;
+  /**
+   * Precomputed planning results (the pipeline plans once and passes its
+   * values down); omit to compute them here, like the app's live restyle.
+   */
+  planned?: { overview: Overview; introOutro: IntroOutroFrames; hud: HudSpec };
   /** Reuse the previous decimated track when the planned zoom matches it. */
   previous?: { zoom: number; decimated: DecimatedTrack };
 }): PageOpts {
-  const { bbox, width, height, config, source, frames, previous } = opts;
-  const overview = planView(bbox, width, height, config);
-  const introOutro = planIntroOutroFrames(config, source, () => {});
+  const { bbox, width, height, config, source, frames, planned, previous } = opts;
+  const overview = planned?.overview ?? planView(bbox, width, height, config);
+  const introOutro = planned?.introOutro ?? planIntroOutroFrames(config, source);
+  const hud = planned?.hud ?? resolveHudSpec(config.hud, hasAltitude(frames.alt));
   // Decimation depends only on the track and the working zoom, so an
   // unchanged zoom keeps the identical arrays and consumers can tell that no
   // trail work is needed.
@@ -82,7 +89,7 @@ export function planPageOpts(opts: {
     alt: frames.alt,
     speed: frames.speed,
     headingDeg: frames.headingDeg,
-    hud: resolveHudSpec(config.hud, hasAltitude(frames.alt)),
+    hud,
     decimated,
   };
 }

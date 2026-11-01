@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { computeOverview, planIntroOutroFrames } from '../src/plan.js';
 import type { Bbox } from '../src/geo.js';
@@ -72,46 +72,41 @@ describe.for([
     name: 'maps seconds to frames at the source rate',
     config: { introSec: 2, outroSec: 3 },
     source: { fps: 30, frames: 3000 },
-    want: { introN: 60, outroN: 90 },
+    want: { introN: 60, outroN: 90, clamped: false },
   },
   {
     name: 'accepts a zero intro and outro',
     config: { introSec: 0, outroSec: 0 },
     source: { fps: 24, frames: 100 },
-    want: { introN: 0, outroN: 0 },
+    want: { introN: 0, outroN: 0, clamped: false },
   },
   {
     name: 'rounds fractional frame rates',
     config: { introSec: 1, outroSec: 0 },
     source: { fps: 29.97, frames: 9000 },
-    want: { introN: 30, outroN: 0 },
+    want: { introN: 30, outroN: 0, clamped: false },
   },
 ])('planIntroOutroFrames: $name', ({ config, source, want }) => {
   it('plans the frame counts', () => {
-    expect(planIntroOutroFrames(config, source, () => {})).toEqual(want);
+    expect(planIntroOutroFrames(config, source)).toEqual(want);
   });
 });
 
 describe('planIntroOutroFrames clamping', () => {
-  it('shortens intro and outro for a very short clip and logs it', () => {
-    const log = vi.fn();
+  it('shortens intro and outro for a very short clip and flags it', () => {
     const r = planIntroOutroFrames(
       { introSec: 2, outroSec: 2 },
       { fps: 30, frames: 60 },
-      log,
     );
-    expect(r).toEqual({ introN: 15, outroN: 15 });
-    expect(log).toHaveBeenCalledWith(
-      'intro/outro shortened to 15/15 frames for this clip',
-    );
+    expect(r).toEqual({ introN: 15, outroN: 15, clamped: true });
   });
 
   it('keeps tiny clips playable with a two-frame budget', () => {
     const r = planIntroOutroFrames(
       { introSec: 2, outroSec: 2 },
       { fps: 30, frames: 3 },
-      () => {},
     );
+    expect(r.clamped).toBe(true);
     expect(r.introN + r.outroN).toBeLessThanOrEqual(2);
     expect(r.introN).toBeGreaterThanOrEqual(0);
     expect(r.outroN).toBeGreaterThanOrEqual(0);

@@ -1,5 +1,6 @@
 // Static assets and video streaming shared by the headless render server and
-// the app's session server.
+// the app's session server. URL routing and its guards live in src/assets.ts;
+// this shell performs the I/O and writes the resolved result.
 
 import fs from 'node:fs';
 import http from 'node:http';
@@ -8,9 +9,9 @@ import { createRequire } from 'node:module';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
-import type { Style } from './config.js';
+import { mimeFor, resolveAsset } from './assets.js';
+import type { AssetRoutes } from './assets.js';
 import { rangePlan } from './range.js';
-import { parseTilePathname, tilePaths } from './tiles.js';
 
 const require_ = createRequire(import.meta.url);
 const LEAFLET_DIR = path.dirname(require_.resolve('leaflet/dist/leaflet.js'));
@@ -18,63 +19,33 @@ const LEAFLET_DIR = path.dirname(require_.resolve('leaflet/dist/leaflet.js'));
 /** Compiled shared renderer modules, served to generated pages as ESM. */
 export const RENDERER_DIR = fileURLToPath(new URL('./renderer/', import.meta.url));
 
-export const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.png': 'image/png',
-  '.mp4': 'video/mp4',
-};
+/** The served roots callers configure; Leaflet ships with the app. */
+export type ServeRoutes = Omit<AssetRoutes, 'leafletDir'>;
 
-export interface AssetRoutes {
-  style: Style;
-  tileCache: string;
-  rendererDir: string;
-}
-
-// Serves /leaflet/*, /tiles/* and /renderer/* from disk (missing tiles fall
-// back to their placeholder). Writes the response and returns true when the
-// URL belongs to one of those routes; callers route everything else
-// themselves.
+// Writes the shared router's result: the routed file (or its placeholder
+// fallback) with its mime, or a 404 for a claimed URL without a file.
+// Returns true when the URL belongs to one of the routes; callers route
+// everything else themselves.
 export function serveAsset(
   url: string,
   res: http.ServerResponse,
-  routes: AssetRoutes,
+  routes: ServeRoutes,
 ): boolean {
-  let file: string | null = null;
-  if (url.startsWith('/leaflet/')) {
-    const rel = url.slice('/leaflet/'.length);
-    if (/^(leaflet\.(js|css|js\.map|css\.map)|images\/[a-z0-9_-]+\.png)$/.test(rel)) {
-      file = path.join(LEAFLET_DIR, rel);
+  const asset = resolveAsset(url, { ...routes, leafletDir: LEAFLET_DIR });
+  if (asset.kind === 'unrouted') return false;
+  if (asset.kind === 'file') {
+    let file = asset.filePath;
+    if (!fs.existsSync(file) && asset.fallbackPath && fs.existsSync(asset.fallbackPath)) {
+      file = asset.fallbackPath;
     }
-  } else if (url.startsWith('/tiles/')) {
-    const parsed = parseTilePathname(url);
-    if (parsed && parsed.style === routes.style) {
-      const paths = tilePaths(routes.tileCache, parsed.style, parsed.tile);
-      file = paths.file;
-      if (!fs.existsSync(file) && fs.existsSync(paths.placeholder)) file = paths.placeholder;
+    if (fs.existsSync(file) && fs.statSync(file).isFile()) {
+      res.writeHead(200, { 'Content-Type': asset.mime });
+      res.end(fs.readFileSync(file));
+      return true;
     }
-  } else if (url.startsWith('/renderer/')) {
-    const rel = url.slice('/renderer/'.length);
-    if (/^[a-z0-9_-]+\.js$/.test(rel)) {
-      file = path.join(routes.rendererDir, rel);
-    }
-  } else {
-    return false;
   }
-  if (file && fs.existsSync(file) && fs.statSync(file).isFile()) {
-    res.writeHead(200, {
-      'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
-    });
-    res.end(fs.readFileSync(file));
-  } else {
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('not found');
-  }
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('not found');
   return true;
 }
 
@@ -94,7 +65,7 @@ export function serveFileWithRange(
     res.end('not found');
     return Promise.resolve();
   }
-  const mime = MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+  const mime = mimeFor(filePath);
   const plan = rangePlan(req.headers['range'], size, mime);
   res.writeHead(plan.status, plan.headers);
   if (plan.status === 416) {

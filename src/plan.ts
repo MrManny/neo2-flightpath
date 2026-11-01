@@ -152,6 +152,8 @@ export function computeOverview({
 export interface IntroOutroFrames {
   introN: number;
   outroN: number;
+  /** True when the frame budget forced a shorter intro/outro on a short clip. */
+  clamped: boolean;
 }
 
 // The one place that turns look settings into view planning: the tile-source
@@ -176,20 +178,20 @@ export function planView(
   });
 }
 
-// Intro/outro zoom timing (frames); clamp for very short clips.
+// Intro/outro zoom timing (frames); clamp for very short clips. The clamp is
+// returned as data so the owning caller can report it.
 export function planIntroOutroFrames(
   config: Pick<RenderConfig, 'introSec' | 'outroSec'>,
   source: { fps: number; frames: number },
-  log: (msg: string) => void,
 ): IntroOutroFrames {
   let introN = Math.max(0, Math.round(config.introSec * source.fps));
   let outroN = Math.max(0, Math.round(config.outroSec * source.fps));
   const budget = Math.max(2, Math.floor(source.frames / 2));
-  if (introN + outroN > budget) {
+  const clamped = introN + outroN > budget;
+  if (clamped) {
     const scale = budget / (introN + outroN);
     introN = Math.floor(introN * scale);
     outroN = Math.floor(outroN * scale);
-    log(`intro/outro shortened to ${introN}/${outroN} frames for this clip`);
   }
-  return { introN, outroN };
+  return { introN, outroN, clamped };
 }
