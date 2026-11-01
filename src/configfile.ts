@@ -10,6 +10,7 @@ import path from 'node:path';
 import {
   CONFIG_FILE_NAME,
   DEFAULT_CONFIG,
+  normalizeDimensions,
   normalizeOverrides,
   validateRenderConfig,
 } from './config.js';
@@ -100,6 +101,10 @@ export function resolveConfig(opts: {
   const merged = mergeConfigLayers(fileCfg, opts.cli ?? {});
 
   validateRenderConfig(merged);
+  const normalized = {
+    ...merged,
+    ...normalizeDimensions(merged.width, merged.height),
+  };
 
-  return { config: resolveConfigPaths(merged, cwd), configPath };
+  return { config: resolveConfigPaths(normalized, cwd), configPath };
 }

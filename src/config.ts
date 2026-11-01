@@ -347,6 +347,19 @@ export function validateDimensions(width: number, height: number): void {
   }
 }
 
+// The documented "rounded down to even" rule (keeping the MIN_DIMENSION
+// floor), in one home: every config producer applies it so a RenderConfig
+// always holds the effective canvas the renderer gets.
+export function normalizeDimensions(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  return {
+    width: Math.max(MIN_DIMENSION, 2 * Math.floor(width / 2)),
+    height: Math.max(MIN_DIMENSION, 2 * Math.floor(height / 2)),
+  };
+}
+
 export function validateRenderConfig(config: RenderConfig): void {
   validateDimensions(config.width, config.height);
   if (!Number.isInteger(config.workers) || config.workers < 1) {
@@ -443,7 +456,7 @@ function parseRequestConfig(raw: unknown, base: RenderConfig): RenderConfig {
   }
   const config = { ...base, ...normalizeOverrides(flat, 'export request: config') };
   validateRenderConfig(config);
-  return config;
+  return { ...config, ...normalizeDimensions(config.width, config.height) };
 }
 
 export function parseExportRequest(raw: unknown, base: RenderConfig): ExportRequest {

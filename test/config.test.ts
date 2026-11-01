@@ -5,6 +5,7 @@ import {
   DEFAULT_CONFIG,
   cliDefaultOf,
   formatHud,
+  normalizeDimensions,
   normalizeOverrides,
   parseExportRequest,
   parseFrameRange,
@@ -12,6 +13,20 @@ import {
   resolveHudSpec,
   validateRenderConfig,
 } from '../src/config.js';
+
+describe('normalizeDimensions', () => {
+  it.each([
+    ['an even canvas stays as-is', 768, 500, 768, 500],
+    ['odd sizes round down to even', 767, 501, 766, 500],
+    ['fractional sizes round down', 640.9, 100.5, 640, 100],
+    ['the minimum canvas is kept', 64, 65, 64, 64],
+  ])('%s', (_label, width, height, wantWidth, wantHeight) => {
+    expect(normalizeDimensions(width, height)).toEqual({
+      width: wantWidth,
+      height: wantHeight,
+    });
+  });
+});
 
 describe('parseHud', () => {
   it('parses comma lists', () => {
@@ -199,6 +214,15 @@ describe('parseExportRequest', () => {
   it('treats a missing or null range as the full recording', () => {
     expect(parseExportRequest({ outPath: '/x/a.mp4', config: {} }, base).range).toBeNull();
     expect(parseExportRequest({ outPath: '/x/a.mp4', config: {}, range: null }, base).range).toBeNull();
+  });
+
+  it('normalizes odd dimensions to the effective even canvas', () => {
+    const request = parseExportRequest(
+      { outPath: '/x/a.mp4', config: { width: 641, height: 767 } },
+      base,
+    );
+    expect(request.config.width).toBe(640);
+    expect(request.config.height).toBe(766);
   });
 
   it.each([

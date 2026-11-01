@@ -115,8 +115,8 @@ const sleep = (ms: number): Promise<void> =>
 afterEach(cleanupTmpDirs);
 
 describe('prepareSession', () => {
-  it('rounds the canvas to even sizes and lets the planner decimate once', async () => {
-    const config = testConfig({ width: 767, height: 500 });
+  it('carries the effective canvas through and lets the planner decimate once', async () => {
+    const config = testConfig({ width: 766, height: 500 });
     const prep = await prepareSession(VIDEO, config, () => {}, { deps: stubDeps() });
     expect(prep.width).toBe(766);
     expect(prep.height).toBe(500);

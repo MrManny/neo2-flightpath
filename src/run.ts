@@ -297,8 +297,9 @@ export async function prepareSession(
       tilesTotal,
     });
 
-  const width = Math.max(64, 2 * Math.floor(config.width / 2));
-  const height = Math.max(64, 2 * Math.floor(config.height / 2));
+  // Config producers normalize the canvas (config.normalizeDimensions); the
+  // pipeline renders exactly what the vocabulary resolved.
+  const { width, height } = config;
 
   report('probe', 0);
   const probe = await stage(tracer, 'probe', parent, {}, () =>

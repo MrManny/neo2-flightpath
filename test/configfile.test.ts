@@ -84,6 +84,19 @@ describe('resolveConfig', () => {
     ).toThrow(/out-suffix/);
   });
 
+  it('normalizes odd dimensions to the effective even canvas', () => {
+    const root = tmpDir();
+    const file = path.join(root, '.neo2flightpath.json');
+    fs.writeFileSync(file, '{}');
+    const { config } = resolveConfig({
+      cli: { width: 767, height: 501 },
+      configPath: file,
+      cwd: root,
+    });
+    expect(config.width).toBe(766);
+    expect(config.height).toBe(500);
+  });
+
   it('keeps hud state private to each resolved config', () => {
     const root = tmpDir();
     const file = path.join(root, '.neo2flightpath.json');
