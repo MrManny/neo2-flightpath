@@ -94,7 +94,7 @@ export function resolveConfig(opts: {
 }): ResolvedConfig {
   const cwd = opts.cwd ?? process.cwd();
   const configPath =
-    opts.configPath != null
+    opts.configPath !== undefined && opts.configPath !== null
       ? path.resolve(cwd, opts.configPath)
       : discoverConfigFile(cwd);
   const fileCfg = configPath ? loadConfigFile(configPath) : {};

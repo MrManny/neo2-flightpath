@@ -22,9 +22,15 @@ export function MapIsland({ data, onScene }: MapIslandProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<Scene | null>(null);
   const dataRef = useRef(data);
-  dataRef.current = data;
   const onSceneRef = useRef(onScene);
-  onSceneRef.current = onScene;
+
+  // The boot effect below runs once, after the lazy Leaflet import settles;
+  // syncing the latest props here keeps it from building the scene or
+  // reporting it through stale props without remounting the map.
+  useEffect(() => {
+    dataRef.current = data;
+    onSceneRef.current = onScene;
+  });
 
   useEffect(() => {
     const host = hostRef.current;

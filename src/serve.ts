@@ -3,7 +3,7 @@
 // this shell performs the I/O and writes the resolved result.
 
 import fs from 'node:fs';
-import http from 'node:http';
+import type http from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pipeline } from 'node:stream';

@@ -21,7 +21,7 @@ async function pick(deps: PickFlowDeps): Promise<PickEvent | null> {
 
 async function loadSession(deps: PickFlowDeps): Promise<UiSession | PickEvent> {
   const session = await deps.getSession();
-  return session === null ? { type: 'failed', message: 'no recording loaded' } : session;
+  return session ?? { type: 'failed', message: 'no recording loaded' };
 }
 
 export async function pickRecordingFlow(

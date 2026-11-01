@@ -20,7 +20,7 @@ export function sceneCss(
     position: absolute; inset: 0; overflow: hidden; background: ${src.bg};
   }
   #map { position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px; }
-  .leaflet-tile-pane { filter: ${src.tileFilter || 'none'}; }
+  .leaflet-tile-pane { filter: ${src.tileFilter ?? 'none'}; }
   #vignette {
     position: absolute; inset: 0; z-index: 500; pointer-events: none;
     background: radial-gradient(ellipse 78% 78% at 50% 44%,

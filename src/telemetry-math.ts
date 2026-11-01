@@ -329,7 +329,7 @@ function fillHeadingGaps(rawHeading: (number | null)[]): void {
     }
   }
   for (let k = 0; k < rawHeading.length; k++) {
-    if (rawHeading[k] === null) rawHeading[k] = firstKnown ?? 0;
+    rawHeading[k] ??= firstKnown ?? 0;
   }
 }
 
