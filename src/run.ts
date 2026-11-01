@@ -40,8 +40,13 @@ import type { Span, Tracer, TraceContext } from './tracing.js';
 
 export type LogFn = (msg: string) => void;
 
+// The preparation stages in execution order. The loading-bar step numbers
+// derive from this sequence, so adding or reordering a stage cannot silently
+// skew the bar (see PrepareProgress).
+const PREPARE_STAGE_ORDER = ['probe', 'telemetry', 'plan', 'tiles'] as const;
+
 /** The loading stage a preparation is in; tiles is the long map pre-warm. */
-export type PrepareStage = 'probe' | 'telemetry' | 'plan' | 'tiles';
+export type PrepareStage = (typeof PREPARE_STAGE_ORDER)[number];
 
 // The loading bar advances one step per stage and one per planned tile during
 // the pre-warm: 3 + tile count steps in total.
@@ -277,39 +282,65 @@ export interface PreparedRecording {
   frames: FrameArrays;
 }
 
-// The first three stages count one step each; tiles.prefetch adds one step per
-// planned tile (see PrepareProgress).
-const PREPARE_STAGE_STEPS = 3;
+// One loading-bar step per stage until the tile pre-warm, which adds one step
+// per planned tile on top (see PrepareProgress).
+const PREPARE_STAGE_STEPS = PREPARE_STAGE_ORDER.indexOf('tiles');
 
-// The preparation stages shared by the headless pipeline and the app: probe,
-// telemetry, view plan, tile pre-warm. One trace context: the stages nest
-// under the caller's parent span (or stand alone when none is given).
-export async function prepareSession(
-  videoPath: string,
-  config: RenderConfig,
-  log: LogFn,
-  options: PipelineOptions = {},
-): Promise<PreparedRecording> {
-  const tracer = options.trace?.tracer ?? NOOP_TRACER;
-  const deps = options.deps ?? realDeps;
-  const parent = options.trace?.parent;
-  const onProgress = options.onProgress ?? ((): void => {});
+// Loading-bar bookkeeping: stage starts derive their step from the stage
+// order; the pre-warm reports one step per settled tile.
+interface PrepareReporter {
+  begin(stage: PrepareStage): void;
+  /** The view plan revealed the tile count the bar's total now includes. */
+  revealTiles(total: number): void;
+  /** A planned tile settled: downloaded, cached or failed. */
+  tileSettled(): void;
+}
+
+function createPrepareReporter(
+  onProgress: PrepareProgressFn = () => {},
+): PrepareReporter {
   let tilesTotal = 0;
   let tilesDone = 0;
-  const report = (current: PrepareStage, done: number): void =>
+  const report = (stage: PrepareStage, done: number): void =>
     onProgress({
-      stage: current,
+      stage,
       done,
       total: PREPARE_STAGE_STEPS + tilesTotal,
       tilesDone,
       tilesTotal,
     });
+  return {
+    begin(stage: PrepareStage): void {
+      report(stage, PREPARE_STAGE_ORDER.indexOf(stage));
+    },
+    revealTiles(total: number): void {
+      tilesTotal = total;
+    },
+    tileSettled(): void {
+      tilesDone += 1;
+      report('tiles', PREPARE_STAGE_STEPS + tilesDone);
+    },
+  };
+}
 
-  // Config producers normalize the canvas (config.normalizeDimensions); the
-  // pipeline renders exactly what the vocabulary resolved.
-  const { width, height } = config;
+// What a preparation stage needs: the run inputs plus the shared tracing,
+// logging and progress handles, passed as one object so the stage signatures
+// do not keep growing.
+interface PrepareStageEnv {
+  videoPath: string;
+  config: RenderConfig;
+  log: LogFn;
+  tracer: Tracer;
+  parent: Span | undefined;
+  deps: PipelineDeps;
+  report: PrepareReporter;
+}
 
-  report('probe', 0);
+async function probeStage(
+  env: PrepareStageEnv,
+): Promise<{ probe: VideoProbe; introOutro: IntroOutroFrames }> {
+  const { videoPath, config, log, tracer, parent, deps, report } = env;
+  report.begin('probe');
   const probe = await stage(tracer, 'probe', parent, {}, () =>
     deps.probeVideo(videoPath, log),
   );
@@ -325,8 +356,15 @@ export async function prepareSession(
       `intro/outro shortened to ${introOutro.introN}/${introOutro.outroN} frames for this clip`,
     );
   }
+  return { probe, introOutro };
+}
 
-  report('telemetry', 1);
+async function telemetryStage(
+  env: PrepareStageEnv,
+  probe: VideoProbe,
+): Promise<{ tel: Telemetry; hud: HudSpec }> {
+  const { videoPath, config, log, tracer, parent, deps, report } = env;
+  report.begin('telemetry');
   const tel = await stage(tracer, 'telemetry.load', parent, {}, async (span) => {
     const loaded = await deps.loadTelemetry(videoPath, {
       frames: probe.frames,
@@ -348,10 +386,14 @@ export async function prepareSession(
       (summary.noLock ? `, ${noLockCuesLabel(summary.noLock)}` : ''),
   );
   const hud = resolveHud(config, tel, log);
+  return { tel, hud };
+}
 
-  report('plan', 2);
+async function viewPlanStage(env: PrepareStageEnv, tel: Telemetry): Promise<Overview> {
+  const { config, log, tracer, parent, report } = env;
+  report.begin('plan');
   const overview = await stage(tracer, 'plan', parent, { 'plan.view': config.view }, async (span) => {
-    const computed = planView(tel.bbox, width, height, config);
+    const computed = planView(tel.bbox, config.width, config.height, config);
     span.setAttributes({
       'plan.zoom': computed.zoom,
       'plan.zoomOut': effectiveZoomOut(config),
@@ -360,9 +402,16 @@ export async function prepareSession(
     return computed;
   });
   log(describeView(config, overview, config.style));
+  report.revealTiles(overview.tiles.length);
+  return overview;
+}
 
-  tilesTotal = overview.tiles.length;
-  report('tiles', PREPARE_STAGE_STEPS);
+async function tileWarmStage(
+  env: PrepareStageEnv,
+  overview: Overview,
+): Promise<PrefetchStats> {
+  const { config, log, tracer, parent, deps, report } = env;
+  report.begin('tiles');
   const tileStats = await stage(tracer, 'tiles.prefetch', parent, {}, async (span) => {
     const stats = await deps.prefetchTiles({
       style: config.style,
@@ -370,8 +419,7 @@ export async function prepareSession(
       cacheDir: config.tileCache,
       log,
       onTile: () => {
-        tilesDone++;
-        report('tiles', PREPARE_STAGE_STEPS + tilesDone);
+        report.tileSettled();
       },
     });
     span.setAttributes({
@@ -385,7 +433,36 @@ export async function prepareSession(
   if (tileStats.downloaded) {
     log(`tiles: ${tileStats.downloaded} downloaded, ${tileStats.failed} placeholders`);
   }
+  return tileStats;
+}
 
+// The preparation stages shared by the headless pipeline and the app: probe,
+// telemetry, view plan, tile pre-warm. One trace context: the stages nest
+// under the caller's parent span (or stand alone when none is given).
+export async function prepareSession(
+  videoPath: string,
+  config: RenderConfig,
+  log: LogFn,
+  options: PipelineOptions = {},
+): Promise<PreparedRecording> {
+  const env: PrepareStageEnv = {
+    videoPath,
+    config,
+    log,
+    tracer: options.trace?.tracer ?? NOOP_TRACER,
+    parent: options.trace?.parent,
+    deps: options.deps ?? realDeps,
+    report: createPrepareReporter(options.onProgress),
+  };
+
+  // Config producers normalize the canvas (config.normalizeDimensions); the
+  // pipeline renders exactly what the vocabulary resolved.
+  const { width, height } = config;
+
+  const { probe, introOutro } = await probeStage(env);
+  const { tel, hud } = await telemetryStage(env, probe);
+  const overview = await viewPlanStage(env, tel);
+  const tileStats = await tileWarmStage(env, overview);
   const frames = frameArrays(tel);
 
   return {

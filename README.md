@@ -160,6 +160,11 @@ directory (or named explicitly with `--config`). A complete example lives in
 All keys are optional.
 Anything omitted falls back to the default in the option table above.
 
+Values must use proper JSON types — numbers as JSON numbers; quoted numbers
+(`"width": "768"`), empty strings and odd literals (`0x10`) are rejected with
+`invalid number for <name>: ...`, while CLI flags accept plain decimal
+literals.
+
 ## Tiles & attribution
 
 - `satellite`: Esri World Imagery — attribution *Imagery © Esri, Maxar,
