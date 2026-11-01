@@ -267,6 +267,15 @@ describe('ExportModal outcomes', () => {
     expect(screen.getByText('120 frames @ 29.97 fps · 4 s · 1280×720')).toBeTruthy();
   });
 
+  it('drops the rate clause when the summary carries no frame rate', async () => {
+    const { emitDone } = installBridge();
+    renderModal({ in: null, out: null });
+    fireEvent.click(screen.getByRole('button', { name: 'Start export' }));
+    await screen.findByRole('button', { name: 'Cancel export' });
+    emitDone({ status: 'ok', summary: { ...SUMMARY, fps: undefined } });
+    expect(screen.getByText('120 frames · 4 s · 1280×720')).toBeTruthy();
+  });
+
   it('turns a raw Node error into a sentence and keeps the original as details', async () => {
     const { emitDone } = installBridge();
     await reachPhase('error', emitDone);
