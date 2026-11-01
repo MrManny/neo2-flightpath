@@ -13,8 +13,8 @@ Release PRs are titled `release: vX.Y.Z`; since PRs squash-merge, that title bec
 ## Body
 
 Keep the body up to date if any fix-up commits render any part of the previous body stale.
-
-Use `Closes #n` or `Refs #n` to close or reference an underlying issue
+Use `Closes #n` or `Fixes #n` to close an underlying issue.
+Use `Refs #n` if only partially solving an underlying issue, leaving it open.
 
 ## Labels
 
