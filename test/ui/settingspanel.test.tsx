@@ -38,22 +38,22 @@ describe('SettingsPanel', () => {
       introSec: 1.5,
     };
     renderPanel(config, true);
-    expect((screen.getByLabelText('Map style') as HTMLSelectElement).value).toBe('topo');
-    expect((screen.getByLabelText('View') as HTMLSelectElement).value).toBe('overview');
-    expect((screen.getByLabelText('Zoom') as HTMLInputElement).value).toBe('13');
-    expect((screen.getByLabelText('Zoom-out') as HTMLInputElement).value).toBe('2');
-    expect((screen.getByLabelText('Intro (s)') as HTMLInputElement).value).toBe('1.5');
-    expect((screen.getByLabelText('Outro (s)') as HTMLInputElement).value).toBe('2');
+    expect(screen.getByLabelText<HTMLSelectElement>('Map style').value).toBe('topo');
+    expect(screen.getByLabelText<HTMLSelectElement>('View').value).toBe('overview');
+    expect(screen.getByLabelText<HTMLInputElement>('Zoom').value).toBe('13');
+    expect(screen.getByLabelText<HTMLInputElement>('Zoom-out').value).toBe('2');
+    expect(screen.getByLabelText<HTMLInputElement>('Intro (s)').value).toBe('1.5');
+    expect(screen.getByLabelText<HTMLInputElement>('Outro (s)').value).toBe('2');
   });
 
   it('shows plain option labels while keeping raw values', () => {
     renderPanel(DEFAULT_CONFIG, true);
-    const mapStyle = screen.getByLabelText('Map style') as HTMLSelectElement;
+    const mapStyle = screen.getByLabelText<HTMLSelectElement>('Map style');
     expect([...mapStyle.options].map((o) => [o.value, o.textContent])).toEqual([
       ['satellite', 'Satellite'],
       ['topo', 'Topographic'],
     ]);
-    const view = screen.getByLabelText('View') as HTMLSelectElement;
+    const view = screen.getByLabelText<HTMLSelectElement>('View');
     expect([...view.options].map((o) => [o.value, o.textContent])).toEqual([
       ['follow', 'Follow'],
       ['overview', 'Overview'],
@@ -70,7 +70,7 @@ describe('SettingsPanel', () => {
         onClose={onClose}
       />,
     );
-    const close = screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement;
+    const close = screen.getByRole<HTMLButtonElement>('button', { name: 'Close' });
     expect(close.disabled).toBe(false);
     fireEvent.click(close);
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -119,7 +119,7 @@ describe('SettingsPanel', () => {
       );
     }
     render(<Harness />);
-    const intro = screen.getByLabelText('Intro (s)') as HTMLInputElement;
+    const intro = screen.getByLabelText<HTMLInputElement>('Intro (s)');
 
     fireEvent.change(intro, { target: { value: '-1' } });
     expect(intro.value).toBe('-1');
@@ -140,14 +140,14 @@ describe('SettingsPanel', () => {
       { ...DEFAULT_CONFIG, hud: { heading: true, alt: true, speed: false } },
       false,
     );
-    const alt = screen.getByLabelText('Altitude (ALT)') as HTMLInputElement;
+    const alt = screen.getByLabelText<HTMLInputElement>('Altitude (ALT)');
     expect(alt.checked).toBe(false); // the chip would not show
     expect(alt.disabled).toBe(true);
   });
 
   it('disables the alt chip toggle when the telemetry has no altitude', () => {
     const { rerender } = renderPanel(DEFAULT_CONFIG, false);
-    const alt = screen.getByLabelText('Altitude (ALT)') as HTMLInputElement;
+    const alt = screen.getByLabelText<HTMLInputElement>('Altitude (ALT)');
     expect(alt.disabled).toBe(true);
     rerender(
       <SettingsPanel
@@ -167,7 +167,7 @@ describe.each([{ field: 'Zoom' }, { field: 'Zoom-out' }, { field: 'Intro (s)' },
     it('names the rule, marks the field invalid and emits nothing', () => {
       const onChange = vi.fn();
       renderPanel(DEFAULT_CONFIG, true, onChange);
-      const input = screen.getByLabelText(field) as HTMLInputElement;
+      const input = screen.getByLabelText<HTMLInputElement>(field);
       fireEvent.change(input, { target: { value: '-1' } });
       expect(screen.getByText('Must be 0 or more.')).toBeTruthy();
       expect(input.getAttribute('aria-invalid')).toBe('true');

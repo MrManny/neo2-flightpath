@@ -21,7 +21,7 @@ describe('renderer module graph', () => {
     for (const line of text.split('\n')) {
       const m = /^import (?!type\b).* from '([^']+)';$/.exec(line.trim());
       if (!m) continue;
-      const spec = m[1] as string;
+      const spec = m[1];
       expect(spec, `${file} runtime import leaves renderer/`).toMatch(/^\.\//);
       const target = path.join(RENDERER_DIR, spec.replace(/\.js$/, '.ts'));
       expect(fs.existsSync(target), `${file} imports a missing ${spec}`).toBe(true);

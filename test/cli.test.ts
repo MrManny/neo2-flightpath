@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { main, longFlagOf, parseCliArgs } from '../src/cli.js';
 import { CONFIG_OPTIONS, DEFAULT_CONFIG } from '../src/config.js';
 import { defaultTileCache, resolveConfig } from '../src/configfile.js';
+import type * as ffModule from '../src/ff.js';
+import type * as inputsModule from '../src/inputs.js';
+import type * as runModule from '../src/run.js';
+import type * as tracingModule from '../src/tracing.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(cleanupTmpDirs);
@@ -180,7 +184,7 @@ describe('main tracing wiring', () => {
     const shutdowns = { count: 0 };
     vi.resetModules();
     vi.doMock('../src/tracing.js', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('../src/tracing.js')>();
+      const actual = await importOriginal<typeof tracingModule>();
       return {
         ...actual,
         createTracing: async () => ({
@@ -195,15 +199,15 @@ describe('main tracing wiring', () => {
       };
     });
     vi.doMock('../src/ff.js', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('../src/ff.js')>()),
+      ...(await importOriginal<typeof ffModule>()),
       requireTools: async () => {},
     }));
     vi.doMock('../src/inputs.js', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('../src/inputs.js')>()),
+      ...(await importOriginal<typeof inputsModule>()),
       collectRecordings: () => [path.join('clips', 'clip.mp4')],
     }));
     vi.doMock('../src/run.js', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('../src/run.js')>()),
+      ...(await importOriginal<typeof runModule>()),
       runBatch: async () => {
         throw new Error('batch exploded');
       },

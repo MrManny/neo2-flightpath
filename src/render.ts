@@ -39,7 +39,7 @@ export function startServer({
     // uncaughtException inside this handler.
     let url: string;
     try {
-      url = decodeURIComponent((req.url || '/').split('?')[0]);
+      url = decodeURIComponent((req.url ?? '/').split('?')[0]);
     } catch {
       res.writeHead(400, { 'Content-Type': 'text/plain' });
       res.end('bad request');
@@ -82,7 +82,7 @@ async function launchBrowser(
   for (const opt of attempts) {
     try {
       const browser = await chromium.launch({ headless: true, ...opt });
-      log(`browser: ${opt.executablePath || opt.channel || 'playwright-registry'}`);
+      log(`browser: ${opt.executablePath ?? opt.channel ?? 'playwright-registry'}`);
       return browser;
     } catch (e) {
       attemptErrors.push(e);
@@ -420,11 +420,9 @@ export class FrameBatchRecorder {
     // close() is permanent: a straggling frame must not re-open a batch under
     // the already-ended capture span.
     if (this.closed) return;
-    if (this.openSpan === null) {
-      this.openSpan = this.tracer.startSpan('render.capture.batch', {
-        parent: this.parent,
-      });
-    }
+    this.openSpan ??= this.tracer.startSpan('render.capture.batch', {
+      parent: this.parent,
+    });
     this.durations.push(captureMs);
     const boundary =
       capturedSoFar % this.cadence === 0 || capturedSoFar === this.frames;

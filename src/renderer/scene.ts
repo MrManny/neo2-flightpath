@@ -180,7 +180,7 @@ class SceneState implements Scene {
   private makeTileLayer(tileUrl: string, style: Style): TileLayerHandle {
     return this.L.tileLayer(tileUrl, {
       maxZoom: TILE_SOURCES[style].maxZoom,
-      maxNativeZoom: TILE_SOURCES[style].maxNativeZoom || undefined,
+      maxNativeZoom: TILE_SOURCES[style].maxNativeZoom ?? undefined,
     });
   }
 

@@ -99,7 +99,7 @@ function isCommanderExit(e: unknown): e is { code: string; exitCode: number } {
     typeof e === 'object' &&
     e !== null &&
     'code' in e &&
-    typeof (e as { code: unknown }).code === 'string' &&
+    typeof (e).code === 'string' &&
     (e as { code: string }).code.startsWith('commander.')
   );
 }

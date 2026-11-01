@@ -2,12 +2,13 @@
 // runs keep their exact output and pay no overhead.
 
 import type { Span as ApiSpan, Tracer as ApiTracer } from '@opentelemetry/api';
+import type * as OtelApiModule from '@opentelemetry/api';
 import type { SpanExporter } from '@opentelemetry/sdk-trace';
 
 import { errorMessage } from './errors.js';
 import { VERSION } from './version.js';
 
-type OtelApi = typeof import('@opentelemetry/api');
+type OtelApi = typeof OtelApiModule;
 
 export type SpanValue = string | number | boolean;
 
@@ -70,8 +71,10 @@ function envFlag(value: string | undefined): boolean {
 }
 
 function envText(value: string | undefined): string | undefined {
+  // A blank value means "unset": the OTLP lookups fall through on undefined,
+  // so an empty string must not count as configured (which ?? would allow).
   const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
+  return trimmed === '' ? undefined : trimmed;
 }
 
 export function isTracingEnabled(env: Env = process.env): boolean {

@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type * as childProcessModule from 'node:child_process';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { decodePacketSamples } from '../src/cammeta.js';
 import type { PacketInfo } from '../src/cammeta.js';
+import type * as ffModule from '../src/ff.js';
 import { parseSrtText } from '../src/srt.js';
 import { loadTelemetry } from '../src/telemetry.js';
 import {
@@ -22,12 +24,12 @@ import {
 const mocks = vi.hoisted(() => ({ ffprobeJson: vi.fn(), execFile: vi.fn() }));
 
 vi.mock('../src/ff.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../src/ff.js')>()),
+  ...(await importOriginal<typeof ffModule>()),
   ffprobeJson: mocks.ffprobeJson,
 }));
 
 vi.mock('node:child_process', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('node:child_process')>()),
+  ...(await importOriginal<typeof childProcessModule>()),
   execFile: mocks.execFile,
 }));
 

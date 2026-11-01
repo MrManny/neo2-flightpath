@@ -35,7 +35,7 @@ export function metersPerPixel(lat: number, zoom: number): number {
 // The map never zooms during a render, so the scale bar picks one step once.
 export function scaleBarMeters(mPerPx: number, maxPx: number): number {
   const steps = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000];
-  let best = steps[0] as number;
+  let best = steps[0];
   for (const step of steps) {
     if (step / mPerPx <= maxPx) best = step;
   }

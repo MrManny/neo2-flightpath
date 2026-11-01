@@ -73,7 +73,7 @@ describe('ExportForm dimensions', () => {
 
   it('rejects a width below the minimum with the rule message', () => {
     const { dispatch } = renderForm();
-    const width = screen.getByLabelText('Width') as HTMLInputElement;
+    const width = screen.getByLabelText<HTMLInputElement>('Width');
     fireEvent.change(width, { target: { value: '10' } });
     expect(screen.getByText('Must be at least 64 px.')).toBeTruthy();
     expect(width.getAttribute('aria-invalid')).toBe('true');

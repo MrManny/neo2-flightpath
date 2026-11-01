@@ -72,7 +72,7 @@ export function parseSrtText(text: string): SrtParseResult {
     const timing = RX_TIMING.exec(line);
     if (timing) {
       const ms = timingLineToMs(timing);
-      if (baseMs === null) baseMs = ms;
+      baseMs ??= ms;
       // A timing line always starts a new cue.
       cues.push(newCue((ms - baseMs) / 1000));
       cueSawLatLon = false;

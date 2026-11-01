@@ -171,7 +171,7 @@ export function planView(
     width,
     height,
     maxZoom: src.maxZoom || 19,
-    maxNativeZoom: src.maxNativeZoom || null,
+    maxNativeZoom: src.maxNativeZoom ?? null,
     zoomOut: config.zoomOut,
     zoomOverride: config.zoom,
     follow: config.view === 'follow',

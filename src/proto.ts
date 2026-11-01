@@ -143,7 +143,7 @@ export function firstFloat(
   fieldNumber: number,
 ): number | null {
   const value = fields.get(fieldNumber)?.[0]?.floatValue;
-  return value !== undefined ? value : null;
+  return value ?? null;
 }
 
 export function firstDouble(
@@ -151,5 +151,5 @@ export function firstDouble(
   fieldNumber: number,
 ): number | null {
   const value = fields.get(fieldNumber)?.[0]?.doubleValue;
-  return value !== undefined ? value : null;
+  return value ?? null;
 }

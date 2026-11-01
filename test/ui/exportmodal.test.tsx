@@ -128,7 +128,7 @@ function dialogFooter(): HTMLElement {
 
 function headerClose(): HTMLButtonElement {
   const header = screen.getByRole('dialog', { name: 'Export' }).querySelector('.settings-header') as HTMLElement;
-  return within(header).getByRole('button', { name: 'Close' }) as HTMLButtonElement;
+  return within(header).getByRole<HTMLButtonElement>('button', { name: 'Close' });
 }
 
 describe('ExportModal what-to-export choice', () => {
@@ -308,7 +308,7 @@ describe('ExportModal rainy paths', () => {
   it('marks a width below the minimum with a message that names the rule', () => {
     installBridge();
     renderModal({ in: null, out: null });
-    const width = screen.getByLabelText('Width', { exact: true }) as HTMLInputElement;
+    const width = screen.getByLabelText<HTMLInputElement>('Width', { exact: true });
     fireEvent.change(width, { target: { value: '10' } });
     expect(screen.getByText('Must be at least 64 px.')).toBeTruthy();
     expect(width.getAttribute('aria-invalid')).toBe('true');

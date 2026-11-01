@@ -132,7 +132,7 @@ describe('Open flow on the landing', () => {
     const harness = installBridge();
     fireEvent.click(await openLanding());
     expect(harness.bridge.pickRecording).toHaveBeenCalledTimes(1);
-    expect((screen.getByRole('button', { name: 'Open…' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Open…' }).disabled).toBe(false);
     expect(screen.queryByText(/Preparing/)).toBeNull();
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
@@ -144,7 +144,7 @@ describe('Open flow on the landing', () => {
     expect(screen.queryByText(/Preparing/)).toBeNull();
     harness.prepare();
     expect(screen.getByText('Probing the recording…')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Preparing…' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Preparing…' }).disabled).toBe(true);
     await harness.settle({ ok: true });
   });
 

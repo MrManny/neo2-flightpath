@@ -14,7 +14,7 @@ const OPTIONS = [
 function renderStyle() {
   const onValue = vi.fn();
   render(<SelectField label="Map style" value="satellite" options={OPTIONS} onValue={onValue} />);
-  return { select: screen.getByLabelText('Map style') as HTMLSelectElement, onValue };
+  return { select: screen.getByLabelText<HTMLSelectElement>('Map style'), onValue };
 }
 
 describe('SelectField', () => {

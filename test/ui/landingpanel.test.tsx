@@ -18,7 +18,7 @@ describe('LandingPanel', () => {
 
   it('keeps the status line empty while the native picker is open', () => {
     render(<LandingPanel state={{ kind: 'picking' }} onPick={() => {}} />);
-    const button = screen.getByRole('button', { name: 'Open…' }) as HTMLButtonElement;
+    const button = screen.getByRole<HTMLButtonElement>('button', { name: 'Open…' });
     expect(button.disabled).toBe(false);
     expect(screen.queryByText(/Preparing/)).toBeNull();
     expect(screen.queryByRole('status')).toBeNull();
@@ -31,7 +31,7 @@ describe('LandingPanel', () => {
         onPick={() => {}}
       />,
     );
-    const button = screen.getByRole('button', { name: 'Preparing…' }) as HTMLButtonElement;
+    const button = screen.getByRole<HTMLButtonElement>('button', { name: 'Preparing…' });
     expect(button.disabled).toBe(true);
     expect(screen.getByText('Probing the recording…')).toBeTruthy();
     const bar = screen.getByRole('progressbar', { name: 'Preparation progress' });
