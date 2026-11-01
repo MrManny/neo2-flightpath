@@ -1,7 +1,27 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { decodePacketSamples, decodeProductMeta, scanGpsPair } from '../src/cammeta.js';
+import {
+  decodePacketSamples,
+  decodeProductMeta,
+  parseCamMeta,
+  scanGpsPair,
+} from '../src/cammeta.js';
 import type { PacketInfo } from '../src/cammeta.js';
+
+const mocks = vi.hoisted(() => ({
+  ffprobeJson: vi.fn(),
+  execFile: vi.fn(),
+}));
+
+vi.mock('../src/ff.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ff.js')>()),
+  ffprobeJson: mocks.ffprobeJson,
+}));
+
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+  execFile: mocks.execFile,
+}));
 
 function dbl(value: number): Buffer {
   const b = Buffer.alloc(8);
@@ -240,5 +260,62 @@ describe('decodePacketSamples', () => {
     expect(samples[0].noLock).toBe(true);
     expect(samples[0].lat).toBeNull();
     expect(samples[1].lat).toBe(46.6);
+  });
+});
+
+// Tool failures are operational errors with a cause chain; only a genuine
+// absence ("no CAM meta stream") may look like "no telemetry".
+describe('parseCamMeta failure surfacing', () => {
+  const VIDEO = 'clips/flight.mp4';
+
+  beforeEach(() => {
+    mocks.ffprobeJson.mockReset();
+    mocks.execFile.mockReset();
+  });
+
+  it('returns null when the video has no CAM meta stream', async () => {
+    mocks.ffprobeJson.mockResolvedValue({ streams: [] });
+    await expect(parseCamMeta(VIDEO, 1)).resolves.toBeNull();
+  });
+
+  it('rethrows ffprobe stream probing failures with their cause', async () => {
+    const failure = new Error('spawn ffprobe ENOENT');
+    mocks.ffprobeJson.mockRejectedValue(failure);
+    const err = await parseCamMeta(VIDEO, 1).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(err?.message).toBe('ffprobe failed while probing the cam meta stream');
+    expect(err?.cause).toBe(failure);
+  });
+
+  it('rethrows ffprobe packet listing failures with their cause', async () => {
+    const failure = new Error('ffprobe crashed');
+    mocks.ffprobeJson
+      .mockResolvedValueOnce({ streams: [{ index: 3, tags: { handler_name: 'CAM meta' } }] })
+      .mockRejectedValueOnce(failure);
+    const err = await parseCamMeta(VIDEO, 1).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(err?.message).toBe('ffprobe failed while listing the cam meta packets');
+    expect(err?.cause).toBe(failure);
+  });
+
+  it('rethrows ffmpeg dump failures with their cause', async () => {
+    const failure = new Error('spawn ffmpeg ENOENT');
+    mocks.ffprobeJson
+      .mockResolvedValueOnce({ streams: [{ index: 3, tags: { handler_name: 'CAM meta' } }] })
+      .mockResolvedValueOnce({ packets: [{ pts_time: '0', size: '5' }] });
+    mocks.execFile.mockImplementation(
+      (_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null) => void) =>
+        cb(failure),
+    );
+    const err = await parseCamMeta(VIDEO, 1).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(err?.message).toBe('ffmpeg failed while dumping the cam meta stream');
+    expect(err?.cause).toBe(failure);
   });
 });

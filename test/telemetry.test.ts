@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { decodePacketSamples } from '../src/cammeta.js';
 import type { PacketInfo } from '../src/cammeta.js';
@@ -16,6 +16,25 @@ import {
   writeSrt,
 } from './fixtures.js';
 
+// The cam meta source talks to ffprobe and ffmpeg through child_process;
+// mock both seams so absence and tool failures stay distinguishable and the
+// tests stay offline.
+const mocks = vi.hoisted(() => ({ ffprobeJson: vi.fn(), execFile: vi.fn() }));
+
+vi.mock('../src/ff.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ff.js')>()),
+  ffprobeJson: mocks.ffprobeJson,
+}));
+
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+  execFile: mocks.execFile,
+}));
+
+beforeEach(() => {
+  mocks.ffprobeJson.mockReset();
+  mocks.execFile.mockReset();
+});
 afterEach(cleanupTmpDirs);
 
 describe('loadTelemetry (SRT source)', () => {
@@ -118,12 +137,27 @@ describe('loadTelemetry (SRT source)', () => {
   });
 
   it('rejects videos without any telemetry source', async () => {
+    mocks.ffprobeJson.mockResolvedValue({ streams: [] }); // no CAM meta stream
     const dir = tmpDir();
     const video = path.join(dir, 'naked.mp4');
     fs.writeFileSync(video, '');
     await expect(
       loadTelemetry(video, { frames: 2, fpsValue: 30, durationSec: 1 }),
     ).rejects.toThrow(/no telemetry found/);
+  });
+
+  it('surfaces cam meta tool failures instead of claiming no telemetry', async () => {
+    const failure = new Error('spawn ffprobe ENOENT');
+    mocks.ffprobeJson.mockRejectedValue(failure);
+    const dir = tmpDir();
+    const video = path.join(dir, 'unreadable.mp4');
+    fs.writeFileSync(video, '');
+    const err = await loadTelemetry(video, { frames: 2, fpsValue: 30, durationSec: 1 }).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(err?.message).toBe('ffprobe failed while probing the cam meta stream');
+    expect(err?.cause).toBe(failure);
   });
 });
 
