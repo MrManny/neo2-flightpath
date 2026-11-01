@@ -66,6 +66,21 @@ function removeQuietly(working: string): void {
   }
 }
 
+// The module's core invariant: the destination is replaced only after the
+// render is complete and verified. A failed swap must keep the finished
+// render at the working path (e.g. when a player holds the destination open).
+function swapIntoPlace(working: string, outPath: string): void {
+  try {
+    fs.renameSync(working, outPath);
+  } catch (e) {
+    throw new Error(
+      `could not replace ${outPath}: ${errorMessage(e)} ` +
+        `(the finished render is at ${working})`,
+      { cause: e },
+    );
+  }
+}
+
 export function createExportRunner(options: ExportRunnerOptions): ExportRunner {
   const log = options.log ?? ((): void => {});
   const run = options.run ?? runViaPipeline;
@@ -77,28 +92,22 @@ export function createExportRunner(options: ExportRunnerOptions): ExportRunner {
     working: string,
     controller: AbortController,
   ): Promise<ExportOutcome> {
+    let summary: RecordingSummary;
     try {
-      const summary = await run(videoPath, request, log, working, controller.signal);
-      try {
-        fs.renameSync(working, request.outPath);
-      } catch (e) {
-        // The render is complete and verified; keep it when only the swap
-        // fails (e.g. a player holds the destination open).
-        return {
-          status: 'error',
-          error:
-            `could not replace ${request.outPath}: ${errorMessage(e)} ` +
-            `(the finished render is at ${working})`,
-        };
-      }
-      log(`exported: ${request.outPath}`);
-      return { status: 'ok', summary: { ...summary, out: request.outPath } };
+      summary = await run(videoPath, request, log, working, controller.signal);
     } catch (e) {
       removeQuietly(working);
       return controller.signal.aborted
         ? { status: 'canceled' }
         : { status: 'error', error: errorMessage(e) };
     }
+    try {
+      swapIntoPlace(working, request.outPath);
+    } catch (e) {
+      return { status: 'error', error: errorMessage(e) };
+    }
+    log(`exported: ${request.outPath}`);
+    return { status: 'ok', summary: { ...summary, out: request.outPath } };
   }
 
   return {
@@ -113,10 +122,17 @@ export function createExportRunner(options: ExportRunnerOptions): ExportRunner {
       const controller = new AbortController();
       job = { abort: () => controller.abort() };
       const working = workingPathFor(request.outPath);
-      void execute(videoPath, request, working, controller).then((outcome) => {
-        job = null;
-        options.onDone(outcome);
-      });
+      // The catch guard contains a consumer's throwing onDone (and any
+      // broken chain): an unhandled rejection here would kill the process.
+      void execute(videoPath, request, working, controller)
+        .then((outcome) => {
+          job = null;
+          options.onDone(outcome);
+        })
+        .catch((e: unknown) => {
+          job = null;
+          log(`export completion failed: ${errorMessage(e)}`);
+        });
     },
     cancel(): void {
       job?.abort();

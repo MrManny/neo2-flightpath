@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   exitCode: 0,
   screenshotFailAt: 0,
   screenshots: 0,
+  launchFail: false,
 }));
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -44,22 +45,25 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 vi.mock('playwright-core', () => ({
   chromium: {
-    launch: async () => ({
-      newPage: async () => ({
-        goto: async () => {},
-        waitForFunction: async () => {},
-        evaluate: async () => {},
-        screenshot: async () => {
-          mocks.screenshots++;
-          if (mocks.screenshotFailAt > 0 && mocks.screenshots === mocks.screenshotFailAt) {
-            throw new Error('screenshot failed');
-          }
-          return Buffer.from(`frame-${mocks.screenshots}`);
-        },
+    launch: async () => {
+      if (mocks.launchFail) throw new Error('no chromium here');
+      return ({
+        newPage: async () => ({
+          goto: async () => {},
+          waitForFunction: async () => {},
+          evaluate: async () => {},
+          screenshot: async () => {
+            mocks.screenshots++;
+            if (mocks.screenshotFailAt > 0 && mocks.screenshots === mocks.screenshotFailAt) {
+              throw new Error('screenshot failed');
+            }
+            return Buffer.from(`frame-${mocks.screenshots}`);
+          },
+          close: async () => {},
+        }),
         close: async () => {},
-      }),
-      close: async () => {},
-    }),
+      });
+    },
   },
 }));
 
@@ -67,6 +71,7 @@ beforeEach(() => {
   mocks.exitCode = 0;
   mocks.screenshotFailAt = 0;
   mocks.screenshots = 0;
+  mocks.launchFail = false;
 });
 
 afterEach(cleanupTmpDirs);
@@ -231,6 +236,26 @@ describe('renderVideo span tree', () => {
     }
     // the failed screenshot never counts as a captured frame
     expect(capture?.attributes['render.frames.captured']).toBe(mocks.screenshots - 1);
+  });
+});
+
+describe('renderVideo browser launch', () => {
+  it('keeps every launch attempt as the cause when no browser starts', async () => {
+    mocks.launchFail = true;
+    const err = await renderVideo(renderOpts()).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(err?.message).toMatch(/could not launch/);
+    const cause = err?.cause as AggregateError;
+    expect(cause).toBeInstanceOf(AggregateError);
+    // chrome, msedge, then the playwright registry - all three survive.
+    expect(cause.errors).toHaveLength(3);
+    expect(cause.errors.map((e) => (e as Error).message)).toEqual([
+      'no chromium here',
+      'no chromium here',
+      'no chromium here',
+    ]);
   });
 });
 

@@ -20,6 +20,12 @@ describe('patchConfig', () => {
     const next = patchConfig(DEFAULT_CONFIG, { zoom: 3 });
     expect(next?.hud).toEqual(DEFAULT_CONFIG.hud);
   });
+
+  it('normalizes odd dimensions to the effective even canvas', () => {
+    const next = patchConfig(DEFAULT_CONFIG, { width: 641, height: 501 });
+    expect(next?.width).toBe(640);
+    expect(next?.height).toBe(500);
+  });
 });
 
 describe('setHudChip', () => {

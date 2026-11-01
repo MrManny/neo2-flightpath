@@ -299,9 +299,14 @@ export function cliDefaultOf(key: keyof RenderConfig): string | boolean {
   return key === 'hud' ? formatHud(value as HudSpec) : String(value);
 }
 
-export const DEFAULT_CONFIG: RenderConfig = Object.fromEntries(
-  CONFIG_OPTIONS.map((row) => [row.key, row.default]),
-) as unknown as RenderConfig;
+// Frozen so no resolved config can corrupt the shared defaults; merges copy
+// the hud spec so every resolved config owns its own mutable copy.
+export const DEFAULT_CONFIG: RenderConfig = Object.freeze(
+  Object.fromEntries(
+    CONFIG_OPTIONS.map((row) => [row.key, row.default]),
+  ) as unknown as RenderConfig,
+);
+Object.freeze(DEFAULT_CONFIG.hud);
 
 // Keyed lookup built from the option table; a key's normalizer is found by its
 // name, and an unknown key is a usage error naming the origin.
@@ -340,6 +345,19 @@ export function validateDimensions(width: number, height: number): void {
   if (!(width >= MIN_DIMENSION) || !(height >= MIN_DIMENSION)) {
     throw new Error(`width and height must be at least ${MIN_DIMENSION}`);
   }
+}
+
+// The documented "rounded down to even" rule (keeping the MIN_DIMENSION
+// floor), in one home: every config producer applies it so a RenderConfig
+// always holds the effective canvas the renderer gets.
+export function normalizeDimensions(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  return {
+    width: Math.max(MIN_DIMENSION, 2 * Math.floor(width / 2)),
+    height: Math.max(MIN_DIMENSION, 2 * Math.floor(height / 2)),
+  };
 }
 
 export function validateRenderConfig(config: RenderConfig): void {
@@ -438,7 +456,7 @@ function parseRequestConfig(raw: unknown, base: RenderConfig): RenderConfig {
   }
   const config = { ...base, ...normalizeOverrides(flat, 'export request: config') };
   validateRenderConfig(config);
-  return config;
+  return { ...config, ...normalizeDimensions(config.width, config.height) };
 }
 
 export function parseExportRequest(raw: unknown, base: RenderConfig): ExportRequest {

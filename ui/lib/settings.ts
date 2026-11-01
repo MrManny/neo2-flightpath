@@ -1,7 +1,7 @@
 // The settings panel edits one RenderConfig through the same validation the
 // CLI applies, so the panel can never hold a value the pipeline would reject.
 
-import { validateRenderConfig } from '../../src/config.js';
+import { normalizeDimensions, validateRenderConfig } from '../../src/config.js';
 import type {
   ConfigOverrides,
   HudSpec,
@@ -15,10 +15,10 @@ export function patchConfig(
   const next: RenderConfig = { ...config, ...patch, hud: patch.hud ?? config.hud };
   try {
     validateRenderConfig(next);
-    return next;
   } catch {
     return null;
   }
+  return { ...next, ...normalizeDimensions(next.width, next.height) };
 }
 
 export function setHudChip(

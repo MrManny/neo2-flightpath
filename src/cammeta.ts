@@ -116,8 +116,8 @@ export async function findCamMetaIndex(
       '-of',
       'json',
     ]);
-  } catch {
-    return null;
+  } catch (e) {
+    throw new Error('ffprobe failed while probing the cam meta stream', { cause: e });
   }
   const streams = (probe['streams'] ?? []) as Array<{
     index: number;
@@ -243,12 +243,12 @@ export interface PacketInfo {
   size: number;
 }
 
-// Null when ffprobe cannot list the packets: the caller must give up rather
-// than guess alignments.
+// A probe failure is operational, not absence: it surfaces with its cause so
+// a missing or broken ffprobe is never mistaken for a stream without data.
 async function listCamMetaPackets(
   videoPath: string,
   streamIndex: number,
-): Promise<PacketInfo[] | null> {
+): Promise<PacketInfo[]> {
   let probe: Record<string, unknown>;
   try {
     probe = await ffprobeJson(videoPath, [
@@ -260,8 +260,8 @@ async function listCamMetaPackets(
       '-of',
       'json',
     ]);
-  } catch {
-    return null;
+  } catch (e) {
+    throw new Error('ffprobe failed while listing the cam meta packets', { cause: e });
   }
   return ((probe['packets'] ?? []) as Array<{
     pts_time: string;
@@ -275,23 +275,25 @@ async function listCamMetaPackets(
 async function dumpCamMetaStream(
   videoPath: string,
   streamIndex: number,
-): Promise<Buffer | null> {
+): Promise<Buffer> {
   const tmp = path.join(
     os.tmpdir(),
     `cammeta_${process.pid}_${Date.now().toString(36)}.bin`,
   );
   try {
-    await execFileAsync(
-      'ffmpeg',
-      [
-        '-v', 'error', '-y', '-i', videoPath,
-        '-map', `0:${streamIndex}`, '-c', 'copy', '-f', 'rawvideo', tmp,
-      ],
-      { maxBuffer: FFMPEG_MAX_BUFFER },
-    );
+    try {
+      await execFileAsync(
+        'ffmpeg',
+        [
+          '-v', 'error', '-y', '-i', videoPath,
+          '-map', `0:${streamIndex}`, '-c', 'copy', '-f', 'rawvideo', tmp,
+        ],
+        { maxBuffer: FFMPEG_MAX_BUFFER },
+      );
+    } catch (e) {
+      throw new Error('ffmpeg failed while dumping the cam meta stream', { cause: e });
+    }
     return fs.readFileSync(tmp);
-  } catch {
-    return null;
   } finally {
     fs.rmSync(tmp, { force: true });
   }
@@ -368,14 +370,15 @@ export async function parseCamMeta(
   opts: { keepAll?: boolean } = {},
 ): Promise<CamMetaResult | null> {
   const keepAll = opts.keepAll === true;
+  // Null returns below mark a genuine absence ("no CAM meta stream"); tool
+  // failures have already thrown with their cause by this point.
   const streamIndex = await findCamMetaIndex(videoPath);
   if (streamIndex === null) return null;
 
   const packets = await listCamMetaPackets(videoPath, streamIndex);
-  if (packets === null) return null;
 
   const buf = await dumpCamMetaStream(videoPath, streamIndex);
-  if (!buf || buf.length === 0) return null;
+  if (buf.length === 0) return null;
 
   const sizeSum = packets.reduce(
     (sum, packet) => sum + (Number.isFinite(packet.size) ? packet.size : 0),

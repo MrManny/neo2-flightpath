@@ -38,8 +38,10 @@ export async function requireTools(): Promise<void> {
   for (const tool of ['ffmpeg', 'ffprobe']) {
     try {
       await execFileAsync(tool, ['-version'], { maxBuffer: 1 << 20 });
-    } catch {
-      throw new Error(`${tool} is required but was not found on PATH - ${INSTALL_HINT}`);
+    } catch (e) {
+      throw new Error(`${tool} is required but was not found on PATH - ${INSTALL_HINT}`, {
+        cause: e,
+      });
     }
   }
 }

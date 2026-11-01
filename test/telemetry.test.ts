@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { decodePacketSamples } from '../src/cammeta.js';
 import type { PacketInfo } from '../src/cammeta.js';
@@ -16,6 +16,25 @@ import {
   writeSrt,
 } from './fixtures.js';
 
+// The cam meta source talks to ffprobe and ffmpeg through child_process;
+// mock both seams so absence and tool failures stay distinguishable and the
+// tests stay offline.
+const mocks = vi.hoisted(() => ({ ffprobeJson: vi.fn(), execFile: vi.fn() }));
+
+vi.mock('../src/ff.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ff.js')>()),
+  ffprobeJson: mocks.ffprobeJson,
+}));
+
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+  execFile: mocks.execFile,
+}));
+
+beforeEach(() => {
+  mocks.ffprobeJson.mockReset();
+  mocks.execFile.mockReset();
+});
 afterEach(cleanupTmpDirs);
 
 describe('loadTelemetry (SRT source)', () => {
@@ -72,13 +91,73 @@ describe('loadTelemetry (SRT source)', () => {
     expect(tel.fixCount).toBe(2);
   });
 
+  it('holds the first and last fix on frames past the telemetry ends', async () => {
+    // Frames before the first fix hold the first fix; frames after the last
+    // fix hold the last fix - a trailing frame must never jump back to the
+    // flight's start (regression).
+    const srt = [
+      '1',
+      '00:00:00,000 --> 00:00:00,035',
+      '[rel_alt: 3.300 abs_alt: 313.227]',
+      '',
+      '2',
+      '00:00:00,040 --> 00:00:00,075',
+      '[latitude: 46.613070] [longitude: 14.262388] [rel_alt: 3.300 abs_alt: 313.227]',
+      '',
+      '3',
+      '00:00:00,080 --> 00:00:00,115',
+      '[latitude: 46.613072] [longitude: 14.262390] [rel_alt: 3.300 abs_alt: 313.227]',
+      '',
+      '4',
+      '00:00:00,120 --> 00:00:00,155',
+      '[rel_alt: 3.300 abs_alt: 313.227]',
+      '',
+    ].join('\n');
+    const dir = tmpDir();
+    const video = path.join(dir, 'ends.mp4');
+    fs.writeFileSync(video, '');
+    writeSrt(video, srt);
+
+    const tel = await loadTelemetry(video, {
+      frames: 4,
+      fpsValue: 25,
+      durationSec: 0.16,
+    });
+
+    expect(tel.fixCount).toBe(2);
+    // Leading frame holds the first fix.
+    expect(tel.frames[0].lat).toBeCloseTo(46.613070, 6);
+    expect(tel.frames[0].lon).toBeCloseTo(14.262388, 6);
+    // Trailing frames hold the last fix.
+    expect(tel.frames[3].lat).toBeCloseTo(46.613072, 6);
+    expect(tel.frames[3].lon).toBeCloseTo(14.262390, 6);
+    // Interior frames keep their nearest fix across the gap.
+    expect(tel.frames[1].lat).toBeCloseTo(46.613070, 6);
+    expect(tel.frames[2].lat).toBeCloseTo(46.613072, 6);
+  });
+
   it('rejects videos without any telemetry source', async () => {
+    mocks.ffprobeJson.mockResolvedValue({ streams: [] }); // no CAM meta stream
     const dir = tmpDir();
     const video = path.join(dir, 'naked.mp4');
     fs.writeFileSync(video, '');
     await expect(
       loadTelemetry(video, { frames: 2, fpsValue: 30, durationSec: 1 }),
     ).rejects.toThrow(/no telemetry found/);
+  });
+
+  it('surfaces cam meta tool failures instead of claiming no telemetry', async () => {
+    const failure = new Error('spawn ffprobe ENOENT');
+    mocks.ffprobeJson.mockRejectedValue(failure);
+    const dir = tmpDir();
+    const video = path.join(dir, 'unreadable.mp4');
+    fs.writeFileSync(video, '');
+    const err = await loadTelemetry(video, { frames: 2, fpsValue: 30, durationSec: 1 }).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(err?.message).toBe('ffprobe failed while probing the cam meta stream');
+    expect(err?.cause).toBe(failure);
   });
 });
 
