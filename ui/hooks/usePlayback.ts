@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PageVideo } from '../../src/appsession.js';
 import type { Scene } from '../../src/renderer/scene.js';
 import { createFrameDriver } from '../lib/framedriver.js';
-import { clampFrame, formatTime, timeAt } from '../lib/frametime.js';
+import { clampFrame, formatTimeReadout } from '../lib/frametime.js';
 import type { LoopState } from '../lib/loop.js';
 import { engagedLoop } from '../lib/loop.js';
 
@@ -35,7 +35,7 @@ export interface Playback {
   timeRef: RefObject<HTMLSpanElement | null>;
 }
 
-export function usePlayback(video: PageVideo, totalText: string): Playback {
+export function usePlayback(video: PageVideo, durationSec: number): Playback {
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubRef = useRef<HTMLInputElement>(null);
   const timeRef = useRef<HTMLSpanElement>(null);
@@ -72,7 +72,7 @@ export function usePlayback(video: PageVideo, totalText: string): Playback {
         // Imperative like the scrubber: the time text changes every presented
         // frame and must not re-render the component tree at playback rate.
         if (timeRef.current) {
-          timeRef.current.textContent = `${formatTime(timeAt(i, video.fps))} / ${totalText}`;
+          timeRef.current.textContent = formatTimeReadout(i, video.fps, durationSec);
         }
       },
     });
@@ -82,7 +82,7 @@ export function usePlayback(video: PageVideo, totalText: string): Playback {
       driver.stop();
       driverRef.current = null;
     };
-  }, [video, totalText]);
+  }, [video, durationSec]);
 
   // The loop state lives here; the driver owns the wrap mechanics.
   useEffect(() => {

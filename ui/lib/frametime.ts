@@ -2,7 +2,8 @@
 // formatted readout, loop label and segment string stays unit-testable
 // without a DOM.
 
-import type { LoopPoints } from './loop.js';
+import type { LoopPoints, LoopState } from './loop.js';
+import { hasLoop } from './loop.js';
 
 export function frameFromMediaTime(mediaTime: number, fps: number, frames: number): number {
   return clampFrame(Math.floor(mediaTime * fps + 1e-6), frames);
@@ -28,6 +29,11 @@ export function timeAt(frame: number, fps: number): number {
   return frame / fps;
 }
 
+/** The time readout: the presented position over the recording's duration. */
+export function formatTimeReadout(frame: number, fps: number, durationSec: number): string {
+  return `${formatTime(timeAt(frame, fps))} / ${formatTime(durationSec)}`;
+}
+
 export function formatFrameSpan(
   start: number | null,
   end: number | null,
@@ -40,4 +46,9 @@ export function formatFrameSpan(
 
 export function formatFrameRange(points: LoopPoints, fps: number): string {
   return `${formatFrameSpan(points.in, points.out, fps)} · ${points.out - points.in + 1} frames`;
+}
+
+/** The loop readout; empty until any point is set. */
+export function formatLoopReadout(loop: LoopState, fps: number): string {
+  return hasLoop(loop) ? `loop ${formatFrameSpan(loop.in, loop.out, fps)}` : '';
 }

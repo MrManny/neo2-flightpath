@@ -6,8 +6,6 @@ import type { UiSession } from '../../src/appsession.js';
 import { hasAltitude } from '../../src/config.js';
 import type { RenderConfig } from '../../src/config.js';
 import { restyleSceneData } from '../../src/restyle.js';
-import { formatFrameSpan, formatTime } from '../lib/frametime.js';
-import { engagedLoop, hasLoop } from '../lib/loop.js';
 import type { PickState } from '../lib/pickstate.js';
 import { useDialogs } from '../hooks/useDialogs.js';
 import { usePlayback } from '../hooks/usePlayback.js';
@@ -39,7 +37,6 @@ export function PlayerChrome({
   onDismissOpenState,
 }: PlayerChromeProps) {
   const { scene: preparedScene, video, tileBase, bbox, durationSec } = session;
-  const totalText = formatTime(durationSec);
   const {
     ready,
     playing,
@@ -56,7 +53,7 @@ export function PlayerChrome({
     videoRef,
     scrubRef,
     timeRef,
-  } = usePlayback(video, totalText);
+  } = usePlayback(video, durationSec);
   const { modalOpen, settingsOpen, exportOpen, dismissible, dispatchDialog } = useDialogs();
   const [mapIsMain, setMapIsMain] = useState(false);
   const swap = useCallback(() => setMapIsMain((v) => !v), []);
@@ -89,10 +86,6 @@ export function PlayerChrome({
     { modalOpen, fps: video.fps, frames: video.frames },
   );
 
-  const loopPoints = engagedLoop(loop);
-  const loopReadout = hasLoop(loop)
-    ? `loop ${formatFrameSpan(loop.in, loop.out, video.fps)}`
-    : '';
   const maxFrame = Math.max(0, video.frames - 1);
   const opening = openState.kind === 'preparing';
   const openNotice =
@@ -112,24 +105,20 @@ export function PlayerChrome({
         notice={openNotice}
       />
       <ControlBar
-        onOpen={onOpen}
+        dispatch={dispatch}
         opening={opening}
         ready={ready}
         playing={playing}
-        togglePlay={togglePlay}
-        dispatch={dispatch}
-        scrubTo={scrubTo}
+        speed={speed}
         loop={loop}
-        loopPoints={loopPoints}
+        fps={video.fps}
+        durationSec={durationSec}
+        maxFrame={maxFrame}
+        scrubTo={scrubTo}
         scrubRef={scrubRef}
         timeRef={timeRef}
-        totalText={totalText}
-        loopReadout={loopReadout}
-        speed={speed}
-        swap={swap}
         onExport={() => dispatchDialog({ type: 'openExport' })}
         onSettings={() => dispatchDialog({ type: 'openSettings' })}
-        maxFrame={maxFrame}
       />
       {settingsOpen ? (
         <SettingsPanel

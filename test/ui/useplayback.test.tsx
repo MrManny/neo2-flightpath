@@ -21,7 +21,7 @@ const fakeScene: Scene = {
 let api: Playback;
 
 function Harness(): ReactElement {
-  api = usePlayback(VIDEO, '0:03');
+  api = usePlayback(VIDEO, 3);
   return (
     <>
       <video ref={api.videoRef} />

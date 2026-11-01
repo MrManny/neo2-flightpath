@@ -2,8 +2,10 @@
 
 import type { RefObject } from 'react';
 
+import { formatLoopReadout, formatTimeReadout } from '../lib/frametime.js';
 import type { HotkeyAction } from '../lib/hotkeys.js';
-import type { LoopPoints, LoopState } from '../lib/loop.js';
+import type { LoopState } from '../lib/loop.js';
+import { engagedLoop, hasLoop } from '../lib/loop.js';
 import { CloseIcon } from '../icons/CloseIcon.js';
 import { ExportIcon } from '../icons/ExportIcon.js';
 import { FolderOpenIcon } from '../icons/FolderOpenIcon.js';
@@ -15,59 +17,55 @@ import { SettingsIcon } from '../icons/SettingsIcon.js';
 import { SwapIcon } from '../icons/SwapIcon.js';
 
 export interface ControlBarProps {
-  onOpen: () => void;
+  /** The player's action map: buttons and hotkeys drive the same actions. */
+  dispatch: (action: HotkeyAction) => void;
   /** The Open flow is preparing: the button is busy and says so. */
   opening: boolean;
   ready: boolean;
   playing: boolean;
-  togglePlay: () => void;
-  /** The player's action map: buttons and hotkeys drive the same actions. */
-  dispatch: (action: HotkeyAction) => void;
-  scrubTo: (i: number) => void;
+  speed: 1 | 2 | 3 | 4;
   loop: LoopState;
-  loopPoints: LoopPoints | null;
+  /** Raw timeline values; the bar formats its own readouts from them. */
+  fps: number;
+  durationSec: number;
+  maxFrame: number;
+  scrubTo: (i: number) => void;
   scrubRef: RefObject<HTMLInputElement | null>;
   timeRef: RefObject<HTMLSpanElement | null>;
-  totalText: string;
-  loopReadout: string;
-  speed: 1 | 2 | 3 | 4;
-  swap: () => void;
   onExport: () => void;
   onSettings: () => void;
-  maxFrame: number;
 }
 
 export function ControlBar({
-  onOpen,
+  dispatch,
   opening,
   ready,
   playing,
-  togglePlay,
-  dispatch,
-  scrubTo,
+  speed,
   loop,
-  loopPoints,
+  fps,
+  durationSec,
+  maxFrame,
+  scrubTo,
   scrubRef,
   timeRef,
-  totalText,
-  loopReadout,
-  speed,
-  swap,
   onExport,
   onSettings,
-  maxFrame,
 }: ControlBarProps) {
   const bandPct = (i: number): number => (maxFrame > 0 ? (i / maxFrame) * 100 : 0);
+  const loopPoints = engagedLoop(loop);
+  const loopReadout = formatLoopReadout(loop, fps);
+  const clearable = hasLoop(loop);
   return (
     <div className="controls">
       <div className="controls-left">
-        <button type="button" onClick={onOpen} disabled={opening}>
+        <button type="button" onClick={() => dispatch({ type: 'openRecording' })} disabled={opening}>
           <FolderOpenIcon />
           Open…
         </button>
       </div>
       <div className="controls-center">
-        <button type="button" onClick={togglePlay} disabled={!ready}>
+        <button type="button" onClick={() => dispatch({ type: 'togglePlay' })} disabled={!ready}>
           {ready && playing ? <PauseIcon /> : <PlayIcon />}
           {ready ? (playing ? 'Pause' : 'Play') : 'Warming tiles…'}
         </button>
@@ -92,8 +90,8 @@ export function ControlBar({
         <button
           type="button"
           aria-label="Clear loop"
-          title={loop.in === null && loop.out === null ? 'No loop to clear.' : 'Clear loop (Esc)'}
-          disabled={loop.in === null && loop.out === null}
+          title={clearable ? 'Clear loop (Esc)' : 'No loop to clear.'}
+          disabled={!clearable}
           onClick={() => dispatch({ type: 'clearLoop' })}
         >
           <CloseIcon />
@@ -121,7 +119,7 @@ export function ControlBar({
           />
         </div>
         <span className="readout" ref={timeRef}>
-          0:00 / {totalText}
+          {formatTimeReadout(0, fps, durationSec)}
         </span>
         {loopReadout ? <span className="readout loop-readout">{loopReadout}</span> : null}
         <div className="speed-group" role="group" aria-label="Playback speed">
@@ -140,7 +138,7 @@ export function ControlBar({
         </div>
       </div>
       <div className="controls-right">
-        <button type="button" onClick={swap}>
+        <button type="button" onClick={() => dispatch({ type: 'swapView' })}>
           <SwapIcon />
           Swap view
         </button>
