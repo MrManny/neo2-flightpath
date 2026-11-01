@@ -4,8 +4,8 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { main, parseCliArgs } from '../src/cli.js';
-import { DEFAULT_CONFIG } from '../src/config.js';
+import { main, longFlagOf, parseCliArgs } from '../src/cli.js';
+import { CONFIG_OPTIONS, DEFAULT_CONFIG } from '../src/config.js';
 import { defaultTileCache, resolveConfig } from '../src/configfile.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
@@ -129,6 +129,24 @@ describe('parseCliArgs', () => {
     expect(() => parseCliArgs(['x.mp4', '--style', 'nope'])).toThrow(
       /Allowed choices are satellite, topo/,
     );
+  });
+});
+
+describe('CONFIG_OPTIONS CLI plumbing', () => {
+  it('keeps each option key equal to the camelCase of its long flag', () => {
+    // Commander looks option values up by the camelCase of the long flag, so
+    // a row whose key diverges would be silently skipped.
+    for (const row of CONFIG_OPTIONS) {
+      const camel = longFlagOf(row.cli.flags)
+        .replace(/^--/, '')
+        .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+      expect(row.key).toBe(camel);
+    }
+  });
+
+  it('names the long flag in error contexts', () => {
+    expect(longFlagOf('-q, --quiet')).toBe('--quiet');
+    expect(longFlagOf('--out-dir <dir>')).toBe('--out-dir');
   });
 });
 

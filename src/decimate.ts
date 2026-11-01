@@ -52,8 +52,12 @@ export function decimateTrack(
     // epsilon doubles until it holds; geometric growth keeps that
     // deterministic and cheap (one or two extra passes in practice).
     let hi = epsilonPx > 0 ? epsilonPx * 2 : 1;
-    while (douglasPeucker(px, hi).length > maxPoints) hi *= 2;
-    keep = douglasPeucker(px, hi);
+    let hiKeep = douglasPeucker(px, hi);
+    while (hiKeep.length > maxPoints) {
+      hi *= 2;
+      hiKeep = douglasPeucker(px, hi);
+    }
+    keep = hiKeep;
   }
 
   const track: DecimatedTrack = { lat: [], lon: [], frame: [] };

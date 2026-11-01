@@ -59,6 +59,13 @@ function givenOnCommandLine(
   return program.getOptionValueSource(name) === 'cli';
 }
 
+// The documented long flag of an option's spelling ("--quiet" for
+// "-q, --quiet"), so error contexts never name a short alias.
+export function longFlagOf(flags: string): string {
+  const tokens = flags.split(/[ ,|]+/);
+  return tokens.find((token) => token.startsWith('--')) ?? tokens[0];
+}
+
 // Collect only the flags the user actually set, each through its table
 // normalizer, so a config-file value can still win over a CLI default.
 function collectOverrides(program: Command): ConfigOverrides {
@@ -66,7 +73,7 @@ function collectOverrides(program: Command): ConfigOverrides {
   const cli: ConfigOverrides = {};
   for (const row of CONFIG_OPTIONS) {
     if (!givenOnCommandLine(program, row.key)) continue;
-    const flag = row.cli.flags.split(/[ ,|]+/)[0];
+    const flag = longFlagOf(row.cli.flags);
     const raw = row.cli.parse ? row.cli.parse(opts[row.key]) : opts[row.key];
     Object.assign(cli, row.normalize(raw, flag));
   }
