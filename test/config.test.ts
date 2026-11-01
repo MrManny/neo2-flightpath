@@ -51,10 +51,10 @@ describe('parseHud', () => {
 });
 
 describe('normalizeOverrides', () => {
-  it('converts and validates known keys', () => {
+  it('normalizes typed values for known keys', () => {
     expect(
       normalizeOverrides(
-        { zoom: '5', hud: 'heading,alt', skipExisting: true },
+        { zoom: 5, hud: 'heading,alt', skipExisting: true },
         'test',
       ),
     ).toEqual({
@@ -62,6 +62,12 @@ describe('normalizeOverrides', () => {
       hud: { heading: true, alt: true, speed: false },
       skipExisting: true,
     });
+  });
+
+  it.for(['5', '', '0x10'])('rejects the string number %s in a typed layer', (value) => {
+    expect(() => normalizeOverrides({ zoom: value }, 'test')).toThrow(
+      /invalid number for test: zoom/,
+    );
   });
 
   it('rejects unknown keys', () => {
@@ -124,7 +130,9 @@ describe('CONFIG_OPTIONS', () => {
         expect(() => row.normalize(cliValue, row.key)).toThrow();
         continue;
       }
-      expect(row.normalize(cliValue, row.key)).toEqual({ [row.key]: row.default });
+      // The CLI boundary converts commander's strings before the normalizer.
+      const raw = row.cli.parse ? row.cli.parse(cliValue) : cliValue;
+      expect(row.normalize(raw, row.key)).toEqual({ [row.key]: row.default });
     }
   });
   it('spells each flag as a long option with a help text', () => {
@@ -231,6 +239,7 @@ describe('parseExportRequest', () => {
     ['a missing config', { outPath: '/x/a.mp4' }, /invalid export request: config/],
     ['an unknown config key', { outPath: '/x/a.mp4', config: { bogus: 1 } }, /unknown config key bogus/],
     ['a too-small width', { outPath: '/x/a.mp4', config: { width: 32 } }, /at least 64/],
+    ['a string width', { outPath: '/x/a.mp4', config: { width: '640' } }, /invalid number for export request: config: width/],
     ['a malformed hud object', { outPath: '/x/a.mp4', config: { hud: { heading: 'yes' } } }, /heading/],
     ['an invalid range', { outPath: '/x/a.mp4', config: {}, range: { start: 8, end: 3 } }, /invalid/],
   ])('rejects %s', (_label, raw, pattern) => {

@@ -45,6 +45,12 @@ describe('loadConfigFile', () => {
     fs.writeFileSync(file, '{oops');
     expect(() => loadConfigFile(file)).toThrow(/not valid JSON/);
   });
+
+  it('rejects string numbers, naming the key', () => {
+    const file = path.join(tmpDir(), 'c.json');
+    fs.writeFileSync(file, '{"width": "768"}');
+    expect(() => loadConfigFile(file)).toThrow(/invalid number for .*width/);
+  });
 });
 
 describe('resolveConfig', () => {

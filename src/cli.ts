@@ -67,7 +67,8 @@ function collectOverrides(program: Command): ConfigOverrides {
   for (const row of CONFIG_OPTIONS) {
     if (!givenOnCommandLine(program, row.key)) continue;
     const flag = row.cli.flags.split(/[ ,|]+/)[0];
-    Object.assign(cli, row.normalize(opts[row.key], flag));
+    const raw = row.cli.parse ? row.cli.parse(opts[row.key]) : opts[row.key];
+    Object.assign(cli, row.normalize(raw, flag));
   }
   return cli;
 }

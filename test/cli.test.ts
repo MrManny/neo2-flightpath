@@ -53,9 +53,9 @@ describe('parseCliArgs', () => {
     expect(() => parseCliArgs(['x.mp4', '--trail', 'full'])).toThrow(/unknown option/);
   });
 
-  it('rejects invalid numbers', () => {
-    expect(() => parseCliArgs(['x.mp4', '--width', 'wide'])).toThrow(
-      /invalid number/,
+  it.for(['wide', '', '0x10'])('rejects the invalid number %s naming the flag', (value) => {
+    expect(() => parseCliArgs(['x.mp4', '--width', value])).toThrow(
+      /invalid number for --width/,
     );
   });
 

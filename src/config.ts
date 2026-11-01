@@ -93,12 +93,23 @@ export function formatHud(hud: HudSpec): string {
   return parts.length ? parts.join(',') : 'none';
 }
 
+// Typed layers (config files, export requests) carry exact JSON types, so a
+// mistyped value must fail instead of being silently converted.
 export function asNumber(value: unknown, name: string): number {
-  const n = typeof value === 'string' ? Number(value) : value;
-  if (typeof n !== 'number' || !Number.isFinite(n)) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`invalid number for ${name}: ${String(value)}`);
   }
-  return n;
+  return value;
+}
+
+// Commander hands every option value as a string; numeric flags are converted
+// at the CLI boundary only. Anything that is not a plain decimal literal
+// passes through so asNumber rejects it naming the offending input verbatim.
+const CLI_NUMBER_RX = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
+function cliNumber(raw: unknown): unknown {
+  if (typeof raw !== 'string' || !CLI_NUMBER_RX.test(raw.trim())) return raw;
+  return Number(raw);
 }
 
 function asString(value: unknown, name: string): string {
@@ -132,11 +143,13 @@ function asNullableString(value: unknown, name: string): string | null {
 }
 
 // How one option appears on the command line: the flags (with any value
-// placeholder), the help text, and the accepted choices for enum flags.
+// placeholder), the help text, the accepted choices for enum flags, and how
+// commander's string-y value becomes the typed one.
 interface CliOptionSpec {
   flags: string;
   help: string;
   choices?: readonly string[];
+  parse?: (raw: unknown) => unknown;
 }
 
 // One row per config key: the key name, how the CLI spells it, the single
@@ -165,13 +178,13 @@ export const CONFIG_OPTIONS: readonly ConfigOption[] = [
   },
   {
     key: 'width',
-    cli: { flags: '--width <px>', help: 'canvas width in pixels (rounded down to even)' },
+    cli: { flags: '--width <px>', help: 'canvas width in pixels (rounded down to even)', parse: cliNumber },
     default: 768,
     normalize: (v, name) => ({ width: asNumber(v, name) }),
   },
   {
     key: 'height',
-    cli: { flags: '--height <px>', help: 'canvas height in pixels (rounded down to even)' },
+    cli: { flags: '--height <px>', help: 'canvas height in pixels (rounded down to even)', parse: cliNumber },
     default: 768,
     normalize: (v, name) => ({ height: asNumber(v, name) }),
   },
@@ -194,25 +207,25 @@ export const CONFIG_OPTIONS: readonly ConfigOption[] = [
   },
   {
     key: 'zoom',
-    cli: { flags: '--zoom <n>', help: 'fixed view zoom level (0 = auto-fit to the track)' },
+    cli: { flags: '--zoom <n>', help: 'fixed view zoom level (0 = auto-fit to the track)', parse: cliNumber },
     default: 0,
     normalize: (v, name) => ({ zoom: asNumber(v, name) }),
   },
   {
     key: 'zoomOut',
-    cli: { flags: '--zoom-out <n>', help: 'auto-fit only: pull back n zoom levels' },
+    cli: { flags: '--zoom-out <n>', help: 'auto-fit only: pull back n zoom levels', parse: cliNumber },
     default: 1,
     normalize: (v, name) => ({ zoomOut: asNumber(v, name) }),
   },
   {
     key: 'introSec',
-    cli: { flags: '--intro-sec <s>', help: 'intro: zoom in from one level out over s seconds' },
+    cli: { flags: '--intro-sec <s>', help: 'intro: zoom in from one level out over s seconds', parse: cliNumber },
     default: 2,
     normalize: (v, name) => ({ introSec: asNumber(v, name) }),
   },
   {
     key: 'outroSec',
-    cli: { flags: '--outro-sec <s>', help: 'outro: zoom back out over s seconds' },
+    cli: { flags: '--outro-sec <s>', help: 'outro: zoom back out over s seconds', parse: cliNumber },
     default: 2,
     normalize: (v, name) => ({ outroSec: asNumber(v, name) }),
   },
@@ -227,7 +240,7 @@ export const CONFIG_OPTIONS: readonly ConfigOption[] = [
   },
   {
     key: 'workers',
-    cli: { flags: '--workers <n>', help: 'parallel browser pages' },
+    cli: { flags: '--workers <n>', help: 'parallel browser pages', parse: cliNumber },
     default: 4,
     normalize: (v, name) => ({ workers: asNumber(v, name) }),
   },
