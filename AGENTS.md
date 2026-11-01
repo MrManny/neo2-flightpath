@@ -86,8 +86,10 @@ never part of the application or its bundle, and not linted or unit-tested.
   `feat:`/`fix:` title lacks a `.changeset/*.md` fragment, label the PR from the first
   referenced issue and set it "In review", then open the PR (base defaults to `main`).
 
-Project status steps run only when the `gh` login can edit the GitHub project and are
-skipped silently otherwise. Every helper spawns external commands through
+Project status steps are best-effort: they are skipped silently only when the
+project cannot be read at all (no project access, or `gh` cannot see the repo);
+when a readable project's status cannot be set, a short note goes to stderr.
+Every helper spawns external commands through
 `scripts/lib/exec.mjs` (one child-process policy: hidden windows on Windows) — do not
 call `node:child_process` directly.
 
