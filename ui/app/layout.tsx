@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'neo2-flightpath',
+  title: 'Neo2 Flightpath',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

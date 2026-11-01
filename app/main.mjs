@@ -79,7 +79,7 @@ async function pickRecording(state) {
 function fail(error) {
   const message = errorMessage(error);
   process.stderr.write(`${ERROR_PREFIX}${message}\n`);
-  dialog.showErrorBox('neo2-flightpath', message);
+  dialog.showErrorBox('Neo2 Flightpath', message);
   app.quit();
 }
 
@@ -316,7 +316,14 @@ function createWindow(state) {
     // Match --page in ui/app/globals.css so startup shows one background.
     backgroundColor: '#0b1017',
     autoHideMenuBar: true,
-    title: 'neo2-flightpath',
+    // The loaded page's <title> takes over after load (ui/app/layout.tsx).
+    title: 'Neo2 Flightpath',
+    // Windows renders an ICO best, Linux a PNG (Electron docs); both are
+    // derived from build/icon-master.png (see build/README.md).
+    icon:
+      process.platform === 'win32'
+        ? path.join(import.meta.dirname, '..', 'build', 'icon.ico')
+        : path.join(import.meta.dirname, '..', 'build', 'icons', '256x256.png'),
     webPreferences: {
       preload: path.join(import.meta.dirname, 'preload.cjs'),
       contextIsolation: true,

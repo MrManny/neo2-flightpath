@@ -184,6 +184,7 @@ Spacing values are literals on this scale; use nothing else:
 ## 10. Copy and labels
 
 - **Rules:** verb-first actions ("Open…", "Start export", "Cancel export", "Reveal in folder"); nouns for toggles and destinations ("Settings", "Swap view"); short phrases for status ("Preparing…", "Warming tiles…", "Canceling…"). Sentence case. American English ("canceled", "Canceling…"). No exclamation marks.
+- **App title:** "Neo2 Flightpath" in the window title bar — the `metadata` title in `ui/app/layout.tsx`; `app/main.mjs` carries the same string for the pre-load frame.
 - **One name per action:** "Open…" on the landing and the player; "Export…" in the bar opens the dialog titled "Export".
 - **Ellipsis:** verb-first actions that open a dialog or picker, and work in progress (section 4). **Shortcuts** go in parentheses in the `title`: "Set loop in (I)".
 - **Raw identifiers** belong under "Technical details" or in the CLI, never in main UI text.

@@ -1,5 +1,5 @@
 appId: io.github.mrmanny.neo2flightpath
-productName: neo2-flightpath
+productName: Neo2 Flightpath
 # The portable default would contain a space; keep artifact names shell-friendly.
 artifactName: ${name}-${version}-${os}-${arch}.${ext}
 directories:
@@ -10,7 +10,12 @@ files:
   - ui/out/**
   # The app never renders headless video; the CLI keeps using playwright-core.
   - "!node_modules/playwright-core/**"
+  # The window icon is read at runtime; build resources are not packed by default.
+  - build/icon.ico
+  - build/icons/256x256.png
 win:
   target: portable
+  icon: build/icon.ico
 linux:
   target: AppImage
+  icon: build/icons
