@@ -422,15 +422,24 @@ function buildFrameData(
   return frameData;
 }
 
-// Bridge any fully-missing frame positions at the very ends.
+// Bridge fully-missing frame positions at the very ends: frames before the
+// first fix hold the first fix, frames after the last fix hold the last fix
+// (the hold-earlier policy from positionAt, applied past its ends).
 function bridgeMissingFramePositions(frameData: FrameData[]): void {
-  const firstFrame = frameData.find((d) => d.lat !== null);
-  const lastFrame = [...frameData].reverse().find((d) => d.lat !== null);
-  for (const d of frameData) {
-    if (d.lat === null && firstFrame && lastFrame) {
-      d.lat = firstFrame.lat;
-      d.lon = firstFrame.lon;
-    }
+  const first = frameData.find((d) => d.lat !== null);
+  const last = [...frameData].reverse().find((d) => d.lat !== null);
+  if (!first || !last) return;
+  let lead = 0;
+  while (lead < frameData.length && frameData[lead].lat === null) {
+    frameData[lead].lat = first.lat;
+    frameData[lead].lon = first.lon;
+    lead++;
+  }
+  let trail = frameData.length - 1;
+  while (trail >= lead && frameData[trail].lat === null) {
+    frameData[trail].lat = last.lat;
+    frameData[trail].lon = last.lon;
+    trail--;
   }
 }
 

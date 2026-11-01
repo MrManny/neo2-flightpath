@@ -72,6 +72,51 @@ describe('loadTelemetry (SRT source)', () => {
     expect(tel.fixCount).toBe(2);
   });
 
+  it('holds the first and last fix on frames past the telemetry ends', async () => {
+    // Frames before the first fix hold the first fix; frames after the last
+    // fix hold the last fix - a trailing frame must never jump back to the
+    // flight's start (regression).
+    const srt = [
+      '1',
+      '00:00:00,000 --> 00:00:00,035',
+      '[rel_alt: 3.300 abs_alt: 313.227]',
+      '',
+      '2',
+      '00:00:00,040 --> 00:00:00,075',
+      '[latitude: 46.613070] [longitude: 14.262388] [rel_alt: 3.300 abs_alt: 313.227]',
+      '',
+      '3',
+      '00:00:00,080 --> 00:00:00,115',
+      '[latitude: 46.613072] [longitude: 14.262390] [rel_alt: 3.300 abs_alt: 313.227]',
+      '',
+      '4',
+      '00:00:00,120 --> 00:00:00,155',
+      '[rel_alt: 3.300 abs_alt: 313.227]',
+      '',
+    ].join('\n');
+    const dir = tmpDir();
+    const video = path.join(dir, 'ends.mp4');
+    fs.writeFileSync(video, '');
+    writeSrt(video, srt);
+
+    const tel = await loadTelemetry(video, {
+      frames: 4,
+      fpsValue: 25,
+      durationSec: 0.16,
+    });
+
+    expect(tel.fixCount).toBe(2);
+    // Leading frame holds the first fix.
+    expect(tel.frames[0].lat).toBeCloseTo(46.613070, 6);
+    expect(tel.frames[0].lon).toBeCloseTo(14.262388, 6);
+    // Trailing frames hold the last fix.
+    expect(tel.frames[3].lat).toBeCloseTo(46.613072, 6);
+    expect(tel.frames[3].lon).toBeCloseTo(14.262390, 6);
+    // Interior frames keep their nearest fix across the gap.
+    expect(tel.frames[1].lat).toBeCloseTo(46.613070, 6);
+    expect(tel.frames[2].lat).toBeCloseTo(46.613072, 6);
+  });
+
   it('rejects videos without any telemetry source', async () => {
     const dir = tmpDir();
     const video = path.join(dir, 'naked.mp4');
