@@ -25,6 +25,33 @@ describe('frameFromMediaTime', () => {
   });
 });
 
+const NTSC = 30000 / 1001;
+
+describe('frameFromMediaTime on µs-quantized media times (#92)', () => {
+  it.for([
+    { name: 'frame 329 at 30000/1001 fps', mediaTime: 10.977633, fps: NTSC, frames: 330, want: 329 },
+    { name: 'frame 320 at 30000/1001 fps', mediaTime: 10.677333, fps: NTSC, frames: 330, want: 320 },
+    { name: 'evidence sample frame 34 at 29.97 fps', mediaTime: 1.134467, fps: 29.97, frames: 330, want: 34 },
+    { name: 'evidence sample frame 37 at 29.97 fps', mediaTime: 1.267933, fps: 29.97, frames: 330, want: 37 },
+    { name: 'the duration clamps to the last frame', mediaTime: 11.011, fps: NTSC, frames: 330, want: 329 },
+    { name: 'mid-frame clock time floors to its own frame', mediaTime: 21.5 / 30, fps: 30, frames: 300, want: 21 },
+    { name: 'late clock time stays on its own frame', mediaTime: 319.999 / NTSC, fps: NTSC, frames: 330, want: 319 },
+  ])('$name', ({ mediaTime, fps, frames, want }) => {
+    expect(frameFromMediaTime(mediaTime, fps, frames)).toBe(want);
+  });
+});
+
+describe('frameFromMediaTime on exact-second PTS frames (#92)', () => {
+  it.for([
+    { frame: 90, mediaTime: 3.003 },
+    { frame: 150, mediaTime: 5.005 },
+    { frame: 240, mediaTime: 8.008 },
+    { frame: 270, mediaTime: 9.009 },
+  ])('frame $frame at $mediaTime stays exact', ({ frame, mediaTime }) => {
+    expect(frameFromMediaTime(mediaTime, NTSC, 330)).toBe(frame);
+  });
+});
+
 describe('clampFrame', () => {
   it.for([
     { name: 'in range passes through', i: 15, frames: 300, want: 15 },

@@ -220,7 +220,7 @@ Spacing values are literals on this scale; use nothing else:
 
 - **Frame rate:** `formatFrameRate` (`ui/lib/framerate.ts`) turns a rational rate into decimal fps rounded to hundredths, with " fps" (60000/1001 → "59.94 fps").
 - **Time:** `formatTime` (`ui/lib/frametime.ts`) gives m:ss from whole seconds, rounded, with no hour field. Readout "0:00 / 0:34"; loop readout "loop 0:10–0:12" ("?" for an unset point); segment "0:10–0:12 · 121 frames" (frames = out − in + 1).
-- **Frames and seeks:** time is frame index ÷ fps; a one-second jump is `round(fps)` frames (`framesForSeconds`).
+- **Frames and seeks:** displayed time is frame index ÷ fps; seeks land mid-span at (frame + 0.5) ÷ fps so a presented time quantized to microseconds can never settle on the neighboring frame; a one-second jump is `round(fps)` frames (`framesForSeconds`).
 - **Export summary:** "{frames} frames @ {fps} · {seconds} s · {width}×{height}". Seconds are whole; width and height are the even sizes rendered (each rounded down, minimum 64), so they can differ from the typed values. Dimensions are px, minimum 64 (`MIN_DIMENSION`, `src/config.ts`).
 - **Percent:** whole percent, rounded ("Rendering 83%"). **Units:** px, s, m, fps; speed uses "×". **Numerals:** tabular for readouts, number fields and the progress label; decimal point "."; " · " between parts; "–" for ranges; "×" for sizes and speed.
 

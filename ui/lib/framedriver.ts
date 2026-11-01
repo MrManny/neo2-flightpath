@@ -1,9 +1,9 @@
 // Imperative frame driver: it owns the video element and its animation
 // callbacks. The frame index is the single source of truth: every explicit
-// seek snaps the video to i / fps; during playback the index is derived from
-// the frame the video actually presents (never clocked separately), so video
-// and map cannot drift apart. The pure quantization and loop rules live in
-// frametime.ts and loop.ts.
+// seek lands half a frame into i's span; during playback the index is derived
+// from the frame the video actually presents (never clocked separately), so
+// video and map cannot drift apart. The pure quantization and loop rules live
+// in frametime.ts and loop.ts.
 
 import type { PageVideo } from '../../src/appsession.js';
 import { clampFrame, frameFromMediaTime } from './frametime.js';
@@ -20,7 +20,7 @@ export interface FrameDriverOpts {
 }
 
 export interface FrameDriver {
-  /** Queues a scrub target; the loop applies it (coalesced) and seeks i / fps. */
+  /** Queues a scrub target; the loop applies it (coalesced) and seeks into frame i. */
   scrub(i: number): void;
   /** Sets the loop region points; null clears the loop. */
   setLoop(state: LoopState | null): void;
@@ -49,10 +49,17 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
     return loop === null ? null : engagedLoop(loop);
   }
 
+  // Explicit seeks land half a frame into the target's span: an exact i / fps
+  // can fall a few floating-point ulps under frame i's own PTS and settle the
+  // previous frame (#92), while a mid-span target presents frame i.
+  function seekToFrame(i: number): void {
+    video.currentTime = (i + 0.5) / fps;
+  }
+
   // The wrap seeks and commits immediately so no out-of-region frame flashes
   // on screen while the seek settles.
   function wrapTo(active: LoopPoints): void {
-    video.currentTime = active.in / fps;
+    seekToFrame(active.in);
     commit(active.in);
   }
 
@@ -85,7 +92,7 @@ export function createFrameDriver(opts: FrameDriverOpts): FrameDriver {
     if (pendingScrub !== null) {
       const seekTo = pendingScrub;
       pendingScrub = null;
-      video.currentTime = seekTo / fps;
+      seekToFrame(seekTo);
       commit(seekTo);
     } else if (active !== null && video.ended) {
       // The end of the file is a loop boundary too: a region ending on the

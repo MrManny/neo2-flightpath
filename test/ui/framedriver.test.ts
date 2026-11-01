@@ -73,7 +73,10 @@ function fakeVideoRvfc(): {
   };
 }
 
-function build(video: FakeVideo): {
+function build(
+  video: FakeVideo,
+  meta: PageVideo = META,
+): {
   applyFrame: ReturnType<typeof vi.fn>;
   onIndex: ReturnType<typeof vi.fn>;
   driver: ReturnType<typeof createFrameDriver>;
@@ -82,7 +85,7 @@ function build(video: FakeVideo): {
   const onIndex = vi.fn();
   const driver = createFrameDriver({
     video: video as unknown as HTMLVideoElement,
-    meta: META,
+    meta,
     applyFrame,
     onIndex,
   });
@@ -111,7 +114,7 @@ describe('createFrameDriver', () => {
     driver.scrub(10);
     driver.scrub(20);
     flushRaf();
-    expect(video.currentTime).toBeCloseTo(20 / 30);
+    expect(video.currentTime).toBeCloseTo(20.5 / 30);
     expect(applyFrame).toHaveBeenCalledTimes(1);
     expect(applyFrame).toHaveBeenCalledWith(20);
     expect(onIndex).toHaveBeenCalledWith(20);
@@ -123,10 +126,10 @@ describe('createFrameDriver', () => {
     driver.start();
     driver.scrub(-5);
     flushRaf();
-    expect(video.currentTime).toBe(0);
+    expect(video.currentTime).toBeCloseTo(0.5 / 30);
     driver.scrub(10000);
     flushRaf();
-    expect(video.currentTime).toBeCloseTo(299 / 30);
+    expect(video.currentTime).toBeCloseTo(299.5 / 30);
   });
 
   it('derives frames from the fallback clock only while playing', () => {
@@ -173,7 +176,7 @@ describe('createFrameDriver loop wrap', () => {
     video.paused = false;
     video.currentTime = 21 / 30;
     flushRaf();
-    expect(video.currentTime).toBeCloseTo(10 / 30);
+    expect(video.currentTime).toBeCloseTo(10.5 / 30);
     expect(applyFrame).toHaveBeenCalledWith(10);
     expect(applyFrame).not.toHaveBeenCalledWith(21);
   });
@@ -199,7 +202,7 @@ describe('createFrameDriver loop wrap', () => {
     present(20.5 / 30);
     expect(applyFrame).toHaveBeenCalledWith(20);
     present(21 / 30);
-    expect(video.currentTime).toBeCloseTo(10 / 30);
+    expect(video.currentTime).toBeCloseTo(10.5 / 30);
     expect(applyFrame).toHaveBeenCalledWith(10);
     expect(applyFrame).not.toHaveBeenCalledWith(21);
   });
@@ -214,7 +217,7 @@ describe('createFrameDriver loop wrap', () => {
     // Chromium presents the seeked frame even while paused; the loop must
     // not yank an explicit target back into the region.
     present(25 / 30);
-    expect(video.currentTime).toBeCloseTo(25 / 30);
+    expect(video.currentTime).toBeCloseTo(25.5 / 30);
     expect(applyFrame).toHaveBeenCalledWith(25);
     expect(applyFrame).not.toHaveBeenCalledWith(10);
   });
@@ -226,7 +229,7 @@ describe('createFrameDriver loop wrap', () => {
     driver.start();
     driver.scrub(25);
     flushRaf();
-    expect(video.currentTime).toBeCloseTo(25 / 30);
+    expect(video.currentTime).toBeCloseTo(25.5 / 30);
     expect(applyFrame).toHaveBeenCalledWith(25);
     flushRaf();
     expect(applyFrame).toHaveBeenCalledTimes(1);
@@ -276,7 +279,7 @@ describe('createFrameDriver loop wrap', () => {
     video.currentTime = 299 / 30;
     video.ended = true;
     flushRaf();
-    expect(video.currentTime).toBeCloseTo(5 / 30);
+    expect(video.currentTime).toBeCloseTo(5.5 / 30);
     expect(video.play).toHaveBeenCalled();
     expect(video.ended).toBe(false);
   });
@@ -333,5 +336,46 @@ describe('createFrameDriver presented-frame chain', () => {
     inFlight(0, { mediaTime: 3 / 30 });
     expect(applyFrame).not.toHaveBeenCalled();
     expect(video.currentTime).toBe(0);
+  });
+});
+
+describe('createFrameDriver frame-exact seeks (#92)', () => {
+  // The repro media: 330 frames at 30000/1001 fps, where frame PTS values
+  // repeat in binary and µs quantization lands samples just under a frame's
+  // exact start.
+  const NTSC: PageVideo = { src: '/video', fps: 30000 / 1001, frames: 330, width: 1920, height: 1080 };
+  const NTSC_FPS = 30000 / 1001;
+
+  it('seeks strictly inside the target frame span', () => {
+    const video = fakeVideo();
+    const { driver } = build(video, NTSC);
+    driver.start();
+    driver.scrub(321);
+    flushRaf();
+    expect(video.currentTime).toBeGreaterThan(321 / NTSC_FPS);
+    expect(video.currentTime).toBeLessThan(322 / NTSC_FPS);
+  });
+
+  it('keeps the last frame reachable', () => {
+    const video = fakeVideo();
+    const { driver } = build(video, NTSC);
+    driver.start();
+    driver.scrub(329);
+    flushRaf();
+    expect(video.currentTime).toBeGreaterThan(329 / NTSC_FPS);
+    expect(video.currentTime).toBeLessThan(330 / NTSC_FPS);
+  });
+
+  it('keeps the committed index on the frame the video presents', () => {
+    const { video, present } = fakeVideoRvfc();
+    const { applyFrame, onIndex, driver } = build(video, NTSC);
+    driver.start();
+    driver.scrub(320);
+    flushRaf();
+    // Frame 320's PTS quantized to the microsecond, as it arrives from
+    // requestVideoFrameCallback.
+    present(10.677333);
+    expect(applyFrame).toHaveBeenLastCalledWith(320);
+    expect(onIndex).toHaveBeenLastCalledWith(320);
   });
 });
