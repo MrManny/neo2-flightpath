@@ -12,7 +12,7 @@ describe('telemetrySummary', () => {
   it('maps the telemetry fields every summary surface reports', () => {
     expect(telemetrySummary(statsTelemetry())).toEqual({
       source: 'cammeta',
-      method: 'ffprobe',
+      method: 'dvtm-packets',
       headingMode: 'yaw',
       fixes: 590,
       noLock: 4,
@@ -31,10 +31,10 @@ describe('telemetrySummary', () => {
 
   it('keeps srt-sourced and cog-derived telemetry verbatim', () => {
     const summary = telemetrySummary(
-      statsTelemetry({ source: 'srt', method: 'sidecar', headingMode: 'cog', noLock: 0 }),
+      statsTelemetry({ source: 'srt', method: 'srt-cues', headingMode: 'cog', noLock: 0 }),
     );
     expect(summary.source).toBe('srt');
-    expect(summary.method).toBe('sidecar');
+    expect(summary.method).toBe('srt-cues');
     expect(summary.headingMode).toBe('cog');
     expect(summary.noLock).toBe(0);
   });

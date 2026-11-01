@@ -166,7 +166,7 @@ export function telemetryFixture(overrides: Partial<Telemetry> = {}): Telemetry 
 export function statsTelemetry(overrides: Partial<Telemetry> = {}): Telemetry {
   return {
     source: 'cammeta',
-    method: 'ffprobe',
+    method: 'dvtm-packets',
     headingMode: 'yaw',
     sampleCount: 600,
     fixCount: 590,
