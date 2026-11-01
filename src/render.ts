@@ -77,20 +77,23 @@ async function launchBrowser(
   // System Chrome/Edge first (nothing to download), then the Playwright
   // browser registry (usable after `npx playwright install chromium`).
   attempts.push({ channel: 'chrome' }, { channel: 'msedge' }, {});
-  let lastErr: unknown = null;
+  const attemptErrors: unknown[] = [];
   for (const opt of attempts) {
     try {
       const browser = await chromium.launch({ headless: true, ...opt });
       log(`browser: ${opt.executablePath || opt.channel || 'playwright-registry'}`);
       return browser;
     } catch (e) {
-      lastErr = e;
+      attemptErrors.push(e);
     }
   }
+  // Every attempt's failure survives in the cause chain; the message keeps
+  // the final attempt's detail and the remediation steps.
   throw new Error(
-    `could not launch a Chromium browser (tried explicit path, channel=chrome, channel=msedge, playwright registry): ${errorMessage(lastErr)}. ` +
+    `could not launch a Chromium browser (tried explicit path, channel=chrome, channel=msedge, playwright registry): ${errorMessage(attemptErrors[attemptErrors.length - 1])}. ` +
       'Install Google Chrome or Microsoft Edge, run "npx playwright install chromium", ' +
       'or pass --browser <path>.',
+    { cause: new AggregateError(attemptErrors, 'all browser launch attempts failed') },
   );
 }
 
