@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import type { Writable } from 'node:stream';
 
-import type { Browser } from 'playwright-core';
+import type { Browser, Page } from 'playwright-core';
 
 import { MIME } from './assets.js';
 import { errorMessage } from './errors.js';
@@ -234,6 +234,42 @@ interface StageTiming {
   emitMs: number;
 }
 
+// The resolved settings of one render, in the shape the capture/encode and
+// profile stages consume (cf. run.ts's RenderContext).
+interface RenderContext {
+  width: number;
+  height: number;
+  frames: number;
+  frameStart: number;
+  fpsStr: string;
+  outPath: string;
+  capture: Capture;
+  preset: Preset;
+  signal: AbortSignal | undefined;
+  log: (msg: string) => void;
+  onCapture: ((progress: CaptureProgress) => void) | undefined;
+}
+
+// What the render's stages share, passed as one object so captureAndEncode
+// and reportProfile stay top-level instead of closing over renderVideo
+// (cf. run.ts's RenderStageEnv).
+interface RenderStageEnv {
+  ctx: RenderContext;
+  tracer: Tracer;
+  renderSpan: Span;
+  url: string;
+  timing: StageTiming;
+  workerCount: number;
+}
+
+// The state the racing workers share: frame claiming, the captured-frame
+// count behind the exactly-once progress events, and the doomed-run flag.
+interface FrameLoopState {
+  cursor: number;
+  capturesDone: number;
+  failed: boolean;
+}
+
 interface WorkerRun {
   active: Browser;
   url: string;
@@ -251,65 +287,83 @@ interface WorkerRun {
   captureSpan: Span;
 }
 
+// One frame: evaluate, screenshot, record and stream it into ffmpeg in
+// order.
+async function captureFrame(
+  run: WorkerRun,
+  loop: FrameLoopState,
+  page: Page,
+  idx: number,
+): Promise<void> {
+  // __setFrame resolves after the canvas painted (canvas drawing is
+  // deferred to requestAnimationFrame); awaiting it keeps every
+  // screenshot on the current frame.
+  const evalStart = Date.now();
+  await page.evaluate(
+    (frame: number) =>
+      (globalThis as unknown as { __setFrame: (n: number) => Promise<void> }).__setFrame(frame),
+    run.frameStart + idx,
+  );
+  run.timing.evalMs += Date.now() - evalStart;
+
+  const captureStart = Date.now();
+  const buf = await page.screenshot(screenshotOptions(run.capture));
+  const captureMs = Date.now() - captureStart;
+  run.timing.captureMs += captureMs;
+
+  // The local count (not the shared one read after an await) keeps every
+  // boundary event exactly-once under worker races.
+  const done = ++loop.capturesDone;
+  run.batches.recordFrame(done, captureMs);
+
+  const emitStart = Date.now();
+  await run.stream.submit(idx, buf);
+  run.timing.emitMs += Date.now() - emitStart;
+
+  if (done % 100 === 0 || done === run.frames) {
+    run.log(`frames: ${done}/${run.frames} captured`);
+    run.onCapture?.({ done, total: run.frames });
+  }
+}
+
+// One worker's page and frame loop.
+async function workerLoop(
+  run: WorkerRun,
+  loop: FrameLoopState,
+  workerId: number,
+): Promise<void> {
+  const page = await run.active.newPage({
+    viewport: { width: run.width, height: run.height },
+    deviceScaleFactor: 1,
+  });
+  try {
+    await page.goto(run.url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
+    await page.waitForFunction('window.__READY === true', null, { timeout: PAGE_LOAD_TIMEOUT_MS });
+    for (;;) {
+      // A doomed render stops at the next frame: survivors have to settle
+      // before the batch and capture spans are wound down.
+      if (loop.failed) return;
+      if (run.signal?.aborted) throw new Error('render canceled');
+      const idx = loop.cursor++;
+      if (idx >= run.frames) break;
+      await captureFrame(run, loop, page, idx);
+    }
+  } finally {
+    await page.close().catch(() => {});
+  }
+  run.log(`worker ${workerId} done`);
+}
+
 // The frame loop: workers race for frame indices and stream every capture
 // into ffmpeg in exact order. allSettled, not all: the batch spans and the
 // captured-frame count must be final before the capture span is wound down.
 async function runWorkers(run: WorkerRun, workerCount: number): Promise<void> {
-  let captureCursor = 0;
-  let capturesDone = 0;
-  let failed = false;
-
-  async function worker(workerId: number): Promise<void> {
-    const page = await run.active.newPage({
-      viewport: { width: run.width, height: run.height },
-      deviceScaleFactor: 1,
-    });
-    try {
-      await page.goto(run.url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
-      await page.waitForFunction('window.__READY === true', null, { timeout: PAGE_LOAD_TIMEOUT_MS });
-      for (;;) {
-        // A doomed render stops at the next frame: survivors have to settle
-        // before the spans below are wound down.
-        if (failed) return;
-        if (run.signal?.aborted) throw new Error('render canceled');
-        const idx = captureCursor++;
-        if (idx >= run.frames) break;
-        let t0 = Date.now();
-        // __setFrame resolves after the canvas painted (canvas drawing is
-        // deferred to requestAnimationFrame); awaiting it keeps every
-        // screenshot on the current frame.
-        await page.evaluate(
-          (frame: number) =>
-            (globalThis as unknown as { __setFrame: (n: number) => Promise<void> }).__setFrame(frame),
-          run.frameStart + idx,
-        );
-        run.timing.evalMs += Date.now() - t0;
-        t0 = Date.now();
-        const buf = await page.screenshot(screenshotOptions(run.capture));
-        const captureMs = Date.now() - t0;
-        run.timing.captureMs += captureMs;
-        // The local count (not the shared one read after an await) keeps every
-        // boundary event exactly-once under worker races.
-        const done = ++capturesDone;
-        run.batches.recordFrame(done, captureMs);
-        t0 = Date.now();
-        await run.stream.submit(idx, buf);
-        run.timing.emitMs += Date.now() - t0;
-        if (done % 100 === 0 || done === run.frames) {
-          run.log(`frames: ${done}/${run.frames} captured`);
-          run.onCapture?.({ done, total: run.frames });
-        }
-      }
-    } finally {
-      await page.close().catch(() => {});
-    }
-    run.log(`worker ${workerId} done`);
-  }
+  const loop: FrameLoopState = { cursor: 0, capturesDone: 0, failed: false };
 
   const settled = await Promise.allSettled(
     Array.from({ length: workerCount }, (_, i) =>
-      worker(i + 1).catch((e) => {
-        failed = true;
+      workerLoop(run, loop, i + 1).catch((e) => {
+        loop.failed = true;
         throw e;
       }),
     ),
@@ -318,7 +372,7 @@ async function runWorkers(run: WorkerRun, workerCount: number): Promise<void> {
     (r): r is PromiseRejectedResult => r.status === 'rejected',
   );
   run.batches.close(rejected?.reason);
-  run.captureSpan.setAttribute('render.frames.captured', capturesDone);
+  run.captureSpan.setAttribute('render.frames.captured', loop.capturesDone);
   if (rejected) throw rejected.reason;
 }
 
@@ -401,6 +455,72 @@ export class FrameBatchRecorder {
   }
 }
 
+// The encode span encloses the capture span on purpose: frames stream into
+// ffmpeg while they are still being captured, and the trace must show that
+// overlap.
+async function captureAndEncode(active: Browser, env: RenderStageEnv): Promise<void> {
+  const { ctx, tracer, renderSpan, url, timing, workerCount } = env;
+  const {
+    fpsStr, preset, outPath, signal,
+    width, height, frames, frameStart, capture, log, onCapture,
+  } = ctx;
+  const encoder = spawnEncoder(fpsStr, preset, outPath);
+  // A cancel must reach the encoder directly: a worker parked on stdin
+  // backpressure would otherwise never notice the abort.
+  const killOnAbort = (): void => encoder.kill();
+  signal?.addEventListener('abort', killOnAbort, { once: true });
+  const stream = new OrderedFrameStream(encoder);
+  try {
+    await stage(tracer, 'render.encode', renderSpan, { 'render.preset': preset }, async (encodeSpan) => {
+      await stage(tracer, 'render.capture', renderSpan, {}, async (captureSpan) => {
+        await runWorkers(
+          {
+            active,
+            url,
+            width,
+            height,
+            frames,
+            frameStart,
+            capture,
+            signal,
+            log,
+            onCapture,
+            stream,
+            batches: new FrameBatchRecorder(tracer, captureSpan, frames),
+            timing,
+            captureSpan,
+          },
+          workerCount,
+        );
+      });
+      await finishEncode(encoder, stream, encodeSpan, log, outPath);
+    });
+  } catch (e) {
+    encoder.kill();
+    throw e;
+  } finally {
+    signal?.removeEventListener('abort', killOnAbort);
+  }
+}
+
+// The profile stage: fold the summed stage timings into what the caller gets,
+// mirrored on the render span and in the log.
+function reportProfile(env: RenderStageEnv): { profile: RenderProfile } {
+  const { ctx, timing, renderSpan, workerCount } = env;
+  const profile: RenderProfile = {
+    evalMs: Math.round(timing.evalMs),
+    captureMs: Math.round(timing.captureMs),
+    emitMs: Math.round(timing.emitMs),
+  };
+  renderSpan.setAttributes({
+    'render.evalMs': profile.evalMs,
+    'render.captureMs': profile.captureMs,
+    'render.emitMs': profile.emitMs,
+  });
+  ctx.log(formatProfile(profile, workerCount));
+  return { profile };
+}
+
 // Every output frame gets its own capture (held frames judder whenever the map
 // moves, so there is no frame-step option), streamed to ffmpeg in exact frame
 // order.
@@ -418,6 +538,19 @@ export async function renderVideo(
 
   const tracer = trace?.tracer ?? NOOP_TRACER;
   const workerCount = Math.max(1, Math.min(workers, frames));
+  const ctx: RenderContext = {
+    width,
+    height,
+    frames,
+    frameStart,
+    fpsStr,
+    outPath,
+    capture,
+    preset,
+    signal,
+    log,
+    onCapture,
+  };
   return stage(
     tracer,
     'render',
@@ -429,76 +562,22 @@ export async function renderVideo(
     },
     async (renderSpan) => {
       if (signal?.aborted) throw new Error('render canceled');
-      const presetAttributes = { 'render.preset': preset };
       const timing: StageTiming = { evalMs: 0, captureMs: 0, emitMs: 0 };
       const { server, url } = await startServer({ html, style, tileCache });
-
-      // The encode span encloses the capture span on purpose: frames stream
-      // into ffmpeg while they are still being captured, and the trace must
-      // show that overlap.
-      async function captureAndEncode(active: Browser): Promise<void> {
-        const encoder = spawnEncoder(fpsStr, preset, outPath);
-        // A cancel must reach the encoder directly: a worker parked on stdin
-        // backpressure would otherwise never notice the abort.
-        const killOnAbort = (): void => encoder.kill();
-        signal?.addEventListener('abort', killOnAbort, { once: true });
-        const stream = new OrderedFrameStream(encoder);
-        try {
-          await stage(tracer, 'render.encode', renderSpan, { ...presetAttributes }, async (encodeSpan) => {
-            await stage(tracer, 'render.capture', renderSpan, {}, async (captureSpan) => {
-              await runWorkers(
-                {
-                  active,
-                  url,
-                  width,
-                  height,
-                  frames,
-                  frameStart,
-                  capture,
-                  signal,
-                  log,
-                  onCapture,
-                  stream,
-                  batches: new FrameBatchRecorder(tracer, captureSpan, frames),
-                  timing,
-                  captureSpan,
-                },
-                workerCount,
-              );
-            });
-            await finishEncode(encoder, stream, encodeSpan, log, outPath);
-          });
-        } catch (e) {
-          encoder.kill();
-          throw e;
-        } finally {
-          signal?.removeEventListener('abort', killOnAbort);
-        }
-      }
+      const env: RenderStageEnv = { ctx, tracer, renderSpan, url, timing, workerCount };
 
       // The try spans startup as well: a browser-launch failure must still
       // close the server, whose listening socket would keep the process alive.
       let browser: Browser | null = null;
       try {
         browser = await launchBrowser(log, browserPath);
-        await captureAndEncode(browser);
+        await captureAndEncode(browser, env);
       } finally {
         await browser?.close().catch(() => {});
         server.close();
       }
 
-      const profile: RenderProfile = {
-        evalMs: Math.round(timing.evalMs),
-        captureMs: Math.round(timing.captureMs),
-        emitMs: Math.round(timing.emitMs),
-      };
-      renderSpan.setAttributes({
-        'render.evalMs': profile.evalMs,
-        'render.captureMs': profile.captureMs,
-        'render.emitMs': profile.emitMs,
-      });
-      log(formatProfile(profile, workerCount));
-      return { profile };
+      return reportProfile(env);
     },
   );
 }
