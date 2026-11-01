@@ -61,11 +61,13 @@ export interface CamSample extends ProductMeta {
   tSec: number;
 }
 
+export type CamMetaMethod = 'dvtm-packets' | 'cammeta-scan';
+
 export interface CamMetaResult {
   samples: CamSample[];
   /** No-lock positions; the byte-scan fallback reports 0 (fix pairs only). */
   noLock: number;
-  method: 'dvtm-packets' | 'cammeta-scan';
+  method: CamMetaMethod;
 }
 
 // DVTM field numbers (see the module comment for the message layout).

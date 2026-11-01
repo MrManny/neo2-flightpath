@@ -2,12 +2,17 @@
 // from Telemetry, consumed by the batch summary and the CLI log line, so their
 // numbers cannot drift apart.
 
-import type { Telemetry } from './telemetry.js';
+import type {
+  HeadingMode,
+  Telemetry,
+  TelemetryMethod,
+  TelemetrySource,
+} from './telemetry.js';
 
 export interface TelemetrySummary {
-  source: string;
-  method: string;
-  headingMode: string;
+  source: TelemetrySource;
+  method: TelemetryMethod;
+  headingMode: HeadingMode;
   fixes: number;
   noLock: number;
   /** Meters, rounded the way every user-facing surface reports them. */

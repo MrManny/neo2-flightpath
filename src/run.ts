@@ -8,7 +8,12 @@ import type { VideoProbe } from './ff.js';
 import { videoBaseName } from './inputs.js';
 import { pathKey, uniquePath } from './paths.js';
 import { loadTelemetry } from './telemetry.js';
-import type { Telemetry } from './telemetry.js';
+import type {
+  HeadingMode,
+  Telemetry,
+  TelemetryMethod,
+  TelemetrySource,
+} from './telemetry.js';
 import { prefetchTiles } from './tiles.js';
 import type { PrefetchStats } from './tiles.js';
 import { planIntroOutroFrames, planView } from './plan.js';
@@ -63,9 +68,9 @@ export interface RecordingSummary {
   introFrames?: number;
   outroFrames?: number;
   hud?: HudSpec;
-  source?: string;
-  method?: string;
-  headingMode?: string;
+  source?: TelemetrySource;
+  method?: TelemetryMethod;
+  headingMode?: HeadingMode;
   fixes?: number;
   noLock?: number;
   frames?: number;
