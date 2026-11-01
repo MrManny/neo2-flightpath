@@ -160,6 +160,31 @@ describe('decodeProductMeta', () => {
     expect(m.lat).toBeCloseTo(10.2, 9);
     expect(m.lon).toBeCloseTo(0.2, 9);
   });
+
+  it('keeps the camera altitude when the drone sub-message is missing', () => {
+    const cam = fldBytes(2, fldBytes(11, fldFloat(1, 313.5)));
+    const m = decodeProductMeta(fldBytes(3, cam));
+    expect(m.absAlt).toBeCloseTo(313.5, 2);
+    expect(m.lat).toBeNull();
+    expect(m.noLock).toBe(false);
+    expect(m.relAlt).toBeNull();
+    expect(m.yawDeg).toBeNull();
+    expect(m.pitchDeg).toBeNull();
+    expect(m.rollDeg).toBeNull();
+  });
+
+  it('returns an all-null meta for a message without frame metadata', () => {
+    expect(decodeProductMeta(Buffer.alloc(0))).toEqual({
+      lat: null,
+      lon: null,
+      noLock: false,
+      relAlt: null,
+      absAlt: null,
+      yawDeg: null,
+      pitchDeg: null,
+      rollDeg: null,
+    });
+  });
 });
 
 describe('scanGpsPair', () => {
