@@ -1,17 +1,18 @@
 // One cue per video frame; the cue index equals the video frame index. Cues
 // whose latitude/longitude line is not a real GPS fix (src/geo.ts's
-// isGpsFix - the (0, 0) placeholder or worse) are kept with lat/lon = null
-// so alignment is never lost.
+// gpsFix - the (0, 0) placeholder or worse) are kept with fix = null so
+// alignment is never lost.
 
 import { readFile } from 'node:fs/promises';
 
-import { isGpsFix } from './geo.js';
+import { gpsFix } from './geo.js';
+import type { LatLon } from './geo.js';
 
 export interface SrtCue {
   /** Cue presentation time relative to the first cue (seconds). */
   tSec: number;
-  lat: number | null;
-  lon: number | null;
+  /** A real GPS fix, or null when the cue has none (see gpsFix). */
+  fix: LatLon | null;
   relAlt: number | null;
   absAlt: number | null;
 }
@@ -49,8 +50,7 @@ function timingLineToMs(match: RegExpExecArray): number {
 function newCue(tSec: number): SrtCue {
   return {
     tSec,
-    lat: null,
-    lon: null,
+    fix: null,
     relAlt: null,
     absAlt: null,
   };
@@ -85,11 +85,9 @@ export function parseSrtText(text: string): SrtParseResult {
     const latLon = RX_LATLON.exec(line);
     if (latLon && !cueSawLatLon) {
       cueSawLatLon = true;
-      const lat = parseNumber(latLon[1]);
-      const lon = parseNumber(latLon[2]);
-      if (lat !== null && lon !== null && isGpsFix(lat, lon)) {
-        cue.lat = lat;
-        cue.lon = lon;
+      const fix = gpsFix(parseNumber(latLon[1]), parseNumber(latLon[2]));
+      if (fix !== null) {
+        cue.fix = fix;
       } else {
         noLock++;
       }

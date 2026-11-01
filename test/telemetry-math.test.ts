@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
+import { gpsFix } from '../src/geo.js';
 import { buildTelemetry } from '../src/telemetry-math.js';
 import type { TelSample } from '../src/telemetry-math.js';
 
+// Raw coordinates in, a sample out; the fixture applies the parsers'
+// fix/no-lock decision (src/geo.ts's gpsFix), so placeholder and out-of-range
+// coordinates land as fix = null exactly like parser output.
 function sample(
   tSec: number,
   lat: number | null,
   lon: number | null,
   extras: Partial<TelSample> = {},
 ): TelSample {
-  return { tSec, lat, lon, relAlt: null, absAlt: null, yawDeg: null, ...extras };
+  return { tSec, fix: gpsFix(lat, lon), relAlt: null, absAlt: null, yawDeg: null, ...extras };
 }
 
 function build(samples: TelSample[], frames: number, fpsValue: number) {
@@ -37,8 +41,8 @@ describe('buildTelemetry', () => {
     expect(tel.frames).toHaveLength(3);
 
     // First frame sits on the first fix.
-    expect(tel.frames[0].lat).toBeCloseTo(46.61307, 6);
-    expect(tel.frames[0].lon).toBeCloseTo(14.262388, 6);
+    expect(tel.frames[0].fix?.lat).toBeCloseTo(46.61307, 6);
+    expect(tel.frames[0].fix?.lon).toBeCloseTo(14.262388, 6);
     expect(tel.frames[0].alt).toBeCloseTo(3.3, 6);
 
     // Speed is the smoothed centered difference, rounded to one decimal
@@ -93,8 +97,8 @@ describe('buildTelemetry', () => {
       2,
     );
     // Frame 1 sits at t=0.5, halfway between the fixes.
-    expect(tel.frames[1].lat).toBeCloseTo(46.65, 6);
-    expect(tel.frames[1].lon).toBeCloseTo(14.25, 6);
+    expect(tel.frames[1].fix?.lat).toBeCloseTo(46.65, 6);
+    expect(tel.frames[1].fix?.lon).toBeCloseTo(14.25, 6);
   });
 
   it('holds the earlier fix across long gaps instead of interpolating', () => {
@@ -105,7 +109,7 @@ describe('buildTelemetry', () => {
       6,
       1,
     );
-    expect(tel.frames[5].lat).toBeCloseTo(46.6, 6);
+    expect(tel.frames[5].fix?.lat).toBeCloseTo(46.6, 6);
   });
 
   it('holds the first and last fix on frames past the telemetry ends', () => {
@@ -125,14 +129,14 @@ describe('buildTelemetry', () => {
 
     expect(tel.fixCount).toBe(2);
     // Leading frame holds the first fix.
-    expect(tel.frames[0].lat).toBeCloseTo(46.61307, 6);
-    expect(tel.frames[0].lon).toBeCloseTo(14.262388, 6);
+    expect(tel.frames[0].fix?.lat).toBeCloseTo(46.61307, 6);
+    expect(tel.frames[0].fix?.lon).toBeCloseTo(14.262388, 6);
     // Trailing frames hold the last fix.
-    expect(tel.frames[3].lat).toBeCloseTo(46.613072, 6);
-    expect(tel.frames[3].lon).toBeCloseTo(14.26239, 6);
+    expect(tel.frames[3].fix?.lat).toBeCloseTo(46.613072, 6);
+    expect(tel.frames[3].fix?.lon).toBeCloseTo(14.26239, 6);
     // Interior frames keep their nearest fix across the gap.
-    expect(tel.frames[1].lat).toBeCloseTo(46.61307, 6);
-    expect(tel.frames[2].lat).toBeCloseTo(46.613072, 6);
+    expect(tel.frames[1].fix?.lat).toBeCloseTo(46.61307, 6);
+    expect(tel.frames[2].fix?.lat).toBeCloseTo(46.613072, 6);
   });
 
   it('prefers relative altitude and falls back to absolute', () => {

@@ -113,8 +113,8 @@ describe('decodeProductMeta', () => {
       gpsAltMm: 313227,
     });
     const m = decodeProductMeta(buf);
-    expect(m.lat).toBeCloseTo(46.61307, 9);
-    expect(m.lon).toBeCloseTo(14.262388, 9);
+    expect(m.fix?.lat).toBeCloseTo(46.61307, 9);
+    expect(m.fix?.lon).toBeCloseTo(14.262388, 9);
     expect(m.relAlt).toBeCloseTo(3.3, 4); // 3300 mm -> 3.3 m
     expect(m.absAlt).toBeCloseTo(313.227, 2); // float32 precision
     expect(m.pitchDeg).toBeCloseTo(12.3, 6); // deci-degrees
@@ -142,30 +142,29 @@ describe('decodeProductMeta', () => {
       relAltMm: 0,
     });
     const m = decodeProductMeta(buf);
-    expect(m.lat).toBeCloseTo(0.0000001, 9);
+    expect(m.fix?.lat).toBeCloseTo(0.0000001, 9);
     expect(m.noLock).toBe(false);
   });
 
   it('marks the 0/0 placeholder as a no-lock position', () => {
     const buf = buildProductMeta({ lat: 0, lon: 0, relAltMm: 0 });
     const m = decodeProductMeta(buf);
-    expect(m.lat).toBeNull();
-    expect(m.lon).toBeNull();
+    expect(m.fix).toBeNull();
     expect(m.noLock).toBe(true);
   });
 
   it('accepts genuine fixes near the equator / prime meridian', () => {
     const buf = buildProductMeta({ lat: 10.2, lon: 0.2, relAltMm: 1000 });
     const m = decodeProductMeta(buf);
-    expect(m.lat).toBeCloseTo(10.2, 9);
-    expect(m.lon).toBeCloseTo(0.2, 9);
+    expect(m.fix?.lat).toBeCloseTo(10.2, 9);
+    expect(m.fix?.lon).toBeCloseTo(0.2, 9);
   });
 
   it('keeps the camera altitude when the drone sub-message is missing', () => {
     const cam = fldBytes(2, fldBytes(11, fldFloat(1, 313.5)));
     const m = decodeProductMeta(fldBytes(3, cam));
     expect(m.absAlt).toBeCloseTo(313.5, 2);
-    expect(m.lat).toBeNull();
+    expect(m.fix).toBeNull();
     expect(m.noLock).toBe(false);
     expect(m.relAlt).toBeNull();
     expect(m.yawDeg).toBeNull();
@@ -175,8 +174,7 @@ describe('decodeProductMeta', () => {
 
   it('returns an all-null meta for a message without frame metadata', () => {
     expect(decodeProductMeta(Buffer.alloc(0))).toEqual({
-      lat: null,
-      lon: null,
+      fix: null,
       noLock: false,
       relAlt: null,
       absAlt: null,
@@ -206,8 +204,8 @@ describe('scanGpsPair', () => {
     ]);
     const hit = scanGpsPair(pair);
     expect(hit).not.toBeNull();
-    expect(hit?.lat).toBeCloseTo(46.61307, 9);
-    expect(hit?.lon).toBeCloseTo(14.262388, 9);
+    expect(hit?.fix.lat).toBeCloseTo(46.61307, 9);
+    expect(hit?.fix.lon).toBeCloseTo(14.262388, 9);
     expect(hit?.at).toBe(2);
   });
 
@@ -242,12 +240,12 @@ describe('scanGpsPair', () => {
         dbl(lon),
       ]);
       const hit = scanGpsPair(pair);
-      expect(hit?.lat).toBeCloseTo(lat, 9);
-      expect(hit?.lon).toBeCloseTo(lon, 9);
+      expect(hit?.fix.lat).toBeCloseTo(lat, 9);
+      expect(hit?.fix.lon).toBeCloseTo(lon, 9);
 
       const m = decodeProductMeta(buildProductMeta({ lat, lon, relAltMm: 0 }));
-      expect(m.lat).toBeCloseTo(lat, 9);
-      expect(m.lon).toBeCloseTo(lon, 9);
+      expect(m.fix?.lat).toBeCloseTo(lat, 9);
+      expect(m.fix?.lon).toBeCloseTo(lon, 9);
     }
   });
 });
@@ -271,7 +269,7 @@ describe('decodePacketSamples', () => {
     ]);
     const { samples, noLock } = decodePacketSamples(buf, packets, false);
     expect(noLock).toBe(1);
-    expect(samples.map((s) => s.lat)).toEqual([46.6, 0.1]);
+    expect(samples.map((s) => s.fix?.lat)).toEqual([46.6, 0.1]);
   });
 
   it('keeps no-lock samples under keepAll but still counts them', () => {
@@ -283,8 +281,8 @@ describe('decodePacketSamples', () => {
     expect(noLock).toBe(1);
     expect(samples).toHaveLength(2);
     expect(samples[0].noLock).toBe(true);
-    expect(samples[0].lat).toBeNull();
-    expect(samples[1].lat).toBe(46.6);
+    expect(samples[0].fix).toBeNull();
+    expect(samples[1].fix?.lat).toBe(46.6);
   });
 });
 

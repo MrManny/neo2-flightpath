@@ -21,8 +21,7 @@ async function loadSamples(
     return {
       samples: parsed.cues.map((cue) => ({
         tSec: cue.tSec,
-        lat: cue.lat,
-        lon: cue.lon,
+        fix: cue.fix,
         relAlt: cue.relAlt,
         absAlt: cue.absAlt,
         yawDeg: null,
