@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-function isMp4(name: string): boolean {
+// The one recording-extension rule: the CLI input scan and the app's pick
+// check share it, so accepting another container (e.g. .MOV) is one edit.
+export function isRecordingName(name: string): boolean {
   return name.toLowerCase().endsWith('.mp4');
 }
 
@@ -28,7 +30,7 @@ function listMp4(dir: string, recurse: boolean): string[] {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (recurse) found.push(...listMp4(full, recurse));
-    } else if (entry.isFile() && isMp4(entry.name)) {
+    } else if (entry.isFile() && isRecordingName(entry.name)) {
       found.push(full);
     }
   }
@@ -46,7 +48,7 @@ export function collectRecordings(
     const st = fs.statSync(full);
     if (st.isDirectory()) {
       files.push(...listMp4(full, opts.recurse));
-    } else if (isMp4(full)) {
+    } else if (isRecordingName(full)) {
       files.push(full);
     } else {
       throw new Error(`not an .mp4 recording: ${full}`);
