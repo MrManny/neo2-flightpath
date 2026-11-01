@@ -114,13 +114,13 @@ export function buildSceneData(opts: PageOpts, tileBase: string): SceneData {  c
   };
 }
 
-// The module boot: instantiates the shared scene and bridges the globals the
+// The module boot: boots the shared scene and bridges the globals the
 // headless capture uses. Runs after the DOM is parsed (module semantics), so
 // the scene always finds its host element.
 function bootScript(dataJson: string): string {
-  return `import { createScene } from '/renderer/scene.js';
+  return `import { bootScene } from '/renderer/boot.js';
 var D = window.__DATA = ${dataJson};
-var scene = createScene(document.getElementById('scene-host'), D, { L: window.L });
+var scene = bootScene(document.getElementById('scene-host'), D, window.L);
 window.__setFrame = function (i) { return scene.setFrame(i); };
 window.__relayout = function () { scene.relayout(); };
 scene.ready.then(function () { window.__READY = true; });`;

@@ -62,8 +62,8 @@ describe('buildPageHtml (headless)', () => {
 
   it('imports the shared renderer and bridges the capture globals', () => {
     const html = buildPageHtml(baseOpts());
-    expect(html).toContain("import { createScene } from '/renderer/scene.js'");
-    expect(html).toContain("createScene(document.getElementById('scene-host'), D, { L: window.L })");
+    expect(html).toContain("import { bootScene } from '/renderer/boot.js'");
+    expect(html).toContain("bootScene(document.getElementById('scene-host'), D, window.L)");
     expect(html).toContain('window.__setFrame = function (i)');
     expect(html).toContain('window.__relayout = function');
     expect(html).toContain('scene.ready.then(function () { window.__READY = true; })');
