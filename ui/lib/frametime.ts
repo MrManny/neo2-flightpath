@@ -5,8 +5,16 @@
 import type { LoopPoints, LoopState } from './loop.js';
 import { hasLoop } from './loop.js';
 
+// requestVideoFrameCallback reports mediaTime quantized to the microsecond,
+// so a frame whose PTS falls between those ticks arrives up to ~1e-6 s before
+// its exact start (10.977633 for frame 329 at 30000/1001) and the product
+// lands just under its integer. The slack spans more than any such
+// quantization error in frame units while staying far below the half frame
+// that separates a mid-frame clock sample from the next frame's start.
+const QUANTIZATION_SLACK_SEC = 1.25e-6;
+
 export function frameFromMediaTime(mediaTime: number, fps: number, frames: number): number {
-  return clampFrame(Math.floor(mediaTime * fps + 1e-6), frames);
+  return clampFrame(Math.floor((mediaTime + QUANTIZATION_SLACK_SEC) * fps), frames);
 }
 
 /** The one clamp rule for frame indices: 0..frames-1. */

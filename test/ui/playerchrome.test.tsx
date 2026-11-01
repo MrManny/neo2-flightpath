@@ -153,7 +153,7 @@ describe('PlayerChrome', () => {
     await waitFor(() => expect(fakeScene.setFrame).toHaveBeenCalledWith(0));
   });
 
-  it('seeks the video to i / fps and repaints the scene when scrubbing', async () => {
+  it('seeks the video into the target frame span and repaints the scene when scrubbing', async () => {
     render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
     const video = document.querySelector('video') as HTMLVideoElement;
     // jsdom's media element ignores currentTime writes; track them instead.
@@ -168,7 +168,7 @@ describe('PlayerChrome', () => {
     const scrub = document.querySelector('input[type="range"]');
     fireEvent.change(scrub as HTMLInputElement, { target: { value: '30' } });
     act(() => flushRaf());
-    expect(currentTime).toBeCloseTo(1);
+    expect(currentTime).toBeCloseTo(30.5 / 30);
     await waitFor(() => expect(fakeScene.setFrame).toHaveBeenCalledWith(30));
   });
 
@@ -350,10 +350,10 @@ describe('PlayerChrome keyboard shortcuts', () => {
     key(window, { key: 'ArrowRight' });
     expect(fake.pause).toHaveBeenCalledTimes(1);
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBeCloseTo(1 / 30);
+    expect(fake.state.currentTime).toBeCloseTo(1.5 / 30);
     key(window, { key: 'ArrowLeft' });
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBeCloseTo(0);
+    expect(fake.state.currentTime).toBeCloseTo(0.5 / 30);
   });
 
   it('claims keys that land before the post-commit effect flush', async () => {
@@ -384,39 +384,39 @@ describe('PlayerChrome keyboard shortcuts', () => {
     key(window, { key: 'ArrowRight' });
     key(window, { key: 'ArrowRight' });
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBeCloseTo(3 / 30);
+    expect(fake.state.currentTime).toBeCloseTo(3.5 / 30);
   });
 
   it('clamps stepping at the frame range', async () => {
     const fake = await renderPlayer();
     key(window, { key: 'ArrowLeft' });
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBe(0);
+    expect(fake.state.currentTime).toBeCloseTo(0.5 / 30);
     key(window, { key: 'End' });
     key(window, { key: 'ArrowRight' });
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBeCloseTo(89 / 30);
+    expect(fake.state.currentTime).toBeCloseTo(89.5 / 30);
   });
 
   it('jumps one second with shift+arrows, frame-quantized', async () => {
     const fake = await renderPlayer();
     key(window, { key: 'ArrowRight', shiftKey: true });
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBeCloseTo(1);
+    expect(fake.state.currentTime).toBeCloseTo(30.5 / 30);
     key(window, { key: 'ArrowLeft', shiftKey: true });
     key(window, { key: 'ArrowLeft', shiftKey: true });
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBe(0);
+    expect(fake.state.currentTime).toBeCloseTo(0.5 / 30);
   });
 
   it('jumps to start and end with Home and End', async () => {
     const fake = await renderPlayer();
     key(window, { key: 'End' });
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBeCloseTo(89 / 30);
+    expect(fake.state.currentTime).toBeCloseTo(89.5 / 30);
     key(window, { key: 'Home' });
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBe(0);
+    expect(fake.state.currentTime).toBeCloseTo(0.5 / 30);
   });
 
   it('leaves native arrow stepping to the focused scrubber', async () => {
@@ -460,7 +460,7 @@ describe('PlayerChrome loop region', () => {
     fake.state.paused = false;
     fake.state.currentTime = 70 / 30;
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBeCloseTo(1);
+    expect(fake.state.currentTime).toBeCloseTo(30.5 / 30);
     await waitFor(() => expect(fakeScene.setFrame).toHaveBeenCalledWith(30));
   });
 
@@ -508,7 +508,7 @@ describe('PlayerChrome loop region', () => {
     key(window, { key: ' ' });
     expect(fake.play).toHaveBeenCalledTimes(1);
     act(() => flushRaf());
-    expect(fake.state.currentTime).toBeCloseTo(1);
+    expect(fake.state.currentTime).toBeCloseTo(30.5 / 30);
   });
 });
 

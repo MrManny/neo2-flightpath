@@ -109,14 +109,14 @@ afterEach(() => {
 });
 
 describe('usePlayback', () => {
-  it('seeks the video to i / fps and rewrites the scrubber and time text', () => {
+  it('seeks the video into the target frame span and rewrites the scrubber and time text', () => {
     render(<Harness />);
     const media = stubPlayback();
     act(() => {
       api.scrubTo(30);
     });
     act(() => flushRaf());
-    expect(media.state.currentTime).toBeCloseTo(1);
+    expect(media.state.currentTime).toBeCloseTo(30.5 / 30);
     expect((document.querySelector('input') as HTMLInputElement).value).toBe('30');
     expect(document.querySelector('span')?.textContent).toBe('0:01 / 0:03');
   });
@@ -164,7 +164,7 @@ describe('usePlayback', () => {
       api.stepBy(1);
     });
     act(() => flushRaf());
-    expect(media.state.currentTime).toBeCloseTo(3 / 30);
+    expect(media.state.currentTime).toBeCloseTo(3.5 / 30);
   });
 
   it('clamps stepping at the frame range', () => {
@@ -174,13 +174,13 @@ describe('usePlayback', () => {
       api.stepBy(-1);
     });
     act(() => flushRaf());
-    expect(media.state.currentTime).toBe(0);
+    expect(media.state.currentTime).toBeCloseTo(0.5 / 30);
     act(() => {
       api.scrubTo(89);
       api.stepBy(1);
     });
     act(() => flushRaf());
-    expect(media.state.currentTime).toBeCloseTo(89 / 30);
+    expect(media.state.currentTime).toBeCloseTo(89.5 / 30);
   });
 
   it('marks loop points at the head frame and clears them', () => {
@@ -209,7 +209,7 @@ describe('usePlayback', () => {
     });
     act(() => flushRaf());
     expect(media.play).toHaveBeenCalledTimes(1);
-    expect(media.state.currentTime).toBeCloseTo(1);
+    expect(media.state.currentTime).toBeCloseTo(30.5 / 30);
   });
 
   it('applies the playback rate to the media element', () => {
