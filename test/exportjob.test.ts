@@ -283,3 +283,39 @@ describe('export runner: guard rails', () => {
     expect(fs.existsSync(path.join(dir, 'flight_map.partial-1.mp4'))).toBe(true);
   });
 });
+
+describe('export runner: completion safety', () => {
+  it('reports a throwing onDone instead of rejecting unhandled', async () => {
+    const dir = tmpDir();
+    const out = path.join(dir, 'flight_map.mp4');
+    const logs: string[] = [];
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown): void => {
+      rejections.push(reason);
+    };
+    process.on('unhandledRejection', onRejection);
+    try {
+      const runner = createExportRunner({
+        log: (message) => logs.push(message),
+        run: async (_v, _r, _log, working) => {
+          fs.writeFileSync(working, 'x');
+          return summaryFor(working);
+        },
+        onDone: () => {
+          throw new Error('consumer blew up');
+        },
+      });
+      runner.start(SOURCE, requestFor(out));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      // The export itself still completed; only the callback blew up.
+      expect(fs.readFileSync(out, 'utf8')).toBe('x');
+      expect(logs.some((m) => m.includes('export completion failed'))).toBe(true);
+      expect(logs.some((m) => m.includes('consumer blew up'))).toBe(true);
+      expect(rejections).toEqual([]);
+      expect(runner.running()).toBe(false);
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+  });
+});
