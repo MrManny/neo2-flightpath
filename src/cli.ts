@@ -5,12 +5,13 @@ import { ERROR_PREFIX, errorMessage } from './errors.js';
 import { VERSION } from './version.js';
 import { CONFIG_OPTIONS, cliDefaultOf } from './config.js';
 import { resolveConfig } from './configfile.js';
-import type { ConfigOverrides } from './config.js';
+import type { ConfigOverrides, RenderConfig } from './config.js';
 import { collectRecordings } from './inputs.js';
 import { requireTools } from './ff.js';
 import { runBatch } from './run.js';
-import type { RecordingSummary } from './run.js';
+import type { LogFn, RecordingSummary } from './run.js';
 import { createTracing } from './tracing.js';
+import type { Tracing } from './tracing.js';
 
 export interface ParsedCli {
   inputs: string[];
@@ -110,49 +111,85 @@ function commanderExitCode(e: { code: string; exitCode: number }): number {
     : e.exitCode;
 }
 
+// The resolved invocation: everything the run needs once argv and the config
+// layers are merged.
+interface Invocation {
+  inputs: string[];
+  config: RenderConfig;
+  configPath: string | null;
+}
+
+function resolveInvocation(argv: string[]): Invocation {
+  const parsed = parseCliArgs(argv.slice(2));
+  const { config, configPath } = resolveConfig({
+    cli: parsed.cli,
+    configPath: parsed.configPath,
+  });
+  return { inputs: parsed.inputs, config, configPath };
+}
+
+function createLogger(config: RenderConfig): LogFn {
+  return (msg: string): void => {
+    if (!config.quiet) process.stderr.write(`[neo2-flightpath] ${msg}\n`);
+  };
+}
+
+// The pipeline stage: tools, inputs, output folder, batch, summary, and the
+// batch's effect on the exit code.
+async function runPipeline(
+  invocation: Invocation,
+  tracing: Tracing,
+  log: LogFn,
+): Promise<void> {
+  const { inputs, config, configPath } = invocation;
+  await requireTools();
+  const videos = collectRecordings(inputs, { recurse: config.recurse });
+  if (config.outDir) fs.mkdirSync(config.outDir, { recursive: true });
+  log(
+    `${videos.length} recording(s) -> ${config.outDir ?? 'beside the sources'}` +
+      (configPath ? ` (config: ${configPath})` : ''),
+  );
+
+  const emit = (summary: RecordingSummary): void => {
+    if (config.json) {
+      // Flush synchronously: the summary must survive any later I/O hiccups.
+      fs.writeSync(1, `${JSON.stringify(summary)}\n`);
+    }
+  };
+
+  const result = await runBatch(videos, config, log, emit, {
+    trace: { tracer: tracing.tracer },
+  });
+  log(`done: ${result.ok} ok, ${result.skipped} skipped, ${result.failed} failed`);
+  if (result.failed > 0) process.exitCode = 1;
+}
+
+async function withTracingShutdown(
+  tracing: Tracing,
+  log: LogFn,
+  body: () => Promise<void>,
+): Promise<void> {
+  try {
+    await body();
+  } finally {
+    try {
+      await tracing.shutdown();
+    } catch (e) {
+      // A shutdown hiccup must not replace the error that is unwinding.
+      log(`warning: tracing shutdown failed: ${errorMessage(e)}`);
+    }
+  }
+}
+
 export async function main(argv: string[] = process.argv): Promise<void> {
   try {
-    const parsed = parseCliArgs(argv.slice(2));
-    const { config, configPath } = resolveConfig({
-      cli: parsed.cli,
-      configPath: parsed.configPath,
-    });
-
-    const log = (msg: string): void => {
-      if (!config.quiet) process.stderr.write(`[neo2-flightpath] ${msg}\n`);
-    };
-
+    const invocation = resolveInvocation(argv);
+    const log = createLogger(invocation.config);
     const tracing = await createTracing();
     if (tracing.enabled) log(`tracing: enabled (OTLP/HTTP protobuf)`);
-    try {
-      await requireTools();
-      const videos = collectRecordings(parsed.inputs, { recurse: config.recurse });
-      if (config.outDir) fs.mkdirSync(config.outDir, { recursive: true });
-      log(
-        `${videos.length} recording(s) -> ${config.outDir ?? 'beside the sources'}` +
-          (configPath ? ` (config: ${configPath})` : ''),
-      );
-
-      const emit = (summary: RecordingSummary): void => {
-        if (config.json) {
-          // Flush synchronously: the summary must survive any later I/O hiccups.
-          fs.writeSync(1, `${JSON.stringify(summary)}\n`);
-        }
-      };
-
-      const result = await runBatch(videos, config, log, emit, {
-        trace: { tracer: tracing.tracer },
-      });
-      log(`done: ${result.ok} ok, ${result.skipped} skipped, ${result.failed} failed`);
-      if (result.failed > 0) process.exitCode = 1;
-    } finally {
-      try {
-        await tracing.shutdown();
-      } catch (e) {
-        // A shutdown hiccup must not replace the error that is unwinding.
-        log(`warning: tracing shutdown failed: ${errorMessage(e)}`);
-      }
-    }
+    await withTracingShutdown(tracing, log, () =>
+      runPipeline(invocation, tracing, log),
+    );
   } catch (e) {
     if (isCommanderExit(e)) {
       process.exitCode = commanderExitCode(e);
