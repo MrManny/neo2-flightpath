@@ -4,11 +4,10 @@
 
 import path from 'node:path';
 
+import { mimeFor, resolveTileRoute } from './assets.js';
 import { MEDIA_PATH } from './apppaths.js';
 import type { Style } from './config.js';
 import type { TileCoord } from './plan.js';
-import { MIME } from './serve.js';
-import { parseTilePathname, tilePaths } from './tiles.js';
 
 export interface AppRoutes {
   /** Next.js static export root (ui/out), possibly inside app.asar. */
@@ -38,19 +37,13 @@ export function resolveAppAsset(pathname: string, routes: AppRoutes): AppAsset {
       : { kind: 'not-found' };
   }
 
-  // Every known style routes into the shared cache: live restyle switches
-  // styles without a reload, so no single style owns the tile route. The
-  // parser only returns vocabulary styles; anything else is not a tile.
-  const parsed = parseTilePathname(pathname);
-  if (parsed) {
-    const paths = tilePaths(routes.tileCache, parsed.style, parsed.tile);
-    return {
-      kind: 'tile',
-      filePath: paths.file,
-      placeholderPath: paths.placeholder,
-      style: parsed.style,
-      tile: parsed.tile,
-    };
+  // Every known style routes into the shared cache ({ anyStyle: true }):
+  // live restyle switches styles without a reload, so no single style owns
+  // the tile route. Anything tile-shaped but not a tile resolves like any
+  // other static path.
+  const tile = resolveTileRoute(pathname, routes.tileCache, { anyStyle: true });
+  if (tile) {
+    return { kind: 'tile', ...tile };
   }
 
   return exportFile(pathname, routes.exportRoot);
@@ -73,6 +66,6 @@ function exportFile(pathname: string, exportRoot: string): AppAsset {
   return {
     kind: 'export',
     filePath,
-    mime: MIME[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+    mime: mimeFor(filePath),
   };
 }
