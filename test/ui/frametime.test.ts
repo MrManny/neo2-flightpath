@@ -4,7 +4,9 @@ import {
   clampFrame,
   formatFrameRange,
   formatFrameSpan,
+  formatLoopReadout,
   formatTime,
+  formatTimeReadout,
   frameFromMediaTime,
   framesForSeconds,
   timeAt,
@@ -52,6 +54,17 @@ describe('timeAt', () => {
   });
 });
 
+describe('formatTimeReadout', () => {
+  it.for([
+    { name: 'start of the recording', frame: 0, fps: 30, durationSec: 3, want: '0:00 / 0:03' },
+    { name: 'mid-recording', frame: 30, fps: 30, durationSec: 3, want: '0:01 / 0:03' },
+    { name: 'last frame rounds up', frame: 89, fps: 30, durationSec: 3, want: '0:03 / 0:03' },
+    { name: 'fractional rates', frame: 60, fps: 29.97, durationSec: 65, want: '0:02 / 1:05' },
+  ])('$name', ({ frame, fps, durationSec, want }) => {
+    expect(formatTimeReadout(frame, fps, durationSec)).toBe(want);
+  });
+});
+
 describe('framesForSeconds', () => {
   it.for([
     { name: 'exact rate', fps: 30, seconds: 1, want: 30 },
@@ -83,5 +96,17 @@ describe('formatFrameRange', () => {
 
   it('counts a single-frame segment as one frame', () => {
     expect(formatFrameRange({ in: 300, out: 300 }, 30)).toBe('0:10–0:10 · 1 frames');
+  });
+});
+
+describe('formatLoopReadout', () => {
+  it.for([
+    { name: 'engaged loop', loop: { in: 300, out: 360 }, fps: 30, want: 'loop 0:10–0:12' },
+    { name: 'unset in point still reads', loop: { in: null, out: 360 }, fps: 30, want: 'loop ?–0:12' },
+    { name: 'unset out point still reads', loop: { in: 300, out: null }, fps: 30, want: 'loop 0:10–?' },
+    { name: 'out-of-order points still read', loop: { in: 360, out: 300 }, fps: 30, want: 'loop 0:12–0:10' },
+    { name: 'no points reads empty', loop: { in: null, out: null }, fps: 30, want: '' },
+  ])('$name', ({ loop, fps, want }) => {
+    expect(formatLoopReadout(loop, fps)).toBe(want);
   });
 });
