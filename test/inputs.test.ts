@@ -4,10 +4,29 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { collectRecordings } from '../src/inputs.js';
+import { collectRecordings, findSrtSidecar } from '../src/inputs.js';
 import { cleanupTmpDirs, tmpDir } from './fixtures.js';
 
 afterEach(cleanupTmpDirs);
+
+describe('findSrtSidecar', () => {
+  it('matches the video basename case-insensitively', () => {
+    const root = tmpDir();
+    const video = path.join(root, 'clip.mp4');
+    fs.writeFileSync(video, '');
+    const srt = path.join(root, 'CLIP.SRT');
+    fs.writeFileSync(srt, '');
+    expect(findSrtSidecar(video)).toBe(srt);
+  });
+
+  it('returns null when the recording has no sidecar', () => {
+    const root = tmpDir();
+    const video = path.join(root, 'clip.mp4');
+    fs.writeFileSync(video, '');
+    fs.writeFileSync(path.join(root, 'other.srt'), '');
+    expect(findSrtSidecar(video)).toBeNull();
+  });
+});
 
 describe('collectRecordings', () => {
   it('collects .mp4 case-insensitively, non-recursively by default', () => {

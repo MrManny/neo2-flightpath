@@ -7,7 +7,7 @@ import type {
   Telemetry,
   TelemetryMethod,
   TelemetrySource,
-} from './telemetry.js';
+} from './telemetry-math.js';
 
 export interface TelemetrySummary {
   source: TelemetrySource;

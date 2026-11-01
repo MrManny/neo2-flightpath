@@ -13,7 +13,7 @@ import type {
   Telemetry,
   TelemetryMethod,
   TelemetrySource,
-} from './telemetry.js';
+} from './telemetry-math.js';
 import { prefetchTiles } from './tiles.js';
 import type { PrefetchStats } from './tiles.js';
 import { planIntroOutroFrames, planView } from './plan.js';
