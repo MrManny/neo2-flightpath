@@ -1,48 +1,14 @@
-// Interactive frame driver, framework-free so the frame-exact behaviors stay
-// unit-testable. The frame index is the single source of truth: every explicit
+// Imperative frame driver: it owns the video element and its animation
+// callbacks. The frame index is the single source of truth: every explicit
 // seek snaps the video to i / fps; during playback the index is derived from
 // the frame the video actually presents (never clocked separately), so video
-// and map cannot drift apart.
+// and map cannot drift apart. The pure quantization and loop rules live in
+// frametime.ts and loop.ts.
 
 import type { PageVideo } from '../../src/appsession.js';
-
-export function frameFromMediaTime(mediaTime: number, fps: number, frames: number): number {
-  return clampFrame(Math.floor(mediaTime * fps + 1e-6), frames);
-}
-
-/** The one clamp rule for frame indices: 0..frames-1. */
-export function clampFrame(i: number, frames: number): number {
-  return Math.max(0, Math.min(frames - 1, i));
-}
-
-// Jumps stay frame-quantized: one second is round(fps) frames even for
-// fractional rates like 29.97 fps.
-export function framesForSeconds(fps: number, seconds: number): number {
-  return Math.round(fps * seconds);
-}
-
-export function formatTime(sec: number): string {
-  const total = Math.max(0, Math.round(sec));
-  return Math.floor(total / 60) + ':' + ('0' + (total % 60)).slice(-2);
-}
-
-export function timeAt(frame: number, fps: number): number {
-  return frame / fps;
-}
-
-export function formatFrameSpan(
-  start: number | null,
-  end: number | null,
-  fps: number,
-): string {
-  const at = (f: number | null): string =>
-    f === null ? '?' : formatTime(timeAt(f, fps));
-  return `${at(start)}–${at(end)}`;
-}
-
-export function formatFrameRange(points: LoopPoints, fps: number): string {
-  return `${formatFrameSpan(points.in, points.out, fps)} · ${points.out - points.in + 1} frames`;
-}
+import { clampFrame, frameFromMediaTime } from './frametime.js';
+import type { LoopPoints, LoopState } from './loop.js';
+import { engagedLoop } from './loop.js';
 
 export interface FrameDriverOpts {
   video: HTMLVideoElement;
@@ -51,29 +17,6 @@ export interface FrameDriverOpts {
   applyFrame: (i: number) => void;
   /** Reports the committed frame index for the scrubber and time text. */
   onIndex: (i: number) => void;
-}
-
-export interface LoopPoints {
-  /** First frame of the loop region, inclusive. */
-  in: number;
-  /** Last frame of the loop region, inclusive; playback wraps past it. */
-  out: number;
-}
-
-export interface LoopState {
-  /** Loop start frame, or null while unset. */
-  in: number | null;
-  /** Loop end frame, or null while unset. */
-  out: number | null;
-}
-
-// The one engagement rule for loop regions: both ends set and ordered.
-// Out-of-order pairs stay dormant until the second point lands inside the
-// region. Everything (band, readout, wrap) derives from this.
-export function engagedLoop(state: LoopState): LoopPoints | null {
-  return state.in !== null && state.out !== null && state.in < state.out
-    ? { in: state.in, out: state.out }
-    : null;
 }
 
 export interface FrameDriver {

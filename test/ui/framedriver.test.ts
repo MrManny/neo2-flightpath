@@ -1,52 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PageVideo } from '../../src/appsession.js';
-import {
-  createFrameDriver,
-  engagedLoop,
-  formatTime,
-  frameFromMediaTime,
-  framesForSeconds,
-} from '../../ui/lib/framedriver.js';
+import { createFrameDriver } from '../../ui/lib/framedriver.js';
 
 const META: PageVideo = { src: '/video', fps: 30, frames: 300, width: 1920, height: 1080 };
-
-describe('frameFromMediaTime', () => {
-  it.for([
-    { name: 'exact frame', mediaTime: 0.5, fps: 30, frames: 300, want: 15 },
-    { name: 'half frame floors', mediaTime: 0.05, fps: 30, frames: 300, want: 1 },
-    { name: 'just below a frame floors', mediaTime: 0.0332, fps: 30, frames: 300, want: 0 },
-    { name: 'clamps below zero', mediaTime: -5, fps: 30, frames: 300, want: 0 },
-    { name: 'clamps past the end', mediaTime: 100, fps: 30, frames: 300, want: 299 },
-    { name: 'single frame stays zero', mediaTime: 3, fps: 30, frames: 1, want: 0 },
-  ])('$name', ({ mediaTime, fps, frames, want }) => {
-    expect(frameFromMediaTime(mediaTime, fps, frames)).toBe(want);
-  });
-});
-
-describe('formatTime', () => {
-  it.for([
-    { sec: 0, want: '0:00' },
-    { sec: 65, want: '1:05' },
-    { sec: 125.4, want: '2:05' },
-    { sec: -5, want: '0:00' },
-  ])('formats $sec as $want', ({ sec, want }) => {
-    expect(formatTime(sec)).toBe(want);
-  });
-});
-
-describe('framesForSeconds', () => {
-  it.for([
-    { name: 'exact rate', fps: 30, seconds: 1, want: 30 },
-    { name: '29.97 rounds up', fps: 29.97, seconds: 1, want: 30 },
-    { name: '23.976 rounds to 24', fps: 23.976, seconds: 1, want: 24 },
-    { name: '50 fps', fps: 50, seconds: 1, want: 50 },
-    { name: 'negative jumps keep the sign', fps: 30, seconds: -1, want: -30 },
-    { name: 'negative fractional rate', fps: 29.97, seconds: -1, want: -30 },
-  ])('$name', ({ fps, seconds, want }) => {
-    expect(framesForSeconds(fps, seconds)).toBe(want);
-  });
-});
 
 interface FakeVideo {
   currentTime: number;
@@ -376,22 +333,5 @@ describe('createFrameDriver presented-frame chain', () => {
     inFlight(0, { mediaTime: 3 / 30 });
     expect(applyFrame).not.toHaveBeenCalled();
     expect(video.currentTime).toBe(0);
-  });
-});
-
-describe('engagedLoop', () => {
-  it.for([
-    {
-      name: 'both points set and ordered engages',
-      state: { in: 10, out: 20 },
-      want: { in: 10, out: 20 },
-    },
-    { name: 'missing in point stays dormant', state: { in: null, out: 20 }, want: null },
-    { name: 'missing out point stays dormant', state: { in: 10, out: null }, want: null },
-    { name: 'inverted points stay dormant', state: { in: 20, out: 10 }, want: null },
-    { name: 'equal points stay dormant', state: { in: 15, out: 15 }, want: null },
-    { name: 'no points at all stays dormant', state: { in: null, out: null }, want: null },
-  ])('$name', ({ state, want }) => {
-    expect(engagedLoop(state)).toEqual(want);
   });
 });

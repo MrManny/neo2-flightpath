@@ -4,29 +4,21 @@ import { useEffect, useReducer } from 'react';
 
 import type { UiSession } from '../../src/appsession.js';
 import type { ExportRequest, FrameRange, RenderConfig } from '../../src/config.js';
-import { MIN_DIMENSION, validateDimensions } from '../../src/config.js';
 import { errorMessage } from '../../src/errors.js';
+import type { AppBridge, ExportAck } from '../lib/backend.js';
 import { appBridge } from '../lib/backend.js';
 import type { DialogRunEvent } from '../lib/dialogstate.js';
+import type { ExportEvent } from '../lib/exportstate.js';
 import { captureFraction, exportReducer, initialExportState } from '../lib/exportstate.js';
-import { formatFrameRate } from '../lib/framerate.js';
-import { engagedLoop, formatFrameRange, formatTime } from '../lib/framedriver.js';
-import type { LoopState } from '../lib/framedriver.js';
+import { formatFrameRange, formatTime } from '../lib/frametime.js';
+import type { LoopState } from '../lib/loop.js';
+import { engagedLoop } from '../lib/loop.js';
 import { DialogShell } from './DialogShell.js';
-import { ErrorNotice } from './ErrorNotice.js';
-import { Notice } from './Notice.js';
-import { NumberField } from './NumberField.js';
-import { ProgressBar } from './ProgressBar.js';
-
-// The modal's dimensions go through the same rule the CLI and pipeline apply.
-function dimensionsValid(width: number, height: number): boolean {
-  try {
-    validateDimensions(width, height);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { ExportCanceled } from './ExportCanceled.js';
+import { ExportDone } from './ExportDone.js';
+import { ExportError } from './ExportError.js';
+import { ExportForm } from './ExportForm.js';
+import { ExportRunning } from './ExportRunning.js';
 
 export interface ExportModalProps {
   session: UiSession;
@@ -54,8 +46,6 @@ export function ExportModal({
   );
   const loopPoints = engagedLoop(loop);
   const busy = state.phase === 'running';
-  const fraction = captureFraction(state.capture);
-  const percent = Math.round((fraction ?? 0) * 100);
 
   useEffect(() => {
     if (busy) onRunEvent({ type: 'exportStarted' });
@@ -96,20 +86,36 @@ export function ExportModal({
       }
     : null;
 
+  // One shape for every bridge call: a thrown error or a refused ack becomes
+  // the failure event the call site names, worded from the fallback when the
+  // backend reports none. No fallback means a plain refusal is not an error:
+  // that is the canceled native dialog, not a failure.
+  async function runBridgeAction<T extends ExportAck>(
+    call: (bridge: AppBridge) => Promise<T>,
+    onFailure: (error: string) => ExportEvent,
+    fallback?: string,
+  ): Promise<T | null> {
+    try {
+      const ack = await call(appBridge());
+      if (!ack.ok) {
+        const refused = ack.error ?? fallback;
+        if (refused) dispatch(onFailure(refused));
+      }
+      return ack;
+    } catch (e) {
+      dispatch(onFailure(errorMessage(e)));
+      return null;
+    }
+  }
+
   // The destination comes from the native save dialog; cancelling it
   // cancels the export.
   const pickDestination = async (): Promise<string | null> => {
-    try {
-      const picked = await appBridge().pickExportOutput();
-      if (!picked.ok || !picked.path) {
-        if (picked.error) dispatch({ type: 'failed', error: picked.error });
-        return null;
-      }
-      return picked.path;
-    } catch (e) {
-      dispatch({ type: 'failed', error: errorMessage(e) });
-      return null;
-    }
+    const picked = await runBridgeAction(
+      (bridge) => bridge.pickExportOutput(),
+      (error) => ({ type: 'failed', error }),
+    );
+    return picked?.ok && picked.path ? picked.path : null;
   };
 
   // The snapshot is frozen here: the job runs this request however the
@@ -124,14 +130,11 @@ export function ExportModal({
 
   const startJob = async (request: ExportRequest): Promise<void> => {
     dispatch({ type: 'start', request });
-    try {
-      const ack = await appBridge().startExport(request);
-      if (!ack.ok) {
-        dispatch({ type: 'startFailed', error: ack.error ?? 'export could not start' });
-      }
-    } catch (e) {
-      dispatch({ type: 'startFailed', error: errorMessage(e) });
-    }
+    await runBridgeAction(
+      (bridge) => bridge.startExport(request),
+      (error) => ({ type: 'startFailed', error }),
+      'export could not start',
+    );
   };
 
   const chooseAndExport = async (): Promise<void> => {
@@ -143,30 +146,18 @@ export function ExportModal({
 
   const cancelExport = (): void => {
     dispatch({ type: 'cancelRequested' });
-    void (async () => {
-      try {
-        const ack = await appBridge().cancelExport();
-        if (!ack.ok) {
-          dispatch({ type: 'cancelFailed', error: ack.error ?? 'export could not be canceled' });
-        }
-      } catch (e) {
-        dispatch({ type: 'cancelFailed', error: errorMessage(e) });
-      }
-    })();
+    void runBridgeAction(
+      (bridge) => bridge.cancelExport(),
+      (error) => ({ type: 'cancelFailed', error }),
+      'export could not be canceled',
+    );
   };
 
-  const runOnBridge = (
-    fn: (bridge: NonNullable<Window['neo2flightpath']>) => Promise<{ ok: boolean; error?: string }>,
-  ): void => {
+  // Reveal and open act on the kept render: their failures surface in place
+  // and clear as soon as the user tries again.
+  const runDoneAction = (call: (bridge: AppBridge) => Promise<ExportAck>): void => {
     dispatch({ type: 'clearError' });
-    void (async () => {
-      try {
-        const ack = await fn(appBridge());
-        if (!ack.ok) dispatch({ type: 'failed', error: ack.error ?? 'action failed' });
-      } catch (e) {
-        dispatch({ type: 'failed', error: errorMessage(e) });
-      }
-    })();
+    void runBridgeAction(call, (error) => ({ type: 'failed', error }), 'action failed');
   };
 
   return (
@@ -177,150 +168,39 @@ export function ExportModal({
       blockedReason={dismissible ? undefined : 'Export is running. Cancel it to close.'}
     >
       {phase === 'form' ? (
-        <>
-          {/* With no engaged loop there is nothing to choose: the export is
-              the full recording and the choice stays out of the way. */}
-          {segment ? (
-            <fieldset className="settings-group">
-              <legend>What</legend>
-              <label className="settings-row">
-                <input
-                  type="radio"
-                  name="export-range"
-                  checked={form.range === null}
-                  onChange={() => dispatch({ type: 'setRange', range: null })}
-                />
-                <span>Full recording ({totalText})</span>
-              </label>
-              <label className="settings-row">
-                <input
-                  type="radio"
-                  name="export-range"
-                  checked={form.range !== null}
-                  onChange={() => dispatch({ type: 'setRange', range: segment.range })}
-                />
-                <span>In–Out segment ({segment.label})</span>
-              </label>
-            </fieldset>
-          ) : null}
-
-          <fieldset className="settings-group">
-            <legend>How</legend>
-            <NumberField
-              label="Width"
-              value={form.width}
-              min={MIN_DIMENSION}
-              rule={`at least ${MIN_DIMENSION} px`}
-              hint="px"
-              onValue={(width) => {
-                if (!dimensionsValid(width, form.height)) return false;
-                dispatch({ type: 'setWidth', width });
-                return true;
-              }}
-            />
-            <NumberField
-              label="Height"
-              value={form.height}
-              min={MIN_DIMENSION}
-              rule={`at least ${MIN_DIMENSION} px`}
-              hint="px"
-              onValue={(height) => {
-                if (!dimensionsValid(form.width, height)) return false;
-                dispatch({ type: 'setHeight', height });
-                return true;
-              }}
-            />
-          </fieldset>
-
-          {error ? <ErrorNotice message={error} /> : null}
-          <div className="dialog-actions">
-            <button type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="export-primary"
-              onClick={() => void chooseAndExport()}
-            >
-              Start export
-            </button>
-          </div>
-        </>
+        <ExportForm
+          form={form}
+          segment={segment}
+          totalText={totalText}
+          error={error}
+          dispatch={dispatch}
+          onClose={onClose}
+          onStart={() => void chooseAndExport()}
+        />
       ) : null}
 
       {phase === 'running' ? (
-        <>
-          <div className="export-progress">
-            <ProgressBar label="Export progress" percent={percent} />
-            <div className="progress-label">
-              {canceling
-                ? 'Canceling…'
-                : fraction === null
-                  ? 'Preparing…'
-                  : `Rendering ${percent}%`}
-            </div>
-          </div>
-          {error ? <ErrorNotice message={error} /> : null}
-          <div className="dialog-actions">
-            <button
-              type="button"
-              onClick={cancelExport}
-              disabled={canceling}
-            >
-              Cancel export
-            </button>
-          </div>
-        </>
+        <ExportRunning
+          fraction={captureFraction(state.capture)}
+          canceling={canceling}
+          error={error}
+          onCancel={cancelExport}
+        />
       ) : null}
 
       {phase === 'done' && result ? (
-        <>
-          {error ? <ErrorNotice message={error} /> : null}
-          <Notice tone="info">
-            {`${result.frames} frames @ ${formatFrameRate(result.fps ?? '')} · ${Math.round(result.elapsedSec)} s · ${result.width}×${result.height}`}
-          </Notice>
-          <p className="export-path">{result.out}</p>
-          <div className="dialog-actions">
-            <button
-              type="button"
-              onClick={() => runOnBridge((b) => b.revealExportOutput(result.out))}
-            >
-              Reveal in folder
-            </button>
-            <button
-              type="button"
-              onClick={() => runOnBridge((b) => b.openExportOutput(result.out))}
-            >
-              Open video
-            </button>
-            <button type="button" onClick={onClose}>
-              Close
-            </button>
-          </div>
-        </>
+        <ExportDone
+          result={result}
+          error={error}
+          onReveal={() => runDoneAction((bridge) => bridge.revealExportOutput(result.out))}
+          onOpen={() => runDoneAction((bridge) => bridge.openExportOutput(result.out))}
+          onClose={onClose}
+        />
       ) : null}
 
-      {phase === 'canceled' ? (
-        <>
-          <Notice tone="info">Export canceled; its working file was removed.</Notice>
-          <div className="dialog-actions">
-            <button type="button" onClick={onClose}>
-              Close
-            </button>
-          </div>
-        </>
-      ) : null}
+      {phase === 'canceled' ? <ExportCanceled onClose={onClose} /> : null}
 
-      {phase === 'error' && error ? (
-        <>
-          <ErrorNotice message={error} tail="The destination file was left untouched." />
-          <div className="dialog-actions">
-            <button type="button" onClick={onClose}>
-              Close
-            </button>
-          </div>
-        </>
-      ) : null}
+      {phase === 'error' && error ? <ExportError error={error} onClose={onClose} /> : null}
     </DialogShell>
   );
 }

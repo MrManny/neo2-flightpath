@@ -41,7 +41,13 @@ export function NumberField({ label, value, min, rule, step, hint, onValue }: Nu
           const raw = e.target.value;
           setDraft(raw);
           const parsed = raw === '' ? Number.NaN : Number(raw);
-          setInvalid(!(Number.isFinite(parsed) && parsed >= min && onValue(parsed)));
+          // onValue commits the value upstream (a side effect), so it runs
+          // only once the field's own checks have passed.
+          if (!Number.isFinite(parsed) || parsed < min) {
+            setInvalid(true);
+            return;
+          }
+          setInvalid(!onValue(parsed));
         }}
         onBlur={() => {
           setDraft(null);

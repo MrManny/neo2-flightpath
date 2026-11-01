@@ -10,7 +10,7 @@ import type { RenderConfig } from '../../src/config.js';
 import type { ExportOutcome } from '../../src/exportjob.js';
 import { canDismiss, dialogReducer } from '../../ui/lib/dialogstate.js';
 import type { DialogRunEvent } from '../../ui/lib/dialogstate.js';
-import type { LoopState } from '../../ui/lib/framedriver.js';
+import type { LoopState } from '../../ui/lib/loop.js';
 import { ExportModal } from '../../ui/components/ExportModal.js';
 
 afterEach(() => {
@@ -265,6 +265,15 @@ describe('ExportModal outcomes', () => {
     await screen.findByRole('button', { name: 'Cancel export' });
     emitDone({ status: 'ok', summary: { ...SUMMARY, elapsedSec: 4.25 } });
     expect(screen.getByText('120 frames @ 29.97 fps · 4 s · 1280×720')).toBeTruthy();
+  });
+
+  it('drops the rate clause when the summary carries no frame rate', async () => {
+    const { emitDone } = installBridge();
+    renderModal({ in: null, out: null });
+    fireEvent.click(screen.getByRole('button', { name: 'Start export' }));
+    await screen.findByRole('button', { name: 'Cancel export' });
+    emitDone({ status: 'ok', summary: { ...SUMMARY, fps: undefined } });
+    expect(screen.getByText('120 frames · 4 s · 1280×720')).toBeTruthy();
   });
 
   it('turns a raw Node error into a sentence and keeps the original as details', async () => {
