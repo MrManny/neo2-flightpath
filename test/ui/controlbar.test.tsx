@@ -75,14 +75,14 @@ describe('ControlBar action protocol', () => {
 describe('ControlBar Clear state', () => {
   it('states why Clear is disabled without any loop point', () => {
     renderBar();
-    const clear = screen.getByRole('button', { name: 'Clear loop' }) as HTMLButtonElement;
+    const clear = screen.getByRole<HTMLButtonElement>('button', { name: 'Clear loop' });
     expect(clear.disabled).toBe(true);
     expect(clear.getAttribute('title')).toBe('No loop to clear.');
   });
 
   it('clears a half-marked loop', () => {
     renderBar({ loop: { in: 30, out: null } });
-    const clear = screen.getByRole('button', { name: 'Clear loop' }) as HTMLButtonElement;
+    const clear = screen.getByRole<HTMLButtonElement>('button', { name: 'Clear loop' });
     expect(clear.disabled).toBe(false);
     expect(clear.getAttribute('title')).toBe('Clear loop (Esc)');
   });
@@ -125,7 +125,7 @@ describe('ControlBar readouts', () => {
 describe('ControlBar states', () => {
   it('gates Play on tile warm-up', () => {
     renderBar({ ready: false });
-    const warmup = screen.getByRole('button', { name: 'Warming tiles…' }) as HTMLButtonElement;
+    const warmup = screen.getByRole<HTMLButtonElement>('button', { name: 'Warming tiles…' });
     expect(warmup.disabled).toBe(true);
   });
 

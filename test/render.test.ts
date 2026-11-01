@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type * as childProcessModule from 'node:child_process';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SpanStatusCode } from '@opentelemetry/api';
@@ -24,7 +25,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>();
+  const actual = await importOriginal<typeof childProcessModule>();
   const { EventEmitter } = await import('node:events');
   const { PassThrough } = await import('node:stream');
   return {

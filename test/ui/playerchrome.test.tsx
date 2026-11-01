@@ -91,10 +91,10 @@ afterEach(() => {
 describe('PlayerChrome', () => {
   it('loads the recording and gates playback on tile warm-up', async () => {
     render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
-    const warmup = screen.getByRole('button', { name: 'Warming tiles…' }) as HTMLButtonElement;
+    const warmup = screen.getByRole<HTMLButtonElement>('button', { name: 'Warming tiles…' });
     expect(warmup.disabled).toBe(true);
     await waitFor(() => {
-      const play = screen.getByRole('button', { name: 'Play' }) as HTMLButtonElement;
+      const play = screen.getByRole<HTMLButtonElement>('button', { name: 'Play' });
       expect(play.disabled).toBe(false);
     });
   });
@@ -297,7 +297,7 @@ async function renderPlayer(onOpen: () => void = () => {}): Promise<FakePlayback
     <PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={onOpen} />,
   );
   await waitFor(() => {
-    expect((screen.getByRole('button', { name: 'Play' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Play' }).disabled).toBe(false);
   });
   return stubPlayback();
 }
@@ -359,7 +359,7 @@ describe('PlayerChrome keyboard shortcuts', () => {
   it('claims keys that land before the post-commit effect flush', async () => {
     render(<PlayerChrome session={SESSION} settings={SETTINGS} onSettingsChange={() => {}} onOpen={() => {}} />);
     const fake = stubPlayback();
-    const warmup = screen.getByRole('button', { name: 'Warming tiles…' }) as HTMLButtonElement;
+    const warmup = screen.getByRole<HTMLButtonElement>('button', { name: 'Warming tiles…' });
     // The enabling commit's MutationObserver microtask runs before that
     // commit's passive effects — the window where a stale handler swallowed
     // keys (#62).
@@ -473,7 +473,7 @@ describe('PlayerChrome loop region', () => {
     expect(screen.getByText('loop 0:01–0:02')).toBeTruthy();
     key(window, { key: 'Escape' });
     expect(screen.queryByText('loop 0:01–0:02')).toBeNull();
-    expect((screen.getByRole('button', { name: 'Clear loop' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Clear loop' }).disabled).toBe(true);
   });
 
   it('clears the loop from the Clear button', async () => {
@@ -485,7 +485,7 @@ describe('PlayerChrome loop region', () => {
 
   it('states why Clear is disabled without a loop', async () => {
     await renderPlayer();
-    const clear = screen.getByRole('button', { name: 'Clear loop' }) as HTMLButtonElement;
+    const clear = screen.getByRole<HTMLButtonElement>('button', { name: 'Clear loop' });
     expect(clear.disabled).toBe(true);
     expect(clear.getAttribute('title')).toBe('No loop to clear.');
     setLoopRegion(30, 60);
@@ -497,7 +497,7 @@ describe('PlayerChrome loop region', () => {
     setLoopRegion(60, 30);
     expect(document.querySelector('.loop-band')).toBeNull();
     expect(screen.getByText('loop 0:02–0:01')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Clear loop' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Clear loop' }).disabled).toBe(false);
   });
 
   it('resumes an end-of-file loop at the loop start, not the file start', async () => {
@@ -591,7 +591,7 @@ describe('PlayerChrome open notice', () => {
     );
     expect(screen.getByText('Probing the recording…')).toBeTruthy();
     expect(screen.getByRole('progressbar', { name: 'Preparation progress' })).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Open…' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Open…' }).disabled).toBe(true);
   });
 });
 
@@ -610,7 +610,7 @@ describe.each<PickState>([{ kind: 'idle' }, { kind: 'picking' }, { kind: 'cancel
       );
       expect(screen.queryByRole('alert')).toBeNull();
       expect(screen.queryByRole('status')).toBeNull();
-      expect((screen.getByRole('button', { name: 'Open…' }) as HTMLButtonElement).disabled).toBe(false);
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Open…' }).disabled).toBe(false);
     });
   },
 );

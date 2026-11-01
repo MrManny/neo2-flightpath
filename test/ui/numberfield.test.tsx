@@ -20,7 +20,7 @@ function renderZoom(overrides: Partial<NumberFieldProps> = {}) {
       onValue={onValue}
     />,
   );
-  return { input: screen.getByLabelText('Zoom') as HTMLInputElement, onValue };
+  return { input: screen.getByLabelText<HTMLInputElement>('Zoom'), onValue };
 }
 
 // A value equal to the field's current 0 would not fire a change event at all.
@@ -80,7 +80,7 @@ describe.each([
     render(
       <NumberField label={label} value={768} min={64} rule={rule} hint="px" onValue={() => true} />,
     );
-    const input = screen.getByLabelText(label) as HTMLInputElement;
+    const input = screen.getByLabelText<HTMLInputElement>(label);
     fireEvent.change(input, { target: { value } });
     expect(screen.getByText(`Must be ${rule}.`)).toBeTruthy();
     expect(input.getAttribute('aria-invalid')).toBe('true');

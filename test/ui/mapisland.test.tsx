@@ -78,10 +78,10 @@ beforeEach(() => {
         observers.push({ cb, observed: false, disconnected: false });
       }
       observe(): void {
-        observers[observers.length - 1]!.observed = true;
+        observers[observers.length - 1].observed = true;
       }
       disconnect(): void {
-        observers[observers.length - 1]!.disconnected = true;
+        observers[observers.length - 1].disconnected = true;
       }
     },
   );
@@ -107,7 +107,7 @@ describe('MapIsland', () => {
     const onScene = vi.fn();
     render(<MapIsland data={DATA} onScene={onScene} />);
     await waitFor(() => expect(onScene).toHaveBeenCalledTimes(1));
-    const scene = onScene.mock.calls[0]![0] as Scene;
+    const scene = onScene.mock.calls[0][0] as Scene;
     const relayout = vi.spyOn(scene, 'relayout').mockImplementation(() => {});
     act(() => flushRaf());
     expect(relayout).toHaveBeenCalledTimes(1);
@@ -117,10 +117,10 @@ describe('MapIsland', () => {
     const onScene = vi.fn();
     render(<MapIsland data={DATA} onScene={onScene} />);
     await waitFor(() => expect(onScene).toHaveBeenCalledTimes(1));
-    const scene = onScene.mock.calls[0]![0] as Scene;
+    const scene = onScene.mock.calls[0][0] as Scene;
     const relayout = vi.spyOn(scene, 'relayout').mockImplementation(() => {});
 
-    act(() => observers[0]!.cb([] as never, {} as never));
+    act(() => observers[0].cb([] as never, {} as never));
     expect(relayout).toHaveBeenCalledTimes(1);
   });
 
@@ -142,7 +142,7 @@ describe('MapIsland', () => {
     const onScene = vi.fn();
     const { rerender } = render(<MapIsland data={DATA} onScene={onScene} />);
     await waitFor(() => expect(onScene).toHaveBeenCalledTimes(1));
-    const scene = onScene.mock.calls[0]![0] as Scene;
+    const scene = onScene.mock.calls[0][0] as Scene;
     const update = vi
       .spyOn(scene, 'update')
       .mockImplementation(() => Promise.resolve());

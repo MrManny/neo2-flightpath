@@ -21,7 +21,7 @@ async function startHost(
 ): Promise<Host> {
   const streams: Array<Promise<void>> = [];
   const server = http.createServer((req, res) => {
-    const url = decodeURIComponent((req.url || '/').split('?')[0]);
+    const url = decodeURIComponent((req.url ?? '/').split('?')[0]);
     if (serveAsset(url, res, { style, tileCache, rendererDir })) return;
     if (url === '/video' && videoPath) {
       streams.push(serveFileWithRange(req, res, videoPath));
