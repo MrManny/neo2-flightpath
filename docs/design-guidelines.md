@@ -125,6 +125,7 @@ Spacing values are literals on this scale; use nothing else:
 ### 8.3 Notices
 
 - One component, `Notice` (`ui/components/Notice.tsx`), props `tone` (`info`, `warning`, `danger`), `details`, `onDismiss`. It renders `notice notice-{tone}`: 16px padding, 8px gap, 8px radius, an 11% tone tint over `--surface-1`, and a 40% tone border.
+- **Error notices** go through `ErrorNotice` (`ui/components/ErrorNotice.tsx`), props `message`, `lead`, `tail`, `onDismiss`: it runs the message through `describeError()` (section 11) and renders `Notice tone="danger"`, so every failure surface assembles the same pipeline.
 - Text 14px, line height 1.5. Details: a "Technical details" disclosure with the original text in 12px mono. Roles: `danger` is `alert`; `info` and `warning` are `status`.
 
 | Tone | Used for |
@@ -140,7 +141,7 @@ Spacing values are literals on this scale; use nothing else:
 
 - **Settings row:** label (`label.settings-label`, 96px, `--text-2`), control (36px high, `--surface-2`, 1px `--hairline-strong` border, 8px radius, 0 16px padding, 14px text), and one helper slot holding the hint (`.hint`, 13px, `--text-3`) or the message (`.field-message`, 13px, `--danger`).
 - **Number field** (`NumberField`): 96px wide, tabular numerals, `min` and `step` props (step 1; 0.5 for Intro and Outro). A valid value applies at once. A value that is not finite, is below `min`, or fails the owner's check is rejected: the typed text stays, `aria-invalid="true"` is set, the border turns `--danger` with a 1px inset ring, `aria-describedby` points at the message, and the message replaces the hint: "Must be {rule}." Rules in use: "0 or more", "at least 64 px". On blur the typed text is dropped and the last valid value shows.
-- **Select:** a native `select` styled as a field (`appearance: none`, 32px right padding, chevron as background image). Options show plain labels; the raw vocabulary value is what applies.
+- **Select** (`SelectField`): a native `select` styled as a field (`appearance: none`, 32px right padding, chevron as background image). Options show plain labels; the raw vocabulary value is what applies.
 - **Groups:** `fieldset.settings-group` with a 13px `legend` in `--text-3`: "HUD chips"; "What" and "How" in export.
 
 ### 8.5 Dialogs
@@ -158,7 +159,7 @@ Spacing values are literals on this scale; use nothing else:
 | Canceled | Close | Info |
 | Error | Close | Danger; ends "The destination file was left untouched." |
 
-- **Escape and backdrop:** Settings closes on Escape, backdrop click or header Close at any time. Export closes on them only when not running; while running they are ignored.
+- **Escape and backdrop:** Settings closes on Escape, backdrop click or header Close at any time. Export closes on them only when not running; while running they are ignored. One rule drives all three, from the dialog visibility state (`ui/lib/dialogstate.ts`): the export modal reports its job's start and finish there, and the header close and backdrop read the dismissal rule back.
 - **Lock while busy:** during an export the header close is disabled, and closing the window asks "An export is in progress" (native prompt, `app/main.mjs`). Cancel export is the only way out.
 - **Shortcuts:** while a dialog is open, player shortcuts are off; only Escape reaches the dialog logic (section 13).
 
@@ -199,7 +200,7 @@ Spacing values are literals on this scale; use nothing else:
 
 ## 11. Error guidance
 
-- **Flow:** a backend or Node message goes through `describeError()` (`ui/lib/errortext.ts`) and yields `{ text, technical }`. The owning component renders `Notice tone="danger"`: `text` is the main line; `technical` sits under "Technical details". Open errors prefix the sentence with "Could not open the recording:".
+- **Flow:** the owning component renders `ErrorNotice` (`ui/components/ErrorNotice.tsx`) with the raw backend or Node message; it runs `describeError()` (`ui/lib/errortext.ts`), which yields `{ text, technical }`, and renders `Notice tone="danger"`: `text` is the main line; `technical` sits under "Technical details". Open errors pass `lead` "Could not open the recording:"; the export error phase passes `tail` "The destination file was left untouched."
 - **Mapping:** (1) a message that starts with a Node code (`EEXIST`, `ENOENT`, `EACCES`, `EPERM`, `ENOSPC`, `EBUSY`, `EISDIR`) becomes "{what happened} {what to do}", naming the file when the message ends with a quoted path; (2) one of 13 known app messages becomes its sentence; (3) any other message passes through unchanged as the main line, with no technical text.
 - **Sentence pattern:** what happened, in plain words with the cause when known, then what to do next. The original message always sits under "Technical details":
 

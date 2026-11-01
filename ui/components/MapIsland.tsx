@@ -2,8 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 
+import { bootScene } from '../../src/renderer/boot.js';
 import type { Scene, SceneData } from '../../src/renderer/scene.js';
-import { createScene } from '../../src/renderer/scene.js';
 import 'leaflet/dist/leaflet.css';
 
 export interface MapIslandProps {
@@ -35,13 +35,9 @@ export function MapIsland({ data, onScene }: MapIslandProps) {
     void (async () => {
       const { default: L } = await import('leaflet');
       if (cancelled) return;
-      const created = createScene(host, dataRef.current, { L });
+      const created = bootScene(host, dataRef.current, L);
       sceneRef.current = created;
       onSceneRef.current(created);
-      // The pane size may only settle after creation; re-measure post-layout.
-      requestAnimationFrame(() => {
-        if (!cancelled) created.relayout();
-      });
     })();
     return () => {
       cancelled = true;

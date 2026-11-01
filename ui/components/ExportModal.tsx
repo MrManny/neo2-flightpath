@@ -7,12 +7,13 @@ import type { ExportRequest, FrameRange, RenderConfig } from '../../src/config.j
 import { MIN_DIMENSION, validateDimensions } from '../../src/config.js';
 import { errorMessage } from '../../src/errors.js';
 import { appBridge } from '../lib/backend.js';
-import { describeError } from '../lib/errortext.js';
+import type { DialogRunEvent } from '../lib/dialogstate.js';
 import { captureFraction, exportReducer, initialExportState } from '../lib/exportstate.js';
 import { formatFrameRate } from '../lib/framerate.js';
 import { engagedLoop, formatFrameRange, formatTime } from '../lib/framedriver.js';
 import type { LoopState } from '../lib/framedriver.js';
 import { DialogShell } from './DialogShell.js';
+import { ErrorNotice } from './ErrorNotice.js';
 import { Notice } from './Notice.js';
 import { NumberField } from './NumberField.js';
 import { ProgressBar } from './ProgressBar.js';
@@ -32,8 +33,10 @@ export interface ExportModalProps {
   settings: RenderConfig;
   loop: LoopState;
   onClose: () => void;
-  /** Tells the player whether the modal may be dismissed (not while a job runs). */
-  onBusyChange: (busy: boolean) => void;
+  /** From the dialog state machine: a running job pins the dialog open. */
+  dismissible: boolean;
+  /** Feeds the dialog state machine the job's lifecycle. */
+  onRunEvent: (event: DialogRunEvent) => void;
 }
 
 export function ExportModal({
@@ -41,7 +44,8 @@ export function ExportModal({
   settings,
   loop,
   onClose,
-  onBusyChange,
+  dismissible,
+  onRunEvent,
 }: ExportModalProps) {
   const { video, durationSec } = session;
   const [state, dispatch] = useReducer(
@@ -54,9 +58,11 @@ export function ExportModal({
   const percent = Math.round((fraction ?? 0) * 100);
 
   useEffect(() => {
-    onBusyChange(busy);
-    return () => onBusyChange(false);
-  }, [busy, onBusyChange]);
+    if (busy) onRunEvent({ type: 'exportStarted' });
+    return () => {
+      if (busy) onRunEvent({ type: 'exportFinished' });
+    };
+  }, [busy, onRunEvent]);
 
   useEffect(() => {
     let offProgress: (() => void) | null = null;
@@ -84,7 +90,6 @@ export function ExportModal({
         label: formatFrameRange(loopPoints, video.fps),
       }
     : null;
-  const errorText = error === null ? null : describeError(error);
 
   // The destination comes from the native save dialog; cancelling it
   // cancels the export.
@@ -163,8 +168,8 @@ export function ExportModal({
     <DialogShell
       title="Export"
       onClose={onClose}
-      closeOnBackdrop={!busy}
-      blockedReason={busy ? 'Export is running. Cancel it to close.' : undefined}
+      closeOnBackdrop={dismissible}
+      blockedReason={dismissible ? undefined : 'Export is running. Cancel it to close.'}
     >
       {phase === 'form' ? (
         <>
@@ -222,11 +227,7 @@ export function ExportModal({
             />
           </fieldset>
 
-          {errorText ? (
-            <Notice tone="danger" details={errorText.technical}>
-              {errorText.text}
-            </Notice>
-          ) : null}
+          {error ? <ErrorNotice message={error} /> : null}
           <div className="dialog-actions">
             <button type="button" onClick={onClose}>
               Cancel
@@ -254,11 +255,7 @@ export function ExportModal({
                   : `Rendering ${percent}%`}
             </div>
           </div>
-          {errorText ? (
-            <Notice tone="danger" details={errorText.technical}>
-              {errorText.text}
-            </Notice>
-          ) : null}
+          {error ? <ErrorNotice message={error} /> : null}
           <div className="dialog-actions">
             <button
               type="button"
@@ -273,11 +270,7 @@ export function ExportModal({
 
       {phase === 'done' && result ? (
         <>
-          {errorText ? (
-            <Notice tone="danger" details={errorText.technical}>
-              {errorText.text}
-            </Notice>
-          ) : null}
+          {error ? <ErrorNotice message={error} /> : null}
           <Notice tone="info">
             {`${result.frames} frames @ ${formatFrameRate(result.fps ?? '')} · ${Math.round(result.elapsedSec)} s · ${result.width}×${result.height}`}
           </Notice>
@@ -313,11 +306,9 @@ export function ExportModal({
         </>
       ) : null}
 
-      {phase === 'error' && errorText ? (
+      {phase === 'error' && error ? (
         <>
-          <Notice tone="danger" details={errorText.technical}>
-            {`${errorText.text} The destination file was left untouched.`}
-          </Notice>
+          <ErrorNotice message={error} tail="The destination file was left untouched." />
           <div className="dialog-actions">
             <button type="button" onClick={onClose}>
               Close

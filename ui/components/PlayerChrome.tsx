@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 import type { UiSession } from '../../src/appsession.js';
 import { hasAltitude } from '../../src/config.js';
@@ -17,6 +17,7 @@ import {
   framesForSeconds,
   timeAt,
 } from '../lib/framedriver.js';
+import { canDismiss, dialogReducer } from '../lib/dialogstate.js';
 import type { HotkeyAction } from '../lib/hotkeys.js';
 import { mapKey } from '../lib/hotkeys.js';
 import type { PickState } from '../lib/pickstate.js';
@@ -59,10 +60,12 @@ export function PlayerChrome({
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [mapIsMain, setMapIsMain] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
-  // A running export must stay visible: Esc and the backdrop cannot hide it.
-  const [exportBusy, setExportBusy] = useState(false);
+  // One machine decides which dialog is open and whether anything may close
+  // it: Escape, the backdrop and the header close share one rule.
+  const [dialog, dispatchDialog] = useReducer(dialogReducer, 'closed');
+  const modalOpen = dialog !== 'closed';
+  const settingsOpen = dialog === 'settings';
+  const exportOpen = dialog === 'export-form' || dialog === 'export-running';
   const [speed, setSpeed] = useState<1 | 2 | 3 | 4>(1);
   const [loop, setLoop] = useState<LoopState>(NO_LOOP);
 
@@ -206,15 +209,11 @@ export function PlayerChrome({
           onOpen();
           return;
         case 'closeOverlay':
-          if (exportOpen) {
-            if (!exportBusy) setExportOpen(false);
-            return;
-          }
-          setSettingsOpen(false);
+          dispatchDialog({ type: 'close' });
           return;
       }
     },
-    [clearLoop, exportBusy, exportOpen, onOpen, scrubTo, setLoopPoint, stepBy, swap, togglePlay, video.fps, video.frames],
+    [clearLoop, dispatchDialog, onOpen, scrubTo, setLoopPoint, stepBy, swap, togglePlay, video.fps, video.frames],
   );
 
   // Hotkeys must act on the latest committed state: when the handler lived
@@ -223,7 +222,7 @@ export function PlayerChrome({
   const hotkeyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
   useLayoutEffect(() => {
     hotkeyHandlerRef.current = (e: KeyboardEvent): void => {
-      const action = mapKey(e, { modalOpen: settingsOpen || exportOpen });
+      const action = mapKey(e, { modalOpen });
       if (action === null) return;
       // No page scroll on Space, no double toggle on a focused button.
       e.preventDefault();
@@ -280,8 +279,8 @@ export function PlayerChrome({
         loopReadout={loopReadout}
         speed={speed}
         swap={swap}
-        onExport={() => setExportOpen(true)}
-        onSettings={() => setSettingsOpen(true)}
+        onExport={() => dispatchDialog({ type: 'openExport' })}
+        onSettings={() => dispatchDialog({ type: 'openSettings' })}
         maxFrame={maxFrame}
       />
       {settingsOpen ? (
@@ -289,7 +288,7 @@ export function PlayerChrome({
           config={settings}
           hasAltitude={hasAltitude(preparedScene.alt)}
           onChange={onSettingsChange}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => dispatchDialog({ type: 'close' })}
         />
       ) : null}
       {exportOpen ? (
@@ -297,8 +296,9 @@ export function PlayerChrome({
           session={session}
           settings={settings}
           loop={loop}
-          onClose={() => setExportOpen(false)}
-          onBusyChange={setExportBusy}
+          onClose={() => dispatchDialog({ type: 'close' })}
+          dismissible={canDismiss(dialog)}
+          onRunEvent={dispatchDialog}
         />
       ) : null}
     </>

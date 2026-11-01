@@ -5,10 +5,10 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { UiSession } from '../../src/appsession.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
 import type { RenderConfig } from '../../src/config.js';
-import { errorMessage } from '../../src/errors.js';
 import { LandingPanel } from '../components/LandingPanel.js';
 import { PlayerChrome } from '../components/PlayerChrome.js';
 import { appBridge } from '../lib/backend.js';
+import { pickRecordingFlow } from '../lib/pickflow.js';
 import { pickReducer } from '../lib/pickstate.js';
 
 interface LoadedSession {
@@ -66,29 +66,18 @@ export default function Page() {
     picking.current = true;
     dispatch({ type: 'pick' });
     void (async () => {
-      try {
-        const result = await appBridge().pickRecording();
-        if (result.canceled) {
-          dispatch({ type: 'canceled' });
-          return;
-        }
-        if (!result.ok) {
-          dispatch({ type: 'failed', message: result.error ?? 'unknown error' });
-          return;
-        }
-        const session = await appBridge().getSession();
-        if (!session) {
-          dispatch({ type: 'failed', message: 'no recording loaded' });
-          return;
-        }
-        nextId.current += 1;
-        setLoaded({ id: nextId.current, value: session });
-        dispatch({ type: 'picked' });
-      } catch (e) {
-        dispatch({ type: 'failed', message: errorMessage(e) });
-      } finally {
-        picking.current = false;
-      }
+      const event = await pickRecordingFlow(
+        {
+          pickRecording: () => appBridge().pickRecording(),
+          getSession: () => appBridge().getSession(),
+        },
+        (session) => {
+          nextId.current += 1;
+          setLoaded({ id: nextId.current, value: session });
+        },
+      );
+      dispatch(event);
+      picking.current = false;
     })();
   }, []);
 

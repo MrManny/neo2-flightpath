@@ -1,8 +1,8 @@
 'use client';
 
-import { describeError } from '../lib/errortext.js';
 import type { PickState } from '../lib/pickstate.js';
 import { prepareNoticeText, preparePercent } from '../lib/preparetext.js';
+import { ErrorNotice } from './ErrorNotice.js';
 import { Notice } from './Notice.js';
 import { ProgressBar } from './ProgressBar.js';
 
@@ -25,14 +25,14 @@ export function OpenNotice({ state, onDismiss }: OpenNoticeProps) {
       );
     case 'canceled':
       return <Notice tone="info">No recording picked.</Notice>;
-    case 'error': {
-      const { text, technical } = describeError(state.message);
+    case 'error':
       return (
-        <Notice tone="danger" details={technical} onDismiss={onDismiss}>
-          {`Could not open the recording: ${text}`}
-        </Notice>
+        <ErrorNotice
+          message={state.message}
+          lead="Could not open the recording:"
+          onDismiss={onDismiss}
+        />
       );
-    }
     default:
       return null;
   }
