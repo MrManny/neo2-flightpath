@@ -71,14 +71,19 @@ function mergeConfigLayers(
     ...DEFAULT_CONFIG,
     ...fileCfg,
     ...cli,
-    // hud is an object; Partial spread replaces it wholesale, which is what we want.
-    hud: cli.hud ?? fileCfg.hud ?? DEFAULT_CONFIG.hud,
+    // hud is an object; Partial spread replaces it wholesale, which is what
+    // we want. The winner is copied so no resolved config shares mutable
+    // state with DEFAULT_CONFIG or another layer.
+    hud: { ...(cli.hud ?? fileCfg.hud ?? DEFAULT_CONFIG.hud) },
   };
 }
 
-function resolveConfigPaths(config: RenderConfig, cwd: string): void {
-  config.tileCache = path.resolve(cwd, config.tileCache || defaultTileCache());
-  if (config.outDir) config.outDir = path.resolve(cwd, config.outDir);
+function resolveConfigPaths(config: RenderConfig, cwd: string): RenderConfig {
+  return {
+    ...config,
+    tileCache: path.resolve(cwd, config.tileCache || defaultTileCache()),
+    outDir: config.outDir ? path.resolve(cwd, config.outDir) : null,
+  };
 }
 
 export function resolveConfig(opts: {
@@ -95,7 +100,6 @@ export function resolveConfig(opts: {
   const merged = mergeConfigLayers(fileCfg, opts.cli ?? {});
 
   validateRenderConfig(merged);
-  resolveConfigPaths(merged, cwd);
 
-  return { config: merged, configPath };
+  return { config: resolveConfigPaths(merged, cwd), configPath };
 }

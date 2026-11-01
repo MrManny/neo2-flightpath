@@ -299,9 +299,14 @@ export function cliDefaultOf(key: keyof RenderConfig): string | boolean {
   return key === 'hud' ? formatHud(value as HudSpec) : String(value);
 }
 
-export const DEFAULT_CONFIG: RenderConfig = Object.fromEntries(
-  CONFIG_OPTIONS.map((row) => [row.key, row.default]),
-) as unknown as RenderConfig;
+// Frozen so no resolved config can corrupt the shared defaults; merges copy
+// the hud spec so every resolved config owns its own mutable copy.
+export const DEFAULT_CONFIG: RenderConfig = Object.freeze(
+  Object.fromEntries(
+    CONFIG_OPTIONS.map((row) => [row.key, row.default]),
+  ) as unknown as RenderConfig,
+);
+Object.freeze(DEFAULT_CONFIG.hud);
 
 // Keyed lookup built from the option table; a key's normalizer is found by its
 // name, and an unknown key is a usage error naming the origin.
