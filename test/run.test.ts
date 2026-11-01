@@ -97,8 +97,8 @@ describe('frameArrays', () => {
   it('fails fast naming the frame when a position is missing', () => {
     const tel = telemetryFixture({
       frames: [
-        { lat: 46.6, lon: 14.2, alt: 3.3, speed: 1.2, headingDeg: 90 },
-        { lat: null, lon: null, alt: 3.4, speed: 1.3, headingDeg: 91 },
+        { fix: { lat: 46.6, lon: 14.2 }, alt: 3.3, speed: 1.2, headingDeg: 90 },
+        { fix: null, alt: 3.4, speed: 1.3, headingDeg: 91 },
       ],
     });
     expect(() => frameArrays(tel)).toThrow('telemetry frame 1 has no GPS position');

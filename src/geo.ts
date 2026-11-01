@@ -38,6 +38,13 @@ export function isGpsFix(lat: number, lon: number): boolean {
   );
 }
 
+// The fix/no-lock decision as a value: a real fix or null. Parsers decide
+// once at this point and carry `fix: LatLon | null` from there on, so no
+// downstream code re-litigates coordinates or defends half-set pairs.
+export function gpsFix(lat: number | null, lon: number | null): LatLon | null {
+  return lat !== null && lon !== null && isGpsFix(lat, lon) ? { lat, lon } : null;
+}
+
 export function haversineM(a: LatLon, b: LatLon): number {
   const deltaLatRad = (b.lat - a.lat) * DEG_TO_RAD;
   const deltaLonRad = (b.lon - a.lon) * DEG_TO_RAD;

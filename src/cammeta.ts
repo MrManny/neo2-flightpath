@@ -33,7 +33,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { ffprobeJson } from './ff.js';
-import { isGpsFix } from './geo.js';
+import { gpsFix } from './geo.js';
+import type { LatLon } from './geo.js';
 import {
   firstDouble,
   firstFloat,
@@ -46,8 +47,8 @@ import type { ProtoFieldMap } from './proto.js';
 const execFileAsync = promisify(execFile);
 
 export interface ProductMeta {
-  lat: number | null;
-  lon: number | null;
+  /** A real GPS fix, or null when the frame has none (see gpsFix). */
+  fix: LatLon | null;
   /** Position pair present but not a real fix (see isGpsFix). */
   noLock: boolean;
   relAlt: number | null;
@@ -94,8 +95,7 @@ const FFMPEG_MAX_BUFFER = 64 * 1024 * 1024;
 
 function emptyProductMeta(): ProductMeta {
   return {
-    lat: null,
-    lon: null,
+    fix: null,
     noLock: false,
     relAlt: null,
     absAlt: null,
@@ -143,8 +143,7 @@ export function decodeProductMeta(
   const gps = drone ? decodeGps(buf, drone) : null;
   const euler = drone ? decodeEulerAngles(buf, drone) : null;
   return {
-    lat: gps?.lat ?? null,
-    lon: gps?.lon ?? null,
+    fix: gps?.fix ?? null,
     noLock: gps?.noLock ?? false,
     relAlt: drone ? decodeRelativeAltitude(buf, drone) : null,
     // camera.11 is authoritative; gps_altitude_mm is its fallback.
@@ -167,10 +166,9 @@ function decodeAbsoluteAltitude(
 
 // drone.4 GpsBasic: WGS84 lat/lon doubles plus gps_altitude_mm (the
 // absolute-altitude fallback when camera.11 is missing). A position pair
-// that fails isGpsFix is the no-lock placeholder: counted, never a fix.
+// that fails gpsFix is the no-lock placeholder: counted, never a fix.
 interface GpsDecode {
-  lat: number | null;
-  lon: number | null;
+  fix: LatLon | null;
   /** Position pair present but not a real fix (see isGpsFix). */
   noLock: boolean;
   /** gps_altitude_mm as meters; the absolute-altitude fallback. */
@@ -178,7 +176,7 @@ interface GpsDecode {
 }
 
 function decodeGps(buf: Buffer, drone: ProtoFieldMap): GpsDecode {
-  const out: GpsDecode = { lat: null, lon: null, noLock: false, gpsAltM: null };
+  const out: GpsDecode = { fix: null, noLock: false, gpsAltM: null };
   const gps = subMessage(buf, drone, GPS_BASIC);
   if (!gps) return out;
 
@@ -186,13 +184,11 @@ function decodeGps(buf: Buffer, drone: ProtoFieldMap): GpsDecode {
   if (coord) {
     const lat = firstDouble(coord, LAT);
     const lon = firstDouble(coord, LON);
+    // Only a present pair is an event: a fix, or exactly one no-lock count.
     if (lat !== null && lon !== null) {
-      if (isGpsFix(lat, lon)) {
-        out.lat = lat;
-        out.lon = lon;
-      } else {
-        out.noLock = true;
-      }
+      const fix = gpsFix(lat, lon);
+      if (fix !== null) out.fix = fix;
+      else out.noLock = true;
     }
   }
   const altitudeMm = firstVarint(gps, GPS_ALTITUDE_MM);
@@ -233,20 +229,18 @@ function decodeEulerAngles(buf: Buffer, drone: ProtoFieldMap): EulerDecode {
 }
 
 // Byte-scan fallback: the 0x11/0x19 fixed64 GPS double pair. It judges
-// coordinates by src/geo.ts's isGpsFix - the same rule as the protobuf path,
-// so a genuine fix is never accepted by one path and dropped by the other.
+// coordinates through src/geo.ts's gpsFix - the same rule as the protobuf
+// path, so a genuine fix is never accepted by one path and dropped by the
+// other.
 export function scanGpsPair(
   buf: Buffer,
   offset = 0,
   end = buf.length,
-): { lat: number; lon: number; at: number } | null {
+): { fix: LatLon; at: number } | null {
   for (let i = offset; i <= end - GPS_PAIR_SPAN; i++) {
     if (buf[i] === 0x11 && buf[i + 9] === 0x19) {
-      const lat = buf.readDoubleLE(i + 1);
-      const lon = buf.readDoubleLE(i + 10);
-      if (isGpsFix(lat, lon)) {
-        return { lat, lon, at: i };
-      }
+      const fix = gpsFix(buf.readDoubleLE(i + 1), buf.readDoubleLE(i + 10));
+      if (fix !== null) return { fix, at: i };
     }
   }
   return null;
@@ -332,12 +326,12 @@ export function decodePacketSamples(
   for (const packet of packets) {
     const end = offset + packet.size;
     let meta = decodeProductMeta(buf, offset, end);
-    if (meta.lat === null) {
+    if (meta.fix === null) {
       const hit = scanGpsPair(buf, offset, end);
-      if (hit) meta = { ...meta, lat: hit.lat, lon: hit.lon, noLock: false };
+      if (hit) meta = { ...meta, fix: hit.fix, noLock: false };
     }
     if (meta.noLock) noLock++;
-    if (meta.lat !== null || keepAll) {
+    if (meta.fix !== null || keepAll) {
       // No PTS: pretend "same time as the first sample" rather than
       // fabricating a timeline out of a sample count (unit mismatch).
       const tSec = Number.isFinite(packet.tSec) ? packet.tSec : 0;
@@ -355,8 +349,7 @@ function scanBufferForGpsPairs(buf: Buffer): CamSample[] {
     const hit = scanGpsPair(buf, i, i + GPS_PAIR_SPAN);
     if (hit) {
       const meta = emptyProductMeta();
-      meta.lat = hit.lat;
-      meta.lon = hit.lon;
+      meta.fix = hit.fix;
       samples.push(toCamSample(meta, 0));
       i += GPS_PAIR_SPAN - 1;
     }

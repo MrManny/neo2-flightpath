@@ -158,11 +158,11 @@ export function frameArrays(tel: Telemetry): FrameArrays {
   const lat: number[] = [];
   const lon: number[] = [];
   tel.frames.forEach((frame, i) => {
-    if (frame.lat === null || frame.lon === null) {
+    if (frame.fix === null) {
       throw new Error(`telemetry frame ${i} has no GPS position`);
     }
-    lat.push(frame.lat);
-    lon.push(frame.lon);
+    lat.push(frame.fix.lat);
+    lon.push(frame.fix.lon);
   });
   return {
     lat,

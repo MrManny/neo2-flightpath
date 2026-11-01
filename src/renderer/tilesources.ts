@@ -1,7 +1,8 @@
 // The tile-source vocabulary: where tiles come from and how they look. Pure
 // data shared by the tile pipeline (Node) and the shared map renderer
-// (browser); download and cache logic lives in tiles.ts. Lives inside
-// renderer/ so the browser-served module graph stays within that directory.
+// (browser); cache layout lives in tilecache.ts, download logic in tiles.ts.
+// Lives inside renderer/ so the browser-served module graph stays within
+// that directory.
 
 import type { Style } from '../config.js';
 

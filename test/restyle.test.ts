@@ -27,11 +27,11 @@ const TEL = telemetryFixture({
   fixCount: 3,
   noLock: 0,
   frames: [
-    { lat: 46.61, lon: 14.26, alt: 10, speed: 1.2, headingDeg: 90 },
-    { lat: 46.6105, lon: 14.2605, alt: 11, speed: 1.3, headingDeg: 91 },
-    { lat: 46.611, lon: 14.261, alt: 12, speed: 1.4, headingDeg: 92 },
-    { lat: 46.6115, lon: 14.2615, alt: 13, speed: 1.5, headingDeg: 93 },
-    { lat: 46.612, lon: 14.262, alt: 14, speed: 1.6, headingDeg: 94 },
+    { fix: { lat: 46.61, lon: 14.26 }, alt: 10, speed: 1.2, headingDeg: 90 },
+    { fix: { lat: 46.6105, lon: 14.2605 }, alt: 11, speed: 1.3, headingDeg: 91 },
+    { fix: { lat: 46.611, lon: 14.261 }, alt: 12, speed: 1.4, headingDeg: 92 },
+    { fix: { lat: 46.6115, lon: 14.2615 }, alt: 13, speed: 1.5, headingDeg: 93 },
+    { fix: { lat: 46.612, lon: 14.262 }, alt: 14, speed: 1.6, headingDeg: 94 },
   ],
   bbox: { minLat: 46.605, maxLat: 46.615, minLon: 14.255, maxLon: 14.265 },
 });

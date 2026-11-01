@@ -13,24 +13,23 @@ describe('parseSrtText', () => {
 
   it('parses GPS and altitude of the first cue', () => {
     const c = r.cues[0];
-    expect(c.lat).toBeCloseTo(46.61307, 6);
-    expect(c.lon).toBeCloseTo(14.262388, 6);
+    expect(c.fix?.lat).toBeCloseTo(46.61307, 6);
+    expect(c.fix?.lon).toBeCloseTo(14.262388, 6);
     expect(c.relAlt).toBeCloseTo(3.3, 6);
     expect(c.absAlt).toBeCloseTo(313.227, 6);
     expect(c.tSec).toBe(0);
   });
 
-  it('marks 0/0 coordinates as no-lock with null lat/lon', () => {
+  it('marks 0/0 coordinates as no-lock with a null fix', () => {
     const c = r.cues[1];
-    expect(c.lat).toBeNull();
-    expect(c.lon).toBeNull();
+    expect(c.fix).toBeNull();
     expect(c.relAlt).toBeCloseTo(3.4, 6);
     expect(c.tSec).toBeCloseTo(0.033, 6);
   });
 
   it('computes cue times relative to the first cue', () => {
     expect(r.cues[2].tSec).toBeCloseTo(0.066, 6);
-    expect(r.cues[2].lat).toBeCloseTo(46.613071, 6);
+    expect(r.cues[2].fix?.lat).toBeCloseTo(46.613071, 6);
   });
 
   it('strips font tags before matching', () => {
@@ -82,6 +81,6 @@ describe('cue fix classification', () => {
   ])('$name -> fix:$fix', ({ lat, lon, fix }) => {
     const r = parseSrtText(cueText(lat, lon));
     expect(r.noLock).toBe(fix ? 0 : 1);
-    expect(r.cues[0].lat !== null).toBe(fix);
+    expect(r.cues[0].fix !== null).toBe(fix);
   });
 });

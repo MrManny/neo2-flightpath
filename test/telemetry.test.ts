@@ -59,8 +59,8 @@ describe('loadTelemetry (SRT source)', () => {
     expect(tel.frames).toHaveLength(3);
 
     // First frame sits on the first fix.
-    expect(tel.frames[0].lat).toBeCloseTo(46.61307, 6);
-    expect(tel.frames[0].lon).toBeCloseTo(14.262388, 6);
+    expect(tel.frames[0].fix?.lat).toBeCloseTo(46.61307, 6);
+    expect(tel.frames[0].fix?.lon).toBeCloseTo(14.262388, 6);
 
     // Carried through from the cue, rel_alt preferred over abs_alt.
     expect(tel.frames[0].alt).toBeCloseTo(3.3, 6);
@@ -138,7 +138,7 @@ describe('cross-source fix classification', () => {
     noLock: number;
   } {
     const r = parseSrtText(srtCueText(coords));
-    return { fixes: r.cues.filter((c) => c.lat !== null).length, noLock: r.noLock };
+    return { fixes: r.cues.filter((c) => c.fix !== null).length, noLock: r.noLock };
   }
 
   function camCounts(coords: Array<[number, number]>): {

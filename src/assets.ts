@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import type { Style } from './config.js';
 import type { TileCoord } from './plan.js';
-import { parseTilePathname, tilePaths } from './tiles.js';
+import { parseTilePathname, tilePaths } from './tilecache.js';
 
 export const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
